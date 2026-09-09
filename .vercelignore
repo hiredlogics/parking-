@@ -1,0 +1,27 @@
+# Vercel-only ignore — kept separate from .gitignore.
+# .env files are already excluded by default by Vercel, but list them here
+# too for defence in depth: env values go into the Vercel dashboard, never
+# into the uploaded source.
+.env
+.env.*
+!.env.example
+
+# Build + runtime artefacts (Vercel builds fresh on its own machines).
+.next/
+out/
+dist/
+node_modules/
+coverage/
+
+# Local test artefacts.
+playwright-report/
+test-results/
+tests/fixtures/
+
+# Editor / OS junk.
+.DS_Store
+*.log
+
+# Cursor / IDE local state
+.cursor/
+.vscode/

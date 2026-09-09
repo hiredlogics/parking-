@@ -1,0 +1,153 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light dark;
+  --pag-bg: #ffffff;
+  --pag-fg: #111827;
+  --pag-muted: #6b7280;
+  --pag-line: #e5e7eb;
+}
+
+html, body {
+  background-color: #ffffff;
+  color: #111827;
+}
+
+body {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+@layer components {
+  .container-page {
+    @apply mx-auto w-full max-w-7xl px-5 sm:px-6 lg:px-8;
+  }
+
+  /* --------------------------------------------------------------
+     Landing (light theme) buttons.
+     --------------------------------------------------------------*/
+  .btn-brand-primary {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-brand-pink px-5 py-3 text-[13px] font-semibold uppercase tracking-wide text-white shadow-card transition hover:bg-brand-pinkDark focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-pink focus-visible:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-brand-outline {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-brand-pink bg-white px-5 py-3 text-[13px] font-semibold uppercase tracking-wide text-brand-pink transition hover:bg-brand-pinkLight focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-pink focus-visible:ring-offset-2;
+  }
+
+  .btn-brand-nav {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md bg-brand-pink px-4 py-2.5 text-[13px] font-semibold uppercase tracking-wide text-white transition hover:bg-brand-pinkDark focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-pink focus-visible:ring-offset-2 focus-visible:ring-offset-brand-navy;
+  }
+
+  .btn-brand-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-md border border-brand-border bg-white px-5 py-3 text-[13px] font-semibold uppercase tracking-wide text-brand-text transition hover:bg-brand-canvas focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-pink focus-visible:ring-offset-2;
+  }
+
+  /* --------------------------------------------------------------
+     Light-theme app primitives (used across every internal page
+     so the flow matches the landing page's design system).
+     --------------------------------------------------------------*/
+  .app-shell {
+    @apply min-h-dvh bg-brand-canvas text-brand-text;
+  }
+
+  .app-card {
+    @apply rounded-xl border border-brand-border bg-white p-5 sm:p-6 shadow-card;
+  }
+
+  .app-card-tight {
+    @apply rounded-xl border border-brand-border bg-white p-4 shadow-card;
+  }
+
+  .app-section-title {
+    @apply text-[11px] font-bold uppercase tracking-[0.14em] text-brand-mute;
+  }
+
+  .app-label {
+    @apply mb-1.5 block text-[12px] font-semibold uppercase tracking-wide text-brand-text/80;
+  }
+
+  .app-input {
+    @apply w-full rounded-lg border border-brand-border bg-white px-3.5 py-2.5 text-sm text-brand-text placeholder:text-brand-mute/60 transition focus:border-brand-pink focus:outline-none focus:ring-2 focus:ring-brand-pink/30 disabled:cursor-not-allowed disabled:bg-brand-canvas;
+  }
+
+  .app-hint {
+    @apply mt-1.5 text-[11.5px] text-brand-mute;
+  }
+
+  /* Radio / choice "tile" — pink border + tint when selected. */
+  .app-tile {
+    @apply inline-flex cursor-pointer items-center gap-2 rounded-lg border border-brand-border bg-white px-3.5 py-2 text-[13px] font-medium text-brand-text transition hover:border-brand-pink/60 hover:bg-brand-pinkPale;
+  }
+  .app-tile-active {
+    @apply border-brand-pink bg-brand-pinkLight text-brand-text;
+  }
+
+  .app-chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-brand-border bg-white px-3 py-1 text-[12px] font-medium text-brand-text;
+  }
+  .app-chip-active {
+    @apply border-brand-pink bg-brand-pinkLight text-brand-pink;
+  }
+
+  .app-badge {
+    @apply inline-flex items-center gap-1.5 rounded-full bg-brand-pinkLight px-3 py-1 text-[11.5px] font-semibold text-brand-pink;
+  }
+
+  .app-divider {
+    @apply my-4 h-px w-full bg-brand-borderSoft;
+  }
+
+  /* --------------------------------------------------------------
+     Legacy dark-theme components (internal pages).
+     --------------------------------------------------------------*/
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-full bg-brand-gradient px-6 py-3 text-sm font-semibold text-white shadow-glow transition hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-fuchsia focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-full border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-medium text-white/90 transition hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-fuchsia focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950 disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium text-white/70 transition hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-fuchsia focus-visible:ring-offset-2 focus-visible:ring-offset-ink-950;
+  }
+
+  /* Legacy dark-theme card/input primitives (still used on internal pages). */
+  .card {
+    @apply rounded-2xl border border-white/10 bg-white/[0.03] p-5 sm:p-6 backdrop-blur;
+  }
+  .card-elevated {
+    @apply card shadow-glow;
+  }
+  .input {
+    @apply w-full rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2.5 text-sm text-white placeholder-white/40 focus:border-accent-fuchsia focus:outline-none focus:ring-2 focus:ring-accent-fuchsia/50;
+  }
+  .label {
+    @apply mb-1.5 block text-xs font-medium uppercase tracking-wide text-white/70;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80;
+  }
+  .chip-active {
+    @apply chip border-accent-fuchsia/60 bg-accent-fuchsia/15 text-white;
+  }
+  .gradient-text {
+    @apply bg-brand-gradient bg-clip-text text-transparent;
+  }
+}
+
+/* Accessible visible focus for keyboard users */
+:where(a, button, [role="button"], input, select, textarea):focus-visible {
+  outline: 2px solid #ec1573;
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* Print styles for the appeal preview */
+@media print {
+  body { background: #ffffff !important; color: #000 !important; }
+  .no-print { display: none !important; }
+  .print-page { padding: 24px; color: #000; background: #fff; }
+}

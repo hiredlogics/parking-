@@ -1,0 +1,775 @@
+Private Parking Appeal Automation — MASTER Developer Pack | Page 1
+PRIVATE PARKING APPEAL AUTOMATION
+MASTER DEVELOPER PACK
+Single handover file: workflow + customer questions + variables + triggers/decision rules + paragraph mapping + complete
+appeal paragraph library + assembly rules + worked examples.
+Scope: Initial private parking appeals only. Debt recovery, Letter of Claim and County Court workflows are separate projects.
+Non-negotiable keeper rule: Do not identify or imply the driver unless the driver has already been formally identified. Customer
+first-person answers must be converted into neutral keeper-safe wording.
+PART 1 — What the Developer Is Building
+Build an automated initial private parking PCN appeal generator. The system receives a PCN upload and factual customer
+answers, identifies every applicable appeal route, selects approved paragraph IDs, removes repetition, inserts case variables
+and generates one coherent appeal in the registered keeper's name.
+Core model: QUESTION → ANSWER/PCN DATA → VARIABLE → TRIGGER/RULE → GROUND → PARAGRAPH ID →
+DEDUPLICATION → FINAL APPEAL
+PART 2 — End-to-End Workflow
+1. Customer selects Private Parking Appeal.
+2. Customer uploads all pages of the PCN / Notice to Keeper.
+3. OCR/AI extracts basic case information.
+4. Customer confirms or corrects extracted information.
+5. System asks the Core Questions.
+6. Core answers open only relevant branch questions.
+7. Answers and PCN data populate variables.
+8. Rules engine evaluates every applicable trigger.
+9. Multiple grounds may activate in the same case.
+10. Each active ground selects approved paragraph IDs.
+11. Evidence-specific paragraphs are added only where evidence exists.
+12. Paragraphs are ordered and duplicate wording suppressed/merged.
+13. Variables are inserted into the approved text.
+14. Keeper-safe language check runs before generation.
+15. Final appeal is generated as PDF/document.
+PART 3 — PCN Data Variables
+Variable Meaning
+operator_name Private parking operator
+pcn_number Parking Charge Notice reference
+vrm Vehicle registration
+parking_location Site/location
+parking_event_date Date of alleged parking event
+notice_issue_date Date notice was issued
+notice_received_date Date keeper received notice, where known
+notice_route POSTAL / WINDSCREEN / UNKNOWN
+entry_time ANPR entry time, if present
+
+-- 1 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 2
+Variable Meaning
+exit_time ANPR exit time, if present
+total_recorded_duration Calculated site duration
+charge_amount PCN amount
+alleged_breach Operator's stated reason
+case_stage INITIAL_OPERATOR_APPEAL for this build
+PART 4 — Core Customer Questions
+ID Question Stored variable / route
+CQ01 Are you the registered keeper named on the V5C? registered_keeper
+CQ02 Has the parking company already been given the driver's full name and serviceable address?	driver_identified
+CQ03 How was the PCN first issued? notice_route
+CQ04 What is the operator alleging? alleged_breach / allegation route
+CQ05 Which best describes what actually happened? (multi-select) opens payment/keying/consideration/grace/ANPR/authorisation/signage br
+CQ06 Do you have supporting evidence? evidence_available / upload
+PART 5 — Branch Questions & Variables
+A. Keeper / PoFA
+ID Question Variable
+KQ01 Are you appealing as the registered keeper? registered_keeper
+KQ02 Has the driver already been identified to the operator? driver_identified
+KQ03 Was the first notice placed on the vehicle or sent by post? notice_route
+KQ04 Did you receive a Notice to Keeper? notice_to_keeper_received
+KQ05 Confirm event, issue and receipt dates shown/known. parking_event_date / notice_issue_date / notice_received_date
+B. Payment
+ID Question Variable
+PAYQ01 Was a parking payment made? parking_payment_made
+PAYQ02 How was payment made/attempted? payment_method
+PAYQ03 Do you have proof of payment? payment_evidence_uploaded
+PAYQ04 Was there a machine/app/payment-system problem? machine_problem / payment_system_problem / payment_attem
+C. Keying Error
+ID Question Variable
+KEYQ01 Was payment made but a registration entered incorrectly? vrm_error
+KEYQ02 What type of error? Minor / another vehicle / other. vrm_error_type
+KEYQ03 Can the payment be evidenced? payment_confirmed
+D. Consideration
+ID Question Variable
+CONQ01 Was the vehicle only present for a short period before parking terms were accepted? short_stay
+CONQ02 What was happening? Reading terms / finding space / attempting payment / other. consideration_reason
+CONQ03 Were the terms rejected and the vehicle then left? terms_rejected / vehicle_left
+CONQ04 Did parking actually take place? parking_took_place
+E. Grace / Exit
+ID Question Variable
+GRQ01 Was there a paid/permitted parking period that had ended? parking_period_completed
+GRQ02 Was extra time needed to return to the vehicle and leave? exit_reason / additional_exit_time_required
+
+-- 2 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 3
+ID Question Variable
+GRQ03 Was departure delayed by congestion or another factual circumstance? exit_delay
+GRQ04 Does the system calculate the alleged overstay within an applicable grace rule? grace_period_applicable / alleged_overstay_minutes
+F. ANPR
+ID Question Variable
+ANPRQ01 Does the PCN show entry/exit camera images? evidence_type
+ANPRQ02 Do you agree the vehicle remained there continuously between those times? customer_disputes_duration
+ANPRQ03 Did the vehicle visit more than once that day? multiple_visits_same_day
+ANPRQ04 Do you have evidence the vehicle left / was elsewhere? evidence_vehicle_elsewhere
+ANPRQ05 Does anything appear wrong with the images, VRM or times? timestamp_discrepancy_detected / vrm_image_unclear / vrm_r
+G. Permit / Authorisation
+ID Question Variable
+AUTHQ01 Did the vehicle have permission to park? parking_authorised
+AUTHQ02 How was permission given? Permit / digital / visitor / resident / business / employer / hotel / other. permit_type / permission_source / parking_type
+AUTHQ03 Was there a display or registration problem? permit_display_or_registration_issue / digital_permit_issue / vis
+AUTHQ04 Do you have evidence of permission? authorisation_evidence_uploaded
+H. Signage
+ID Question Variable
+SIGNQ01 Could a parking sign clearly be seen on entry? entrance_sign_visible
+SIGNQ02 Could the relevant terms be clearly read? sign_difficult_to_read / relevant_term_unclear
+SIGNQ03 What was wrong? Small/dense/high/far/obscured/damaged/poor lighting/charge not obvious/other. specific signage variables
+SIGNQ04 Did different signs appear to conflict? conflicting_signage
+SIGNQ05 Do you have photos/video of the signs? signage_photos_uploaded
+I. Landowner Authority
+ID Question Variable
+LANDQ01 Do you know whether the operator owns the land? operator_landowner
+LANDQ02 Have you received any agreement showing its authority? landowner_contract_received
+
+-- 3 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 4
+PART 6 — MASTER TRIGGER / DECISION RULE TABLE
+Rule Trigger / IF Action / THEN
+PP-R001 registered_keeper = YES AND driver_identified = NO Activate KEEPER_ROUTE; PP-INTRO-001 + PP-INTRO-002; assess PoFA
+PP-R002 KEEPER_ROUTE active Assess applicable Schedule 4 requirements before selecting any PoFA defect
+PP-R003 registered_keeper = YES AND driver_identified = NO AND notice_to_keeper_received = NOSelect PP-POFA-002
+PP-R004 notice_route = POSTAL AND statutory timing failure confirmed Select PP-POFA-003 plus applicable keeper conclusion
+PP-R005 notice_route = WINDSCREEN AND subsequent NTK timing failure confirmed Select PP-POFA-004 plus applicable keeper conclusion
+PP-R005A specific Schedule 4 content defect confirmed Select only matching PP-POFA-005A/005B/005C/005D/005E
+PP-R005B one or more valid PoFA failures AND driver not identified Add PP-POFA-006 + PP-POFA-007
+PP-R006 parking_payment_made = YES Activate PAYMENT_ROUTE; PP-PAY-001; add PP-PAY-002 if evidence
+PP-R007A payment_attempted = YES AND machine_problem = YES PP-PAY-003; add PP-PAY-003A if evidence
+PP-R007B payment_attempted = YES AND payment_system_problem = YES PP-PAY-004; add PP-PAY-004A if evidence
+PP-R007C payment_attempted = YES AND payment_completed = NO AND factual reason establishedConsider PP-PAY-005
+PP-R008 parking_payment_made = YES AND vrm_error = YES Activate KEYING_ERROR_ROUTE; PP-KEY-001 + specific keying paragraph; a
+PP-R009 short_stay = YES AND reading/finding-space/payment-attempt/terms-rejected fact establishedActivate CONSIDERATION_ROUTE; select applicable PP-CON IDs
+PP-R010 terms_rejected = YES AND vehicle_left = YES AND no earlier acceptance established PP-CON-001 + PP-CON-003; PP-CON-006 only if applicable minimum test met
+PP-R011 permitted parking ended AND grace rule applicable Activate GRACE_ROUTE; calculate exit_time - parking_end_time; select applica
+PP-R011A system confirms standard 10-minute end grace applies AND overstay <= 10 PP-GRACE-006
+PP-R012 multiple_visits_same_day = YES Activate ANPR_DOUBLE_VISIT; PP-ANPR-003 + PP-ANPR-005; add evidence/
+PP-R013 customer_disputes_duration = YES AND evidence_type = ANPR PP-ANPR-001 + PP-ANPR-002; separately assess consideration/grace/multiple
+PP-R014 external_evidence_contradicts_anpr = YES PP-ANPR-012 + evidence paragraph
+PP-R015 multiple visits + incomplete sequence / first-entry-final-exit pairing suspected PP-ANPR-010 and/or PP-ANPR-011
+PP-R016 timestamp_discrepancy_detected = YES PP-ANPR-007 + PP-ANPR-009
+PP-R017 vrm_image_unclear = YES OR vrm_reading_disputed = YES PP-ANPR-008; consider PP-ANPR-009 if credible camera discrepancy
+PP-R018 parking_authorised = YES Activate AUTHORISATION_ROUTE; PP-AUTH-001 + specific authorisation para
+PP-R019 permit_held = YES PP-AUTH-002; add PP-AUTH-004 if display/registration issue
+PP-R020 permission_granted = YES AND permission_source exists PP-AUTH-003; add PP-AUTH-010 if evidence
+PP-R021 visitor_permission = YES PP-AUTH-006; add PP-AUTH-007 if registration problem
+PP-R022 customer_only_location = YES AND genuine_customer = YES PP-AUTH-008; add PP-AUTH-009 if evidence
+PP-R023 credible signage issue established Activate SIGNAGE_ROUTE; PP-SIGN-001 + only specific supported signage ID
+PP-R024 entrance_sign_visible = NO PP-SIGN-002; PP-SIGN-003 where operator evidence required
+PP-R025 relevant_term_unclear = YES PP-SIGN-004; add PP-SIGN-012 for specific alleged term
+PP-R026 parking_charge_not_prominent = YES PP-SIGN-005
+PP-R027 sign_difficult_to_read = YES PP-SIGN-006 + applicable PP-SIGN-007/008/009/010
+PP-R028 conflicting_signage = YES PP-SIGN-011
+PP-R029 operator_landowner != YES AND landowner challenge configured/relevant at initial stage PP-LAND-001; optionally PP-LAND-002
+PP-R030 contract_location_discrepancy = YES PP-LAND-005
+PP-R031 contract_does_not_cover_event_date = YES PP-LAND-006; PP-LAND-007 if expiry established and no continuation evidence
+PP-R032 contract_redactions_prevent_verification = YES PP-LAND-008
+PP-R033 granting_party_authority_questioned = YES PP-LAND-009
+PART 7 — MASTER PARAGRAPH MAPPING
+Finding / route Paragraph IDs
+Keeper appeal, driver not identified PP-INTRO-001 + PP-INTRO-002
+PoFA keeper liability general PP-POFA-001
+No NTK PP-POFA-002
+Late postal NTK PP-POFA-003
+Late NTK after windscreen notice PP-POFA-004
+PoFA content defect matching PP-POFA-005A–005E only
+Confirmed PoFA failure + unidentified driver PP-POFA-006 + PP-POFA-007
+
+-- 4 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 5
+Finding / route Paragraph IDs
+Payment made PP-PAY-001 (+ PP-PAY-002 evidence)
+Machine failure PP-PAY-003 (+ 003A evidence)
+App/digital failure PP-PAY-004 (+ 004A evidence)
+Genuine failed attempt PP-PAY-005
+Payment record search PP-PAY-006
+VRM/keying error PP-KEY-001 + 002/003 + PP-KEY-004 if confirmed
+Consideration PP-CON-001 + fact-specific PP-CON-002/003/004/005; 006 only if test met
+Grace PP-GRACE-001 + fact-specific 002/003/004/005; 006 only if 10-minute rule confirmed
+ANPR duration PP-ANPR-001 + 002
+Multiple visits PP-ANPR-003 + 005; add 004/010/011/012 if supported
+Timestamp/VRM issue PP-ANPR-007/008 + 009 where appropriate
+Authorised parking PP-AUTH-001 + specific PP-AUTH IDs
+Signage PP-SIGN-001 + only supported PP-SIGN IDs
+Landowner authority initial proof request PP-LAND-001 / 002
+Supporting evidence PP-EV-001
+Conclusion PP-END-001; PP-END-002/003 as configured
+
+-- 5 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 6
+PART 8 — COMPLETE APPROVED PARAGRAPH LIBRARY
+PP-INTRO-001 — Registered Keeper Appeal
+Trigger: registered_keeper = YES
+I write as the registered keeper of vehicle {{vrm}} in respect of Parking Charge Notice {{pcn_number}}. I dispute liability for this
+parking charge and require the operator to consider this appeal on the grounds set out below.
+PP-INTRO-002 — Driver Not Identified
+Trigger: registered_keeper = YES AND driver_identified = NO
+This appeal is submitted by the registered keeper. No admission is made as to the identity of the driver, and nothing contained
+within this appeal should be interpreted as identifying or inferring the identity of the driver.
+PP-POFA-001 — Keeper Liability Must Be Established
+Trigger: KEEPER_ROUTE active
+Where the operator seeks to recover the parking charge from the registered keeper rather than the driver, it must establish that
+the statutory conditions for keeper liability under Schedule 4 of the Protection of Freedoms Act 2012 have been satisfied. Keeper
+liability does not arise merely because an individual is the registered keeper of a vehicle. The operator is therefore required to
+demonstrate compliance with the applicable requirements of Schedule 4 before seeking recovery of the charge from the keeper.
+PP-POFA-002 — No Notice to Keeper Received
+Trigger: keeper + driver not identified + no NTK
+The registered keeper has not received a Notice to Keeper capable of establishing keeper liability under Schedule 4 of the
+Protection of Freedoms Act 2012. In the absence of compliance with the statutory procedure required to transfer liability from the
+driver to the keeper, the operator has no basis upon which to pursue the registered keeper for this charge.
+PP-POFA-003 — Postal Notice Timing Failure
+Trigger: confirmed applicable postal timing failure
+The Notice to Keeper was not delivered within the relevant statutory period prescribed by Schedule 4 of the Protection of
+Freedoms Act 2012 for a case where no Notice to Driver was issued. The operator has therefore failed to satisfy a condition
+required to transfer liability for the parking charge from the driver to the registered keeper. Accordingly, the registered keeper
+cannot be held liable under Schedule 4.
+PP-POFA-004 — Notice Following Notice to Driver Timing Failure
+Trigger: confirmed applicable timing failure after windscreen notice
+A Notice to Driver was issued in relation to the alleged parking event. Where an operator subsequently seeks to transfer liability
+to the registered keeper, the subsequent Notice to Keeper must comply with the applicable timing requirements contained within
+Schedule 4 of the Protection of Freedoms Act 2012. The Notice to Keeper in this case was not given within the applicable
+statutory period. The conditions necessary to establish keeper liability have therefore not been satisfied.
+PP-POFA-005A — Vehicle / Relevant Land / Period of Parking
+Trigger: specific applicable information defect confirmed
+The Notice to Keeper fails to provide the information required by Schedule 4 concerning the alleged parking event. Compliance
+with the statutory requirements governing the identification of the vehicle, the relevant land and the period of parking is a
+condition of relying upon Schedule 4 to pursue the registered keeper. The operator has failed to establish the required
+compliance.
+PP-POFA-005B — Keeper Liability Warning Defective or Missing
+Trigger: applicable warning defect confirmed
+The Notice to Keeper does not contain a compliant warning explaining the circumstances in which the operator would acquire a
+right to recover the unpaid parking charge from the registered keeper following the relevant statutory period. This warning forms
+part of the requirements of Schedule 4. The operator cannot rely upon keeper liability where the applicable statutory conditions
+have not been met.
+PP-POFA-005C — Creditor Not Properly Identified
+Trigger: applicable creditor-identification defect confirmed
+
+-- 6 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 7
+The Notice to Keeper fails to comply with the applicable requirement to identify the creditor seeking payment of the parking
+charge. Where an operator seeks to rely upon the statutory keeper-liability provisions, the notice must satisfy the applicable
+requirements of Schedule 4. The operator is put to strict proof that the notice relied upon is compliant.
+PP-POFA-005D — Amount / Unpaid Parking Charge Defect
+Trigger: applicable amount requirement defect confirmed
+The Notice to Keeper does not properly comply with the applicable Schedule 4 requirements concerning the unpaid parking
+charge said to be outstanding. The operator is required to establish compliance with the statutory conditions before liability can
+be transferred to the keeper. It has failed to do so.
+PP-POFA-005E — Driver/Keeper Invitation Requirement
+Trigger: applicable statutory invitation defect confirmed
+The Notice to Keeper does not contain the required statutory invitation concerning payment of the unpaid parking charge or,
+where the keeper was not the driver, notification of the driver's name and current address for service. The operator has therefore
+failed to comply with an applicable condition of Schedule 4 upon which keeper liability depends.
+PP-POFA-006 — Driver Has Not Been Established
+Trigger: valid PoFA failure + driver not identified
+The operator has not established the identity of the driver. As the operator has also failed to satisfy the applicable requirements
+necessary to transfer liability under Schedule 4 of the Protection of Freedoms Act 2012, there is no basis upon which liability for
+this parking charge can be transferred to the registered keeper.
+PP-POFA-007 — Keeper Liability Conclusion
+Trigger: one or more confirmed PoFA failures
+For the reasons set out above, the operator has failed to establish keeper liability under Schedule 4 of the Protection of
+Freedoms Act 2012. The registered keeper is therefore not liable for the parking charge on that basis, and the charge should be
+cancelled.
+PP-PAY-001 — Parking Was Paid For
+Trigger: parking_payment_made = YES
+The allegation that the applicable parking tariff was not paid is disputed. Payment was made in connection with the vehicle's use
+of the site. In those circumstances, the operator is required to properly review its payment records against the parking event
+before continuing to pursue the charge.
+PP-PAY-002 — Evidence of Payment Supplied
+Trigger: payment made + evidence uploaded
+Evidence confirming payment is supplied with this appeal. The operator is requested to consider that evidence alongside its own
+transaction records and the details of the alleged parking event. The evidence demonstrates that a payment was made in
+connection with the parking period and must be properly considered before any further enforcement action is taken.
+PP-PAY-003 — Payment Machine Failure
+Trigger: machine problem
+There was a problem with the payment facilities available at the location. A genuine attempt was made to comply with the
+parking terms, but the payment machine did not operate as expected and prevented the parking transaction from being
+completed in the normal manner. The operator is requested to review its machine maintenance, fault and transaction records for
+the relevant date and time and to take those circumstances into account when considering this appeal.
+PP-PAY-003A — Machine Failure Evidence
+Trigger: machine problem + evidence
+Supporting evidence concerning the payment-machine problem is supplied with this appeal. The operator is requested to
+consider this evidence alongside its own maintenance, fault and transaction records for the relevant machine and period.
+PP-PAY-004 — Parking App or Digital Payment Failure
+Trigger: app/online problem
+
+-- 7 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 8
+A genuine attempt was made to use the digital payment facility provided for the location, but the payment process could not be
+completed because of a problem encountered with the payment system. The operator is requested to review the relevant
+transaction and system records and consider whether a genuine attempt to comply with the advertised payment requirements
+was made before deciding whether the parking charge should be maintained.
+PP-PAY-004A — Digital Payment Failure Evidence
+Trigger: digital payment problem + evidence
+Evidence of the attempted payment and/or difficulty encountered with the digital payment process is enclosed. This should be
+considered together with the operator's own system and transaction records for the relevant period.
+PP-PAY-005 — Genuine Attempt to Make Payment
+Trigger: genuine attempt + failed completion + factual reason
+The circumstances demonstrate a genuine attempt to comply with the payment requirements at the location. The parking charge
+should not be considered in isolation from the steps taken to make payment and the circumstances that prevented the
+transaction from being successfully completed. The operator is requested to consider those circumstances fairly and to cancel
+the parking charge.
+PP-PAY-006 — Review Payment Records
+Trigger: payment dispute where records may establish event
+The operator is requested to conduct a reasonable search of its payment records for the relevant location and period, including
+transactions capable of being matched to the vehicle or parking event. The appeal should not be rejected solely because an
+automated system has failed to immediately match a transaction to the vehicle registration.
+PP-KEY-001 — Parking Paid but Registration Entered Incorrectly
+Trigger: payment made + VRM error
+A parking payment was made, but an error occurred when the vehicle registration details were entered. The existence of a
+keying error does not alter the fact that a payment was made in connection with the parking event. The operator is requested to
+search its payment records for the relevant period and identify the corresponding transaction rather than treating the matter as
+though no payment was made.
+PP-KEY-002 — Minor Keying Error
+Trigger: vrm_error_type = MINOR
+The discrepancy concerns a minor error in the vehicle registration details entered during the payment process. A payment was
+nevertheless made in connection with the parking event. The operator is requested to match the payment against its transaction
+records and deal with the matter in accordance with the applicable requirements concerning keying errors rather than pursuing
+the matter as an unpaid parking event.
+PP-KEY-003 — Different Vehicle Registration Entered
+Trigger: vrm_error_type = OTHER_VEHICLE
+A parking payment was made, but registration details relating to a different vehicle were entered during the transaction. The
+operator is requested to examine its records for the relevant payment and parking period. The underlying parking tariff was paid,
+and the transaction should be considered when determining whether continued enforcement of the parking charge is
+appropriate.
+PP-KEY-004 — Tariff Was Paid
+Trigger: VRM error + payment confirmed
+Notwithstanding the registration-entry error, the applicable parking tariff was paid. This is therefore not a case in which the
+parking facility was used without any payment being made. The operator is requested to take the payment into account and
+cancel the parking charge in light of the circumstances.
+PP-CON-001 — Consideration Period Required
+Trigger: CONSIDERATION_ROUTE
+The recorded presence of the vehicle at the location must be considered in the context of the applicable consideration period.
+The applicable private parking sector requirements recognise that a motorist must be allowed time to enter the controlled land,
+consider the applicable terms and conditions and decide whether to accept those terms and remain or reject them and leave.
+
+-- 8 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 9
+The mere recording of a vehicle entering and subsequently exiting controlled land does not, without more, establish that the
+entirety of that period constituted an accepted period of parking.
+PP-CON-002 — Time Required to Locate and Read Terms
+Trigger: short stay + reading terms
+The vehicle was present while the applicable parking terms were being located and considered. A motorist cannot reasonably
+decide whether to accept contractual parking terms before having had a reasonable opportunity to locate, read and understand
+them. The time spent undertaking that process falls to be considered as part of the applicable consideration period.
+PP-CON-003 — Terms Not Accepted and Vehicle Left
+Trigger: terms rejected + vehicle left
+Having considered the applicable terms and conditions, those terms were not accepted and the vehicle left the controlled land.
+The vehicle's presence during that process should not be treated automatically as evidence that a parking contract had been
+accepted. The operator is therefore requested to consider the recorded duration against the applicable consideration-period
+requirements and cancel the parking charge.
+PP-CON-004 — Time Spent Attempting Payment
+Trigger: attempting payment at beginning
+Part of the recorded period was spent attempting to comply with the payment arrangements at the location. The operator should
+not treat the vehicle's entry time as though it automatically represents the commencement of a paid parking period without
+considering the time reasonably required to understand and attempt to comply with the payment arrangements. The operator is
+requested to review the circumstances together with its payment and system records.
+PP-CON-005 — Searching for a Parking Space
+Trigger: reason = FINDING_SPACE
+Part of the recorded presence at the location was spent entering the site and attempting to locate a suitable parking space. Entry
+onto controlled land does not necessarily establish that parking commenced at the precise moment recorded by an entrance
+camera. The operator is required to consider the actual circumstances and the applicable consideration period rather than
+simply treating the entire entry-to-exit duration as a period of parking.
+PP-CON-006 — Within Applicable Minimum Consideration Period
+Trigger: system confirms applicable minimum test
+The recorded duration falls within the applicable minimum consideration period. On the information available, there is no proper
+basis for treating the vehicle's presence during that period as a chargeable breach of the parking terms. The parking charge
+should therefore be cancelled.
+PP-GRACE-001 — Applicable Grace Period
+Trigger: GRACE_ROUTE
+The applicable private parking sector requirements provide for a grace period in relevant circumstances in addition to the parking
+period. A parking charge should not be issued merely because the vehicle remained on the controlled land during an applicable
+grace period following the end of the permitted parking period. The operator is therefore required to assess the alleged overstay
+against the applicable grace-period requirements.
+PP-GRACE-002 — Time Required to Return to Vehicle and Leave
+Trigger: returning/leaving
+The period following the end of the permitted parking session included the time reasonably required to return to the vehicle,
+prepare to leave and exit the controlled land. The permitted parking period should not simply be compared with an ANPR exit
+timestamp without applying the applicable grace period.
+PP-GRACE-003 — Congestion or Delay Exiting
+Trigger: exit_delay = CONGESTION
+The vehicle's departure from the controlled land was affected by circumstances involved in exiting the location, including delay
+and/or congestion. An ANPR exit timestamp records the point at which the vehicle passed the camera; it does not necessarily
+establish that the vehicle remained parked until that moment. The operator is requested to consider the actual circumstances
+together with the applicable grace period.
+
+-- 9 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 10
+PP-GRACE-004 — Additional Time Required Due to Circumstances
+Trigger: additional exit time fact established
+Additional time was reasonably required before the vehicle could leave the controlled land. The operator is required to consider
+the particular circumstances rather than treating the difference between the end of the permitted parking period and the recorded
+exit time as automatically establishing a contractual breach. Those circumstances should be considered together with the
+applicable grace-period requirements.
+PP-GRACE-005 — Recorded Overstay Within Applicable Grace Period
+Trigger: overstay <= applicable grace
+The alleged additional period falls within the applicable grace period following the end of the permitted parking session. The
+applicable grace period must be allowed in addition to the parking period. Accordingly, the parking charge should be cancelled.
+PP-GRACE-006 — Standard 10-Minute End Grace Period
+Trigger: system confirms 10-minute rule applies + <=10
+The alleged additional period does not exceed the applicable 10-minute grace period following the permitted parking session.
+The parking charge has therefore been issued in circumstances where the applicable grace period had not expired and should
+be cancelled.
+PP-GRACE-008 — Additional Time / Accessibility Circumstances
+Trigger: additional time circumstance established
+The circumstances required additional time to enter, use and/or leave the parking location. The operator is required to consider
+the individual circumstances and whether additional time beyond the standard period was reasonably required. The parking
+charge should not be determined solely by an automated comparison of entry and exit timestamps without proper consideration
+of those circumstances and the operator's applicable obligations.
+PP-ANPR-001 — Entry and Exit Times Do Not Necessarily Establish Parking Time
+Trigger: ANPR + duration relevant
+The ANPR images relied upon record the vehicle at particular points on the controlled land. Those timestamps do not
+necessarily establish the precise period during which the vehicle was actually parked. Time spent entering the site, locating a
+parking space, considering the applicable terms, manoeuvring and subsequently leaving the site may form part of the overall
+recorded presence without forming part of the actual period of parking. The operator is therefore required to distinguish between
+the vehicle's total presence on the controlled land and the period during which it alleges the vehicle was actually parked.
+PP-ANPR-002 — Alleged Parking Duration Disputed
+Trigger: customer_disputes_duration = YES
+The alleged duration of parking is disputed. The operator is put to proof of the actual parking period relied upon rather than
+merely the elapsed period between two camera timestamps. Where the operator relies upon ANPR entry and exit images, it
+should explain how those images establish the alleged period of parking in the particular circumstances of this case.
+PP-ANPR-003 — Multiple Separate Visits
+Trigger: multiple_visits_same_day = YES
+The vehicle attended the location on more than one separate occasion. The first recorded entry and final recorded exit must not
+therefore be treated as though they represent one continuous parking event. The operator is required to review the complete
+ANPR record for the vehicle and the relevant period, including all intervening entry and exit captures, before concluding that a
+single continuous stay occurred.
+PP-ANPR-004 — Evidence Vehicle Left Between Visits
+Trigger: multiple visits + elsewhere evidence
+Supporting evidence demonstrates that the vehicle was not continuously present at the location for the period alleged. The
+evidence is inconsistent with the operator's apparent treatment of the first entry and final exit as a single continuous visit. The
+operator is required to reconsider the ANPR sequence in light of that evidence and cancel the parking charge where the alleged
+continuous parking event cannot be established.
+PP-ANPR-005 — Full ANPR Record Requested
+Trigger: multiple visits / missing capture suspected
+
+-- 10 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 11
+The operator is requested to review the complete sequence of ANPR captures associated with the vehicle for the relevant date,
+rather than relying solely upon the two images reproduced on the Parking Charge Notice. That review should include any
+intermediate entry and exit records capable of demonstrating that more than one visit occurred.
+PP-ANPR-006 — Camera Evidence Compliance
+Trigger: specific camera-evidence issue
+Where photographic evidence is relied upon as the basis for issuing a parking charge, the operator is required to ensure that its
+camera equipment and systems are fit for purpose, properly maintained and capable of accurately recording the evidence relied
+upon. The operator is requested to demonstrate that the photographic evidence relied upon in this case accurately relates to the
+alleged parking event.
+PP-ANPR-007 — Timestamp Discrepancy
+Trigger: timestamp discrepancy
+There is an apparent discrepancy concerning the timestamps relied upon by the operator. As the alleged duration is calculated
+from those timestamps, their accuracy is directly relevant to whether the parking charge was properly issued. The operator is
+requested to verify the accuracy and synchronisation of the equipment and systems responsible for the relevant images and
+explain the discrepancy identified.
+PP-ANPR-008 — Image / VRM Issue
+Trigger: VRM image/reading disputed
+The photographic evidence does not clearly establish the vehicle registration details relied upon by the operator. Where camera
+evidence forms the basis of a parking charge, the vehicle registration mark relied upon must be capable of being properly
+identified from the evidence. The operator is requested to review the original images and confirm the basis upon which the
+vehicle registration was identified.
+PP-ANPR-009 — Manual Quality-Control Check
+Trigger: credible ANPR discrepancy
+Given the discrepancy identified in this case, the operator is requested to confirm that the applicable manual quality-control
+checks were undertaken and to reconsider the charge against the complete photographic record.
+PP-ANPR-010 — Possible Missing Entry or Exit Capture
+Trigger: incomplete multi-visit sequence
+The ANPR sequence relied upon appears incomplete. The absence of an intermediate entry or exit image should not
+automatically be treated as evidence that the vehicle remained continuously on the controlled land. The operator is requested to
+review its complete records and determine whether an entry or exit movement was not captured, read or correctly matched by
+the ANPR system.
+PP-ANPR-011 — Incorrect Pairing of Captures
+Trigger: separate visits may be paired
+The evidence indicates that separate visits may have been incorrectly combined into a single parking event by pairing an earlier
+entry with a later exit. The operator is required to examine all ANPR captures for the vehicle on the relevant date and establish
+that the two images relied upon genuinely relate to one continuous visit before continuing to pursue the parking charge.
+PP-ANPR-012 — Independent Evidence Contradicts Alleged Stay
+Trigger: external evidence contradicts ANPR
+Independent evidence supplied with this appeal is inconsistent with the allegation that the vehicle remained at the location
+continuously for the period stated on the Parking Charge Notice. The operator is requested to consider that evidence alongside
+the complete ANPR record rather than relying solely upon the entry and exit images reproduced on the notice.
+PP-AUTH-001 — Vehicle Was Authorised to Park
+Trigger: parking_authorised = YES
+The vehicle was authorised to park at the location at the material time. The allegation that the vehicle was parked without
+authority is therefore disputed. The operator is requested to review the relevant authorisation records and the supporting
+evidence provided with this appeal before continuing to pursue the parking charge.
+PP-AUTH-002 — Valid Permit Held
+
+-- 11 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 12
+Trigger: permit_held = YES
+A valid parking permit was held in connection with the vehicle's use of the location. The operator is requested to verify the permit
+against its records and consider the circumstances in which the Parking Charge Notice was issued. The existence of the permit
+and the underlying authority to park must be taken into account when determining whether the charge should be maintained.
+PP-AUTH-003 — Permission Granted
+Trigger: permission granted + source
+Permission for the vehicle to park at the location had been granted by {{permission_source}}. The vehicle was therefore present
+with authorisation rather than as an unauthorised user of the parking facility. The operator is requested to verify that permission
+with the relevant party and cancel the parking charge where the authorisation is confirmed.
+PP-AUTH-004 — Permit Existed but Display/Registration Issue
+Trigger: permit + admin/display issue
+Although there appears to have been an issue concerning the display or registration of the permit, a valid underlying entitlement
+to park existed. The operator is requested to consider the permit and supporting evidence and distinguish the circumstances
+from a case involving a vehicle with no authority to use the parking facility.
+PP-AUTH-005 — Digital Permit / Vehicle Registration
+Trigger: digital permit issue
+The parking authorisation operated through a digital permit or vehicle-registration system. The operator is requested to review
+the relevant electronic records for the vehicle and parking period and establish whether the vehicle was authorised at the
+material time. A failure to immediately match the vehicle against an automated record should not prevent the operator from
+properly investigating the underlying authorisation.
+PP-AUTH-006 — Visitor Authorisation
+Trigger: visitor permission
+The vehicle was present as an authorised visitor. Permission to use the parking facility had been granted in connection with that
+visit. The operator is requested to review the visitor-parking records and the supporting evidence supplied and to cancel the
+charge where the vehicle's authority to park is confirmed.
+PP-AUTH-007 — Visitor Registration Error
+Trigger: visitor permission + registration problem
+The vehicle had permission to park as a visitor, but an issue occurred with the process used to record or register that
+authorisation. The underlying permission to park nevertheless existed. The operator is requested to verify the visit and consider
+the evidence of authorisation rather than treating the vehicle as though no permission had been granted.
+PP-AUTH-008 — Genuine Customer
+Trigger: customer-only location + genuine customer
+The vehicle's presence at the location was connected with a genuine visit to the premises for which the parking facility was
+provided. Evidence of that visit is supplied where available. The operator is requested to consider the genuine use of the
+premises and verify the circumstances with the relevant business or occupier before continuing enforcement.
+PP-AUTH-009 — Customer Evidence
+Trigger: customer evidence uploaded
+Supporting evidence confirming the relevant visit to the premises is supplied with this appeal. The operator is requested to take
+that evidence into account and, where necessary, verify the visit with the business or occupier.
+PP-AUTH-010 — Evidence of Permission Supplied
+Trigger: authorisation evidence uploaded
+Evidence supporting the vehicle's authority to park is enclosed with this appeal. The operator is required to consider that
+evidence when determining whether the alleged breach occurred. The charge should not be maintained on the basis that the
+vehicle was unauthorised without properly addressing the evidence demonstrating the underlying permission to park.
+PP-AUTH-011 — Operator Requested to Check Records
+Trigger: authorised + operator likely holds records
+
+-- 12 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 13
+The operator is requested to check all relevant permit, whitelist, visitor and vehicle-registration records for the location and
+material period before determining this appeal. The absence of an immediately visible match should not substitute for a proper
+review of the records capable of confirming the vehicle's authorisation.
+PP-SIGN-001 — Signage Inadequate
+Trigger: credible signage issue
+The adequacy of the signage at the location is disputed. The parking operator is required to ensure that the applicable parking
+terms are communicated sufficiently clearly to motorists using the site. In the circumstances described in this appeal, the
+signage did not adequately bring the relevant parking terms to the attention of the motorist. The operator is requested to review
+the positioning, visibility and content of the signs in place at the material time.
+PP-SIGN-002 — Entrance Sign Not Sufficiently Visible
+Trigger: entrance sign not visible/issue
+The parking terms were not adequately communicated on entry to the controlled land. No sufficiently prominent entrance
+signage was visible in the circumstances described. The operator is requested to demonstrate the signage that was actually in
+place at the entrance on the date of the alleged parking event, including its position, size and visibility from the approach used by
+the vehicle.
+PP-SIGN-003 — Entrance Sign Evidence Requested
+Trigger: entrance sign disputed + operator evidence inadequate
+The operator is requested to provide contemporaneous evidence showing the entrance signage in place at the material time.
+Generic photographs or images taken on a different date do not, without further evidence, establish what signage was visible to
+a motorist entering the location on the date concerned.
+PP-SIGN-004 — Relevant Term Insufficiently Prominent
+Trigger: relevant term unclear
+The particular term said to have been breached was not displayed with sufficient prominence or clarity to bring it adequately to
+the attention of a motorist using the location. The operator is requested to identify the precise contractual term relied upon and
+demonstrate where and how that term was communicated on the signage in place at the material time.
+PP-SIGN-005 — Parking Charge Insufficiently Prominent
+Trigger: parking charge not prominent
+The amount of the parking charge was not displayed with sufficient prominence on the signage relied upon. Where an operator
+seeks to enforce a substantial parking charge as a contractual term, that charge must be brought adequately to the attention of
+the motorist. The operator is requested to provide clear evidence demonstrating the prominence of the parking charge on the
+relevant signage.
+PP-SIGN-006 — Signage Difficult to Read
+Trigger: sign difficult to read
+The relevant signage was not reasonably legible in the circumstances. The positioning, size and/or presentation of the terms
+made them difficult to read before the alleged parking contract was said to have been formed. The operator is requested to
+demonstrate that the relevant terms were presented in a manner capable of being reasonably read and understood at the
+location.
+PP-SIGN-007 — Excessive or Dense Wording
+Trigger: dense wording + evidence
+The signage contains a substantial amount of information presented in a manner that does not sufficiently highlight the term said
+to have been breached or the parking charge now sought. The operator is requested to demonstrate how the relevant
+contractual terms were sufficiently prominent within the overall presentation of the sign.
+PP-SIGN-008 — Sign Obscured
+Trigger: sign obscured
+The relevant signage was obscured and was therefore not adequately visible in the circumstances of the parking event. The
+operator cannot simply rely upon the existence of a sign somewhere on the site without addressing whether that sign was
+actually capable of communicating the relevant terms to a motorist.
+
+-- 13 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 14
+PP-SIGN-009 — Sign Damaged or Deteriorated
+Trigger: sign damaged
+The relevant signage was damaged, deteriorated or otherwise affected in a manner that reduced its legibility and ability to
+communicate the parking terms. The operator is requested to provide contemporaneous evidence showing the condition of the
+signage on the date of the alleged parking event.
+PP-SIGN-010 — Signage Not Adequately Visible in Lighting Conditions
+Trigger: dark + poorly illuminated
+The parking event occurred during conditions in which adequate visibility of the signage depended upon appropriate positioning,
+illumination and/or reflective characteristics. The relevant terms were not sufficiently visible in those conditions. The operator is
+requested to provide evidence demonstrating how the signage appeared under substantially the same lighting conditions at the
+material time.
+PP-SIGN-011 — Conflicting or Inconsistent Terms
+Trigger: conflicting signage
+The signage at the location communicated inconsistent or conflicting information concerning the applicable parking terms. In
+those circumstances, the terms relied upon by the operator were not communicated with sufficient clarity. The operator is
+requested to address the conflicting signage and explain which terms it alleges applied to the vehicle and why.
+PP-SIGN-012 — Alleged Breach Not Clearly Communicated
+Trigger: specific alleged term unclear
+The operator relies upon an alleged breach of the following term: {{alleged_term}}. That particular restriction was not adequately
+communicated by the signage in the circumstances of the parking event. The operator is requested to identify the sign
+containing that restriction and demonstrate that it was positioned and presented sufficiently clearly to bring the term to the
+attention of motorists before the alleged breach occurred.
+PP-SIGN-013 — Customer Signage Evidence
+Trigger: signage photos uploaded
+Photographic evidence concerning the signage at the location is supplied with this appeal. The operator is requested to consider
+that evidence when assessing whether the relevant parking terms were sufficiently visible and clearly communicated.
+PP-LAND-001 — Operator's Authority to Operate
+Trigger: initial authority challenge relevant
+The operator is requested to establish that it had sufficient authority from the landowner or other party entitled to grant such
+authority to operate and enforce the parking scheme at the location on the date of the alleged parking event. The existence and
+scope of the operator's authority are relevant to its entitlement to issue and pursue the parking charge.
+PP-LAND-002 — Evidence of Current Authority Requested
+Trigger: authority challenged
+The operator is requested to provide evidence demonstrating that its authority was in force at the material time and applied to
+the location at which the Parking Charge Notice was issued. Evidence relating to a different location or a period that does not
+include the date of the alleged parking event would not establish the required authority for this particular charge.
+PP-LAND-003 — Scope of Enforcement Authority
+Trigger: scope relevant
+The operator is requested to establish the scope of the authority granted to it, including its entitlement to operate the parking
+scheme, issue Parking Charge Notices and pursue unpaid charges in the manner relied upon. The operator should demonstrate
+that the enforcement action taken in this case falls within the authority granted for the relevant land.
+PP-LAND-004 — Restrictions or Conditions on Authority
+Trigger: relevant limitation indicated
+Where the operator's authority is subject to restrictions, conditions or limitations, it is requested to demonstrate that the
+circumstances of this parking charge fall within the scope of the authority actually granted. The existence of a
+parking-management arrangement does not, without examining its scope, establish that every form of enforcement is authorised
+
+-- 14 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 15
+in every circumstance.
+PP-LAND-005 — Relevant Land / Location Must Match
+Trigger: location discrepancy
+The operator must establish that any authority relied upon relates to the specific land on which the alleged parking event
+occurred. The operator is requested to identify the land covered by its authority and demonstrate that the location stated on
+Parking Charge Notice {{pcn_number}} falls within that area.
+PP-LAND-006 — Authority at Material Date
+Trigger: contract date issue
+Any evidence of authority relied upon must demonstrate that the operator's authority was in force on {{parking_event_date}}. A
+document establishing authority during an earlier or later period does not, without evidence of continuation or renewal, establish
+that the operator had the necessary authority at the material time.
+PP-LAND-007 — Expired Agreement
+Trigger: expiry established + no continuation evidence
+The evidence provided does not establish that the operator's authority remained in force on the date of the alleged parking
+event. The agreement relied upon appears to have expired before the material date, and no evidence of a valid renewal,
+extension or replacement authority has been provided. The operator is therefore required to establish the contractual basis upon
+which it says it remained authorised to operate and enforce at the location.
+PP-LAND-008 — Redacted Authority Evidence
+Trigger: redactions prevent material verification
+The evidence of authority supplied is redacted to an extent that prevents proper verification of material matters relevant to this
+case. In particular, the evidence must be sufficient to establish the relevant parties, land, period of authority and scope of the
+operator's enforcement powers. The operator is requested to provide sufficient evidence to establish those matters.
+PP-LAND-009 — Authority of Contracting Party
+Trigger: grantor authority reasonably questioned
+The operator is requested to establish that the party from whom it obtained authority was entitled to grant the
+parking-management and enforcement rights relied upon. Where the operator does not contract directly with the landowner, it
+should establish the chain of authority upon which it relies.
+PP-EV-001 — Supporting Evidence Enclosed
+Trigger: evidence uploaded
+Supporting evidence is enclosed with this appeal and should be considered together with the factual circumstances and the
+operator's own records before a decision is made.
+PP-END-001 — Cancellation Requested
+Trigger: final assembly
+For the reasons set out above, the parking charge is disputed and the operator is requested to cancel Parking Charge Notice
+{{pcn_number}}.
+PP-END-002 — Reasons and Evidence if Rejected
+Trigger: configured rejection request
+If the operator is not prepared to cancel the charge, it is requested to provide a clear response addressing the specific grounds
+raised and the evidence relied upon in reaching its decision.
+PP-END-003 — Independent Appeal Details
+Trigger: independent route available
+If the appeal is rejected, please provide the appropriate information and reference required to pursue the matter through the
+applicable independent appeal process.
+
+-- 15 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 16
+PART 9 — Assembly & Deduplication Rules
+1. Always start with PP-INTRO-001. Add PP-INTRO-002 only on the unidentified-driver keeper route.
+2. Insert only confirmed PoFA defects. Do not create a generic PoFA challenge when the notice is compliant.
+3. Primary factual grounds come before secondary evidence/signage/authority grounds.
+4. Multiple routes may coexist: e.g. PoFA + payment + keying + signage.
+5. Suppress repeated facts. If several paragraphs say payment was made, state it once and preserve the distinct legal/factual
+points.
+6. ANPR entry/exit duration is not automatically parking duration; use ANPR paragraphs only when the corresponding factual
+issue exists.
+7. Do not add consideration + grace together as one allowance.
+8. Do not program a universal '10 minutes = cancellation'. The system must first establish the applicable rule.
+9. Do not program 'permit held = cancellation' or 'genuine customer = cancellation' without assessing the actual allegation.
+10. Do not insert a generic '£100 is an unlawful penalty' / pre-estimate-of-loss argument.
+11. At initial appeal, landowner authority should generally be a concise proof request, not an unsupported claim that authority
+does not exist.
+12. Final output must be a coherent letter without visible rule IDs or paragraph IDs.
+PART 10 — Keeper-Safe Transformation Rules
+Customer input Do NOT generate Keeper-safe output
+I paid on the app. I paid for my parking... A payment was made using the parking app.
+I typed the wrong registration. I entered the wrong VRM... An incorrect vehicle registration was entered during the payment process.
+I didn't see the sign when I drove in. I did not see the sign... No sufficiently prominent entrance signage was visible on entry.
+I went to the shop. I was shopping... The vehicle's presence was connected with a genuine customer visit.
+I came back twice. I drove back... The vehicle attended the location on more than one separate occasion.
+PART 11 — Worked Developer Examples
+Example A — Payment + Minor Keying Error
+parking_payment_made = YES
+payment_evidence_uploaded = YES
+vrm_error = YES
+vrm_error_type = MINOR
+payment_confirmed = YES
+Rules: PP-R006 + PP-R008
+IDs: PP-PAY-001 + PP-PAY-002 + PP-KEY-001 + PP-KEY-002 + PP-KEY-004. Deduplicate repeated statement that payment
+was made.
+Example B — Multiple Visits / ANPR
+evidence_type = ANPR
+customer_disputes_duration = YES
+multiple_visits_same_day = YES
+evidence_vehicle_elsewhere = YES
+Rules: PP-R012 + PP-R013 + PP-R014
+IDs: PP-ANPR-001 + 002 + 003 + 004 + 005 + 012, then evidence and conclusion. If pairing/missing capture is supported, also
+010/011.
+Example C — Keeper + Confirmed Late Postal NTK
+registered_keeper = YES
+driver_identified = NO
+notice_route = POSTAL
+POFA_POSTAL_TIMING_FAILURE = TRUE
+
+-- 16 of 17 --
+
+Private Parking Appeal Automation — MASTER Developer Pack | Page 17
+Rules: PP-R001 + PP-R004 + PP-R005B
+IDs: PP-INTRO-001 + PP-INTRO-002 + PP-POFA-001 + PP-POFA-003 + PP-POFA-006 + PP-POFA-007.
+Example D — Paid Parking + Short Exit Period
+parking_period_completed = YES
+grace_period_applicable = YES
+standard_10_minute_grace = APPLICABLE
+alleged_overstay_minutes = 8
+Rule: PP-R011 + PP-R011A
+IDs: PP-GRACE-001 + PP-GRACE-005 + PP-GRACE-006; add PP-GRACE-002/003 only if supported by answers.
+PART 12 — Developer Deliverables / Build Sequence
+Phase 1: PCN upload + extraction + customer confirmation.
+Phase 2: Core questions and conditional branch questions.
+Phase 3: Store variables exactly or map them consistently to the supplied rule names.
+Phase 4: Implement master trigger table.
+Phase 5: Load approved paragraph library using stable paragraph IDs.
+Phase 6: Implement multi-ground selection and deduplication.
+Phase 7: Implement evidence references and variable replacement.
+Phase 8: Implement keeper-safe transformation/check.
+Phase 9: Generate final appeal PDF/document.
+Phase 10: Test representative scenarios for each rule and mixed-ground cases before launch.
+Admin requirement: paragraph wording and configurable rule values should be editable without rewriting the application
+wherever practicable.
+Final scope reminder: This master pack stops at the private parking appeal generator. Debt recovery, Letter of Claim, County
+Court claim management and case-update automation should be built separately.
+
+-- 17 of 17 --
+

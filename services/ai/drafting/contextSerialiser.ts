@@ -1,0 +1,119 @@
+import type { DraftingContext } from "../types";
+
+/**
+ * Serialise the approved drafting context into the user-message payload.
+ *
+ * Deliberately excludes anything the model must not see or repeat:
+ *   - source IDs and module IDs are NOT included as identifiers the
+ *     model could echo; module content is supplied as unlabelled
+ *     propositions instead (KB §16 rule 7 / V2 Part 9 item 13).
+ *   - retrieval scores and decision traces are never included.
+ */
+export function serialiseDraftingContext(ctx: DraftingContext): string {
+  const a = ctx.analysis;
+  const lines: string[] = [];
+
+  lines.push("=== CASE REFERENCE DETAILS ===");
+  for (const [k, v] of Object.entries(ctx.variables)) {
+    if (v && v.trim().length > 0) lines.push(`${k}: ${v}`);
+  }
+
+  lines.push("");
+  lines.push("=== PRIMARY ROUTE ===");
+  lines.push(a.primaryRoute ?? "NONE");
+  if (a.secondaryRoutes.length > 0) {
+    lines.push("");
+    lines.push("=== SECONDARY ROUTES (in order) ===");
+    lines.push(a.secondaryRoutes.join(", "));
+  }
+
+  lines.push("");
+  lines.push("=== WHY EACH ROUTE IS IN PLAY ===");
+  for (const asmt of a.assessments) {
+    lines.push(`${asmt.route}: ${asmt.basis.join(" ")}`);
+  }
+
+  lines.push("");
+  lines.push("=== VERIFIED FACTS (use these exact values; nothing else is established) ===");
+  for (const f of a.verifiedFacts) {
+    if (f.field.startsWith("__")) continue;
+    lines.push(`${f.field} = ${JSON.stringify(f.value)}  [${f.source}]`);
+  }
+
+  lines.push("");
+  lines.push("=== KEEPER / NOTICE POSITION ===");
+  lines.push(`driver_status: ${a.driverStatus}`);
+  lines.push(`pofa_route: ${a.pofa.route}`);
+  lines.push(
+    `pofa_timing: ${a.pofa.timingStatus}` +
+      (a.pofa.paragraph ? ` (paragraph ${a.pofa.paragraph})` : ""),
+  );
+  if (a.pofa.timingStatus === "FAILED") {
+    lines.push(
+      `An established timing failure may be relied upon: notice treated as given ${a.pofa.noticeGivenDate}, deadline ${a.pofa.deadline}.`,
+    );
+  } else {
+    lines.push(
+      "No Schedule 4 timing failure is established. You may state that keeper liability must be established, but you must NOT allege a timing or content defect.",
+    );
+  }
+  if (a.codeVersion) {
+    lines.push(`applicable_code_version: ${a.codeVersion}`);
+  }
+
+  lines.push("");
+  lines.push("=== APPROVED KNOWLEDGE MODULES ===");
+  lines.push(
+    "These are the ONLY legal and factual propositions you may advance. Rewrite and combine them; do not add to them.",
+  );
+  ctx.modules.forEach((m, i) => {
+    lines.push("");
+    lines.push(`[${i + 1}] Topic: ${m.topic} (${m.routeFamily})`);
+    lines.push(`Proposition: ${m.coreProposition}`);
+    if (m.legalBasis) lines.push(`Legal basis: ${m.legalBasis}`);
+    if (m.doNotUseWhen.length > 0) {
+      lines.push(`Must not be used when: ${m.doNotUseWhen.join("; ")}`);
+    }
+    if (m.draftingNotes) lines.push(`Drafting limits: ${m.draftingNotes}`);
+  });
+
+  if (ctx.blocks.length > 0) {
+    lines.push("");
+    lines.push("=== APPROVED WORDING (paraphrase, merge and reorder — do not paste verbatim in sequence) ===");
+    for (const b of ctx.blocks) {
+      lines.push("");
+      lines.push(b.text);
+    }
+  }
+
+  lines.push("");
+  lines.push("=== AVAILABLE EVIDENCE ===");
+  lines.push(
+    ctx.availableEvidence.length > 0
+      ? ctx.availableEvidence.join(", ")
+      : "NONE — you must not say any evidence is enclosed, attached or provided.",
+  );
+
+  lines.push("");
+  lines.push("=== PROHIBITED CLAIMS (do not assert any of these) ===");
+  for (const c of a.prohibitedClaims) lines.push(`- ${c}`);
+
+  if (a.missingFacts.length > 0) {
+    lines.push("");
+    lines.push("=== NOT ESTABLISHED (never assert these) ===");
+    for (const m of a.missingFacts) lines.push(`- ${m}`);
+  }
+
+  if (ctx.feedback && ctx.feedback.trim().length > 0) {
+    lines.push("");
+    lines.push("=== VALIDATOR FEEDBACK ON YOUR PREVIOUS ATTEMPT ===");
+    lines.push(ctx.feedback.trim());
+  }
+
+  lines.push("");
+  lines.push(
+    "Now write the appeal body. Plain prose paragraphs only, no salutation, no sign-off, no headings, no lists, no identifiers.",
+  );
+
+  return lines.join("\n");
+}
