@@ -250,7 +250,7 @@ export default function PortalCaseDetailPage() {
             }
           />
           <div className="p-4 sm:p-5">
-          <MaskedPreview />
+          <MaskedPreview appealCase={appealCase} />
           <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-[13px] text-brand-mute">
               Your appeal is written and checked after payment. You can read
@@ -274,26 +274,88 @@ export default function PortalCaseDetailPage() {
 }
 
 /**
- * Placeholder bars standing in for the unwritten appeal.
+ * Document-style preview of the appeal letter.
  *
- * Deliberately synthetic. No appeal text exists before payment, so
- * there is nothing here to reveal by inspecting the page.
+ * The letterhead and reference block are REAL — those facts are already
+ * confirmed and safe to show. The body is not: under the service
+ * workflow nothing is drafted until payment clears, so the paragraphs
+ * below the fold are synthetic placeholder lines behind a blur.
+ *
+ * That distinction matters. This is not real wording hidden with CSS —
+ * there is no wording yet, so there is nothing recoverable from the
+ * page source.
  */
-function MaskedPreview() {
-  const widths = ["w-full", "w-11/12", "w-full", "w-4/5", "w-full", "w-3/5"];
+function MaskedPreview({ appealCase }: { appealCase: CustomerCaseState }) {
+  const pcn = appealCase.confirmed;
+  // Ragged line lengths so the blurred block reads as prose, with a
+  // paragraph break to suggest structure.
+  const body = [
+    ["w-full", "w-11/12", "w-full", "w-10/12"],
+    ["w-full", "w-9/12"],
+    ["w-full", "w-full", "w-8/12"],
+    ["w-11/12", "w-7/12"],
+  ];
+
   return (
-    <div
-      aria-hidden
-      className="relative overflow-hidden rounded-xl border border-brand-borderSoft bg-white p-5"
-    >
-      <div className="space-y-2.5">
-        {widths.map((w, i) => (
-          <div key={i} className={`h-3 rounded bg-brand-canvas ${w}`} />
-        ))}
+    <div className="relative overflow-hidden rounded-xl border border-brand-border bg-white shadow-card">
+      {/* Brand strip, matching the generated PDF */}
+      <div className="h-1.5 w-full bg-brand-pink" />
+
+      <div className="px-6 pt-5 sm:px-8">
+        <div className="flex items-start justify-between border-b border-brand-borderSoft pb-4">
+          <div>
+            <p className="text-[15px] font-black tracking-tight">
+              Parking Appeals Group
+            </p>
+            <p className="text-[10.5px] text-brand-mute">Appeal correspondence</p>
+          </div>
+          <div className="text-right text-[10.5px] text-brand-mute">
+            <p>PCN: {pcn?.pcn_number ?? "—"}</p>
+            <p>VRM: {pcn?.vrm ?? "—"}</p>
+          </div>
+        </div>
+
+        {/* Reference block — confirmed facts, safe to show in full */}
+        <div className="mt-4 space-y-0.5 text-[12.5px]">
+          <p>
+            <span className="text-brand-mute">Operator:</span>{" "}
+            {pcn?.operator_name ?? "—"}
+          </p>
+          <p>
+            <span className="text-brand-mute">Vehicle registration:</span>{" "}
+            {pcn?.vrm ?? "—"}
+          </p>
+          <p>
+            <span className="text-brand-mute">Parking location:</span>{" "}
+            {pcn?.parking_location ?? "—"}
+          </p>
+          <p>
+            <span className="text-brand-mute">Parking event date:</span>{" "}
+            {pcn?.parking_event_date ?? "—"}
+          </p>
+        </div>
+
+        <p className="mt-5 text-[13px]">Dear Sir or Madam,</p>
+        <p className="mt-3 text-[13px] font-bold">Formal Appeal</p>
       </div>
-      <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/55 backdrop-blur-[2px]">
-        <span className="rounded-full bg-brand-text/85 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-white">
-          Available after payment
+
+      {/* Everything below here is unwritten until payment clears. */}
+      <div className="relative mt-3 px-6 pb-8 sm:px-8" aria-hidden>
+        <div className="space-y-4 blur-[3px]">
+          {body.map((para, i) => (
+            <div key={i} className="space-y-2">
+              {para.map((w, j) => (
+                <div key={j} className={`h-2.5 rounded bg-brand-canvas ${w}`} />
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 top-0 bg-gradient-to-b from-transparent via-white/45 to-white" />
+      </div>
+
+      <div className="absolute inset-x-0 bottom-0 flex justify-center pb-5">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-brand-text/90 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-white">
+          Your appeal is written after payment
         </span>
       </div>
     </div>

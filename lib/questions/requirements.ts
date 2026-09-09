@@ -113,6 +113,18 @@ export interface FactRequirement {
    * where a triage selection implies the fact.
    */
   impliedBy?: (f: KnownFacts) => boolean;
+
+  /**
+   * The case cannot proceed without this fact actually established.
+   *
+   * Non-critical facts are treated as settled once asked, because a
+   * keeper may legitimately not know a bay number and must not be
+   * asked twice. That rule is wrong for a fact the whole appeal turns
+   * on: leaving `scenarios` empty used to complete questioning and land
+   * the case in review with nothing to argue. A critical fact left
+   * unresolved routes to review with an explanation instead.
+   */
+  critical?: boolean;
 }
 
 const tag = (f: KnownFacts, t: string) => f.tags.has(t);
@@ -154,6 +166,7 @@ export const TRIAGE_REQUIREMENTS: FactRequirement[] = [
     rationale:
       "The whole appeal is written on behalf of the registered keeper, so this must be settled before anything else.",
     kbModules: ["KB-POFA-01"],
+    critical: true,
   },
   {
     fact: FACT.DRIVER_IDENTIFIED,
@@ -183,6 +196,9 @@ export const TRIAGE_REQUIREMENTS: FactRequirement[] = [
       "Nothing on the notice explains why the charge is disputed. Until something is known about what actually happened, no substantive route can be opened.",
     kbModules: [],
     when: (f) => factStr(f, FACT.REGISTERED_KEEPER) !== null,
+    // Every substantive route in assessRoutes is gated on these tags.
+    // Without one, there is no appeal to write.
+    critical: true,
   },
 ];
 

@@ -163,7 +163,9 @@ export function assessSufficiency(
       groundLabels: [],
       outstandingCount: analysis.missingFacts.length,
       evidence: { uploadedCount: evidenceTypes.length, suggestions: [] },
-      outOfScope: { detail: analysis.manualReview.detail },
+      // The internal reason is written for an engineer. Translate it
+      // before it reaches a customer.
+      outOfScope: { detail: customerReviewMessage(analysis.manualReview.reason) },
       internal: NOT_READY_INTERNAL,
     };
   }
@@ -215,6 +217,24 @@ export function assessSufficiency(
       moduleCount: retrieval.modules.length,
     },
   };
+}
+
+/**
+ * Customer-facing wording for a manual-review outcome.
+ *
+ * "No appeal route is supported by the confirmed facts" is an accurate
+ * internal description and a useless thing to show someone who has just
+ * paid attention to a form for five minutes.
+ */
+function customerReviewMessage(reason: string): string {
+  switch (reason) {
+    case "NO_SUPPORTED_ROUTE":
+      return "From what you have told us so far we could not identify a ground we are confident appealing on. A member of our team will review this rather than us preparing something unsupported — you may be asked for a little more detail.";
+    case "CODE_VERSION_UNRESOLVED":
+      return "We could not work out which industry code applied on the date of the parking event, so a member of our team will check this case.";
+    default:
+      return "This case needs a person to review it before we prepare an appeal. Nothing you have entered is lost.";
+  }
 }
 
 /**

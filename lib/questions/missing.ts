@@ -48,8 +48,21 @@ export function isRequirementSatisfied(
 ): boolean {
   if (facts.known.has(req.fact)) return true;
   if (req.impliedBy?.(facts)) return true;
+  // A critical fact must be genuinely established. Having merely been
+  // asked is not enough, or a case can complete with nothing to argue.
+  if (req.critical) return false;
   if (facts.values[askedFactKey(req.fact)] === true) return true;
   return false;
+}
+
+/** Critical requirements that were asked but came back empty. */
+export function unresolvedCriticalFacts(
+  facts: KnownFacts,
+  routes?: RouteFamily[],
+): FactRequirement[] {
+  return missingRequirements(facts, routes).filter(
+    (r) => r.critical && facts.values[askedFactKey(r.fact)] === true,
+  );
 }
 
 /** Is this requirement live for the current facts? */

@@ -2,7 +2,7 @@ import type { RouteFamily } from "@/types/caseState";
 import type { ConfirmedPcn } from "@/types";
 import { deriveKnownFacts } from "./facts";
 import { detectOutOfScope, type ScopeDecision } from "./scope";
-import { missingRequirements } from "./missing";
+import { missingRequirements, unresolvedCriticalFacts } from "./missing";
 import { openRoutes, type FactRequirement } from "./requirements";
 import { fallbackQuestionFor } from "./fallback";
 import {
@@ -170,6 +170,21 @@ export async function nextDynamicQuestion(
       eligibleRoutes: routes,
       missingFacts: [],
       readyForNextStage: true,
+    };
+  }
+
+  // A critical fact that was asked and came back empty cannot be
+  // resolved by asking again. Route to review with an explanation
+  // rather than looping, or completing with nothing to argue.
+  const stuck = unresolvedCriticalFacts(facts, routes);
+  if (stuck.length > 0) {
+    return {
+      status: "MANUAL_REVIEW",
+      reason: "CRITICAL_FACT_UNRESOLVED",
+      detail:
+        "We could not identify a ground to appeal on from the answers given. A member of our team will look at this case rather than us preparing something unsupported.",
+      eligibleRoutes: routes,
+      missingFacts: missing.map((m) => m.fact),
     };
   }
 
