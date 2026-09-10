@@ -10,7 +10,9 @@ import {
   fetchAppeal,
   fetchCase,
   fetchPaymentState,
+  recordOutcome,
   type AppealView,
+  type OutcomeStatusValue,
   type PaymentStateView,
 } from "@/features/appeal/caseSync";
 import type { CustomerCaseState } from "@/lib/cases/types";
@@ -29,6 +31,22 @@ import { caseStatusLabel, paymentStatusLabel } from "@/lib/cases/labels";
  * CSS trick over real content — the server does not send the wording
  * until `/api/cases/[id]/appeal` authorises it.
  */
+const OUTCOME_LABELS: Record<string, string> = {
+  PENDING: "Awaiting decision",
+  NO_RESPONSE: "No reply received",
+  ACCEPTED: "Appeal accepted",
+  REJECTED: "Appeal rejected",
+};
+
+const OUTCOME_DETAIL: Record<string, string> = {
+  ACCEPTED:
+    "The parking company accepted your appeal and the charge should be cancelled. Keep their confirmation in case it is needed later.",
+  REJECTED:
+    "The parking company rejected your appeal. There may be a further stage available — we will be in touch about your options.",
+  NO_RESPONSE:
+    "You told us the parking company never replied. Keep a note of that, as a failure to respond can matter later.",
+};
+
 export default function PortalCaseDetailPage() {
   const params = useParams<{ id: string }>();
   const caseId = params?.id ?? "";
@@ -39,6 +57,25 @@ export default function PortalCaseDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<"pdf" | "docx" | null>(null);
+  const [savingOutcome, setSavingOutcome] = useState(false);
+
+  /**
+   * Record the operator's decision.
+   *
+   * The 30-day reminder that will prompt this is future work; the
+   * question only appears here once the follow-up window has passed.
+   */
+  const saveOutcome = async (status: OutcomeStatusValue) => {
+    setSavingOutcome(true);
+    const res = await recordOutcome(caseId, status);
+    setSavingOutcome(false);
+    if (!res.ok) {
+      setError(res.message);
+      return;
+    }
+    const refreshed = await fetchCase(caseId);
+    if (refreshed.ok) setAppealCase(refreshed.data.case);
+  };
 
   useEffect(() => {
     if (!caseId) return;
@@ -155,6 +192,64 @@ export default function PortalCaseDetailPage() {
           <Detail label="Date of event" value={pcn?.parking_event_date} />
         </dl>
       </AdminCard>
+
+      {/* ---------- Outcome ---------- */}
+      {appealCase.submittedAt && (
+        <AdminCard className="mt-4">
+          <AdminCardHeader
+            title="Operator decision"
+            right={<span>{OUTCOME_LABELS[appealCase.outcomeStatus]}</span>}
+          />
+          <div className="p-4 text-[13.5px] sm:p-5">
+            {appealCase.outcomeStatus === "PENDING" ? (
+              appealCase.followUpDue ? (
+                <>
+                  <p className="text-brand-text">
+                    Have you received a decision from{" "}
+                    {pcn?.operator_name ?? "the parking company"}?
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => saveOutcome("ACCEPTED")}
+                      disabled={savingOutcome}
+                      className="btn-brand-primary"
+                    >
+                      Yes — my appeal was accepted
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => saveOutcome("REJECTED")}
+                      disabled={savingOutcome}
+                      className="btn-brand-outline"
+                    >
+                      Yes — it was rejected
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => saveOutcome("NO_RESPONSE")}
+                      disabled={savingOutcome}
+                      className="btn-brand-ghost"
+                    >
+                      No reply yet
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-brand-mute">
+                  Your appeal has been prepared and sent. Parking companies
+                  usually reply within 28 days — we will check in with you if we
+                  have not heard by then.
+                </p>
+              )
+            ) : (
+              <p className="text-brand-mute">
+                {OUTCOME_DETAIL[appealCase.outcomeStatus]}
+              </p>
+            )}
+          </div>
+        </AdminCard>
+      )}
 
       {/* ---------- Grounds ---------- */}
       {appealCase.groundLabels.length > 0 && (

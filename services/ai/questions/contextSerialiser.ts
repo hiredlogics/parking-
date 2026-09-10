@@ -84,6 +84,21 @@ export function serialiseQuestionContext(ctx: GenerationContext): string {
         `- fact: ${m.fact} | reason_code: ${m.reasonCode} | route: ${m.route}`,
       );
       lines.push(`  why it matters: ${m.rationale}`);
+      /*
+       * Approved knowledge, where retrieved. This is the ONLY legal
+       * material the generator sees, and it exists so the model
+       * understands the issue instead of inventing a requirement.
+       * Deliberately carries no module or source identifiers.
+       */
+      for (const k of m.knowledge ?? []) {
+        lines.push(`  approved position (${k.topic}): ${k.proposition}`);
+        if (k.mustCheck.length > 0) {
+          lines.push(`  must be established: ${k.mustCheck.join("; ")}`);
+        }
+        if (k.evidenceHelps.length > 0) {
+          lines.push(`  supporting evidence: ${k.evidenceHelps.join("; ")}`);
+        }
+      }
     }
   }
 

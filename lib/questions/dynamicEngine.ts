@@ -3,7 +3,17 @@ import type { ConfirmedPcn } from "@/types";
 import { deriveKnownFacts } from "./facts";
 import { detectOutOfScope, type ScopeDecision } from "./scope";
 import { missingRequirements, unresolvedCriticalFacts } from "./missing";
-import { openRoutes, type FactRequirement } from "./requirements";
+import type { FactRequirement } from "./requirements";
+import { assessCandidacy } from "@/lib/reasoning/routeCandidacy";
+import { retrieveForQuestion } from "@/lib/reasoning/questionKnowledge";
+import { analysePofa } from "@/lib/analysis/pofa";
+import type { PofaAnalysis } from "@/lib/analysis/types";
+import { scoreInformationGain } from "@/lib/reasoning/informationGain";
+import {
+  deriveFactsFromEvidence,
+  establishedFacts,
+  factsNeedingConfirmation,
+} from "@/lib/reasoning/evidenceFacts";
 import { fallbackQuestionFor } from "./fallback";
 import {
   summariseFailures,
@@ -53,9 +63,17 @@ export function maxQuestions(): number {
 }
 
 export interface NextQuestionInput {
+  /** Attributes provider calls to a case for cost reporting. */
+  caseId?: string | null;
   confirmed?: ConfirmedPcn | null;
   answers?: AnswerMap;
   evidenceTypes?: string[];
+  /**
+   * The operator's allegation from the notice. Opens routes on its own
+   * — a PCN alleging non-payment makes PAYMENT a candidate without the
+   * customer having to say so first.
+   */
+  allegedBreach?: string | null;
   /** Facts already put to the customer, answered or not. */
   askedFacts?: string[];
   /** Labels already served, for semantic-repeat detection. */
@@ -95,6 +113,7 @@ export type DynamicOutcome =
     };
 
 function buildContext(
+  caseId: string | null,
   facts: KnownFacts,
   confirmed: ConfirmedPcn | null | undefined,
   answers: AnswerMap,
@@ -103,21 +122,38 @@ function buildContext(
   missing: FactRequirement[],
   askedLabels: string[],
   askedFacts: string[],
+  pofa: PofaAnalysis,
   feedback?: string,
 ): GenerationContext {
   return {
+    caseId,
     confirmedFacts: (confirmed ?? {}) as Record<string, unknown>,
     answeredFacts: Object.fromEntries(
       Object.entries(answers).filter(([k]) => !k.startsWith("__")),
     ),
     evidenceTypes,
     eligibleRoutes: routes,
-    missing: missing.map((m) => ({
+    missing: missing.map((m, index) => ({
       fact: m.fact,
       reasonCode: m.reasonCode,
       route: m.route,
       rationale: m.rationale,
       kbModules: m.kbModules,
+      /*
+       * Retrieved only for the few facts the model will realistically
+       * choose between. Retrieving for every outstanding fact would be
+       * broad legal RAG, which §K explicitly rules out.
+       */
+      knowledge:
+        index < 3
+          ? retrieveForQuestion({
+              requirement: m,
+              facts,
+              evidenceTypes,
+              parkingEventDate: confirmed?.parking_event_date ?? null,
+              pofa,
+            })
+          : undefined,
     })),
     askedLabels,
     askedFacts,
@@ -140,9 +176,20 @@ export async function nextDynamicQuestion(
   const askedFacts = input.askedFacts ?? [];
   const askedLabels = input.askedLabels ?? [];
 
+  /*
+   * Evidence first. A customer who uploaded a payment receipt must not
+   * be asked whether they paid, so evidence-established facts are
+   * merged in BEFORE anything is considered missing. Answers still win
+   * over inferences.
+   */
+  const derivedEvidenceFacts = deriveFactsFromEvidence(evidenceTypes);
+  const fromEvidence = establishedFacts(derivedEvidenceFacts);
+  const needsConfirmation = factsNeedingConfirmation(derivedEvidenceFacts);
+  const mergedAnswers: AnswerMap = { ...fromEvidence, ...answers };
+
   const facts = deriveKnownFacts({
     confirmed: input.confirmed,
-    answers,
+    answers: mergedAnswers,
     evidenceTypes,
   });
 
@@ -150,7 +197,17 @@ export async function nextDynamicQuestion(
   // re-raised on the next pass.
   for (const f of askedFacts) facts.values[`__askedfact:${f}`] = true;
 
-  const routes = openRoutes(facts);
+  /*
+   * Route candidacy from four independent sources: the allegation, the
+   * facts, the evidence, and the customer's description. Routes
+   * contradicted by a confirmed fact are excluded.
+   */
+  const candidacy = assessCandidacy({
+    facts,
+    allegedBreach: input.allegedBreach ?? input.confirmed?.alleged_breach ?? null,
+    derivedEvidenceFacts,
+  });
+  const routes = candidacy.candidates;
 
   // Scope first — never keep interrogating a case we cannot automate.
   const scope = detectOutOfScope(facts);
@@ -163,7 +220,34 @@ export async function nextDynamicQuestion(
     };
   }
 
+  // Deterministic — never delegated to a model (§M).
+  const pofa = analysePofa({ facts });
+
   const missing = missingRequirements(facts, routes);
+
+  /*
+   * The real dead end: no route is in play at all.
+   *
+   * Checked BEFORE sufficiency, because "nothing left to ask" and
+   * "nothing to argue" are not the same thing. Every source has been
+   * consulted — the allegation, the facts, the evidence, the customer's
+   * description — and none opened a ground, so generating would produce
+   * an unsupported appeal.
+   */
+  if (
+    routes.length === 0 &&
+    (missing.length === 0 || askedFacts.includes("scenarios"))
+  ) {
+    return {
+      status: "MANUAL_REVIEW",
+      reason: "NO_VIABLE_ROUTE",
+      detail:
+        "We could not identify a ground to appeal on from the notice and the answers given. A member of our team will review this rather than us preparing something unsupported.",
+      eligibleRoutes: [],
+      missingFacts: missing.map((m) => m.fact),
+    };
+  }
+
   if (missing.length === 0) {
     return {
       status: "SUFFICIENT_INFORMATION",
@@ -173,16 +257,15 @@ export async function nextDynamicQuestion(
     };
   }
 
-  // A critical fact that was asked and came back empty cannot be
-  // resolved by asking again. Route to review with an explanation
-  // rather than looping, or completing with nothing to argue.
+  // A critical fact asked and left empty cannot be resolved by asking
+  // again. Route to review rather than looping.
   const stuck = unresolvedCriticalFacts(facts, routes);
   if (stuck.length > 0) {
     return {
       status: "MANUAL_REVIEW",
       reason: "CRITICAL_FACT_UNRESOLVED",
       detail:
-        "We could not identify a ground to appeal on from the answers given. A member of our team will look at this case rather than us preparing something unsupported.",
+        "We could not confirm some essential details about the vehicle keeper. A member of our team will look at this case.",
       eligibleRoutes: routes,
       missingFacts: missing.map((m) => m.fact),
     };
@@ -201,6 +284,21 @@ export async function nextDynamicQuestion(
     };
   }
 
+  /*
+   * Rank by information gain, not by a fixed priority number. The top
+   * item is the fact whose answer would change the case most.
+   */
+  const ranked = scoreInformationGain({
+    facts,
+    candidateRoutes: routes,
+    missing,
+    allegationCategory: candidacy.allegation.category,
+    needsConfirmation,
+    establishedFromEvidence: Object.keys(fromEvidence),
+    routeProvenance: candidacy.provenance,
+  });
+  const ordered = ranked.map((r) => r.requirement);
+
   const provider =
     input.provider !== undefined ? input.provider : getQuestionProvider();
   const rejections: string[] = [];
@@ -215,8 +313,9 @@ export async function nextDynamicQuestion(
 
       const result = await provider.generate(
         buildContext(
-          facts, input.confirmed, answers, evidenceTypes, routes,
-          missing, askedLabels, askedFacts, feedback,
+          input.caseId ?? null,
+          facts, input.confirmed, mergedAnswers, evidenceTypes, routes,
+          ordered, askedLabels, askedFacts, pofa, feedback,
         ),
       );
 
@@ -237,7 +336,7 @@ export async function nextDynamicQuestion(
       const validation = validateGeneratedQuestion({
         candidate: result.output as GeneratedQuestion,
         facts,
-        missing,
+        missing: ordered,
         askedLabels,
         askedFacts,
       });
@@ -267,7 +366,7 @@ export async function nextDynamicQuestion(
   // ---- Controlled bank fallback ----
   // Walk the outstanding list in priority order: the bank may not cover
   // the top item but may cover the next.
-  for (const requirement of missing) {
+  for (const requirement of ordered) {
     const fb = fallbackQuestionFor(requirement, facts);
     if (!fb) continue;
     return {

@@ -1,3 +1,4 @@
+import { paymentsEnabled, refuseInProduction } from "@/lib/config/production";
 import { DemoPaymentProvider } from "./providers/demo";
 import { StripePaymentProvider } from "./providers/stripe";
 import { PaymentConfigurationError, type PaymentService } from "./types";
@@ -28,6 +29,19 @@ export function getPaymentService(): PaymentService {
       `Unknown PAYMENT_PROVIDER "${configured}". Use "demo" or "stripe".`,
     );
   }
+
+  /*
+   * The demo provider settles a case as PAID for free. Being the default
+   * meant a production deploy that forgot PAYMENT_PROVIDER would give
+   * appeals away, so production must opt into it explicitly instead.
+   */
+  if (paymentsEnabled()) {
+    refuseInProduction(
+      "PAYMENT_PROVIDER",
+      "The demo payment provider would give appeals away free. Set PAYMENT_PROVIDER=stripe, or PAYMENTS_ENABLED=false to run deliberately without payment.",
+    );
+  }
+
   cached = new DemoPaymentProvider();
   return cached;
 }

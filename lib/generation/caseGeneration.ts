@@ -60,16 +60,22 @@ export interface CustomerAppealView {
  * friendly ground labels cross this boundary.
  */
 export function toCustomerView(draft: AppealDraftRow): CustomerAppealView {
+  // Defensive: a paid customer's appeal view must not crash because a
+  // column is absent or malformed.
   const routes = [
     draft.primaryRoute,
-    ...draft.secondaryRoutes,
+    ...(Array.isArray(draft.secondaryRoutes) ? draft.secondaryRoutes : []),
   ].filter(Boolean) as RouteFamily[];
 
   return {
     status: draft.status,
-    paragraphs: draft.status === "READY" ? draft.paragraphs : [],
+    paragraphs:
+      draft.status === "READY" && Array.isArray(draft.paragraphs)
+        ? draft.paragraphs
+        : [],
     groundLabels: draft.status === "READY" ? routeLabels(routes) : [],
-    needsReview: draft.status === "MANUAL_REVIEW",
+    // Anything not released needs a person, whatever the internal code.
+    needsReview: draft.status !== "READY",
     reviewDetail: draft.status === "READY" ? null : draft.blockDetail,
     generatedAt: draft.createdAt,
   };
@@ -122,6 +128,13 @@ export async function generateAppealForCase(
     caseId,
     result.status === "READY" ? "UNLOCKED" : "MANUAL_REVIEW",
   );
+
+  // Releasing the appeal completes the initial journey. This starts the
+  // clock for asking whether an outcome arrived; it is idempotent, so a
+  // regeneration cannot shift the follow-up window.
+  if (result.status === "READY") {
+    await repo.markSubmitted(caseId);
+  }
 
   await repo.addCaseEvent({
     caseId,
@@ -185,6 +198,27 @@ export async function getAppealForCase(
 ): Promise<{ ok: true; appeal: CustomerAppealView } | GenerationFailure> {
   const generated = await generateAppealForCase(caseId, session);
   if (!generated.ok) return generated;
+
+  /*
+   * Render and store the final PDF as soon as the appeal is released,
+   * so it appears in My Documents without waiting for a download.
+   *
+   * Deliberately non-fatal: a rendering or storage problem must not
+   * withhold the appeal the customer has paid for. The validated draft
+   * is already persisted, so the PDF is retried from it on the next
+   * request — drafting never re-runs.
+   */
+  if (generated.draft.status === "READY") {
+    try {
+      const { ensureFinalAppealDocument } = await import(
+        "@/lib/cases/finalDocument"
+      );
+      await ensureFinalAppealDocument(caseId, session);
+    } catch (err) {
+      console.error("[caseGeneration] final document not created:", err);
+    }
+  }
+
   return { ok: true, appeal: toCustomerView(generated.draft) };
 }
 

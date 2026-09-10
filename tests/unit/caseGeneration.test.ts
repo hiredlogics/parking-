@@ -68,6 +68,15 @@ function makeCase(over: Partial<AppealCase> = {}): AppealCase {
     paymentStatus: "UNPAID",
     appealLocked: true,
     orderId: null,
+    lifecycleStatus: "IN_PROGRESS",
+    outcomeStatus: "PENDING",
+    outcomeRecordedAt: null,
+    outcomeSource: null,
+    outcomeDetail: null,
+    submittedAt: null,
+    followUpDueAt: null,
+    stageNumber: 1,
+    parentCaseId: null,
     createdAt: "2025-01-01T00:00:00.000Z",
     updatedAt: "2025-01-01T00:00:00.000Z",
     ...over,
@@ -79,6 +88,8 @@ let drafts: AppealDraftRow[] = [];
 const generateSpy = vi.fn();
 const setCaseStatus =
   vi.fn<(caseId: string, status: string) => Promise<void>>(async () => {});
+const markSubmitted =
+  vi.fn<(caseId: string) => Promise<void>>(async () => {});
 
 function readyResult(body = "Para one.\n\nPara two."): GenerationResult {
   return {
@@ -120,6 +131,7 @@ vi.mock("@/lib/cases/repo", () => ({
   listCaseDocuments: async () => [],
   addCaseEvent: async () => {},
   setCaseStatus: (id: string, s: string) => setCaseStatus(id, s),
+  markSubmitted: (id: string) => markSubmitted(id),
 }));
 
 vi.mock("@/lib/generation/engine", () => ({
@@ -189,6 +201,7 @@ beforeEach(() => {
   generateSpy.mockReset();
   generateSpy.mockResolvedValue(readyResult());
   setCaseStatus.mockClear();
+  markSubmitted.mockClear();
 });
 
 /* ========================= Entitlement gate ========================= */
@@ -298,6 +311,18 @@ describe("Generate once", () => {
   it("moves the case to UNLOCKED on release", async () => {
     await generateAppealForCase("case_1", OWNER);
     expect(setCaseStatus).toHaveBeenCalledWith("case_1", "UNLOCKED");
+  });
+
+  it("records the submission date on release, starting the follow-up clock", async () => {
+    await generateAppealForCase("case_1", OWNER);
+    expect(markSubmitted).toHaveBeenCalledWith("case_1");
+  });
+
+  it("does not record a submission date for a blocked appeal", async () => {
+    generateSpy.mockResolvedValueOnce(blockedResult());
+    await generateAppealForCase("case_1", OWNER);
+    // Nothing was sent, so there is nothing to await an outcome on.
+    expect(markSubmitted).not.toHaveBeenCalled();
   });
 
   it("moves the case to MANUAL_REVIEW when blocked", async () => {

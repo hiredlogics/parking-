@@ -5,6 +5,8 @@ import { PAYMENT_STATEMENTS } from "./paymentSchema";
 import { DRAFT_STATEMENTS } from "./draftSchema";
 import { RATE_LIMIT_STATEMENTS } from "./rateLimitSchema";
 import { QUESTION_STATEMENTS } from "./questionSchema";
+import { OUTCOME_STATEMENTS } from "./outcomeSchema";
+import { USAGE_STATEMENTS } from "./usageSchema";
 
 /**
  * Idempotent DDL. Runs on demand from ensureSchema(); safe to call from
@@ -276,6 +278,10 @@ const STATEMENTS = [
   ...RATE_LIMIT_STATEMENTS,
   /* AI-dynamic question journey. Depends on appeal_cases. */
   ...QUESTION_STATEMENTS,
+  /* Case outcome + multi-stage linkage. Extends appeal_cases. */
+  ...OUTCOME_STATEMENTS,
+  /* AI usage and cost. Depends on appeal_cases. */
+  ...USAGE_STATEMENTS,
 ];
 
 let ensured: Promise<void> | null = null;
@@ -286,7 +292,17 @@ let ensured: Promise<void> | null = null;
  *
  * Update this whenever a new table is appended.
  */
-const SENTINEL_TABLE = "case_questions";
+const SENTINEL_TABLE = "ai_usage";
+
+/**
+ * A column added after SENTINEL_TABLE was created.
+ *
+ * The sentinel alone is not enough once later statements only ALTER
+ * existing tables: an older database would have `case_questions` and
+ * skip the new columns entirely. Checking a late column as well closes
+ * that gap.
+ */
+const SENTINEL_COLUMN = { table: "appeal_cases", column: "outcome_status" };
 
 /**
  * Create the schema, once.
@@ -305,8 +321,12 @@ export async function ensureSchema(): Promise<void> {
     const sql = getSql();
 
     const probe = (await sql.query(
-      `SELECT to_regclass($1) IS NOT NULL AS present`,
-      [`public.${SENTINEL_TABLE}`],
+      `SELECT to_regclass($1) IS NOT NULL
+              AND EXISTS (
+                SELECT 1 FROM information_schema.columns
+                 WHERE table_name = $2 AND column_name = $3
+              ) AS present`,
+      [`public.${SENTINEL_TABLE}`, SENTINEL_COLUMN.table, SENTINEL_COLUMN.column],
     )) as unknown as { rows?: Array<{ present: boolean }> } | Array<{ present: boolean }>;
     const rows = Array.isArray(probe) ? probe : (probe.rows ?? []);
     if (rows[0]?.present) return;

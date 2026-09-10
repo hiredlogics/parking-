@@ -1,3 +1,4 @@
+import { isChoiceType, normaliseAnswerValue } from "./answerContract";
 import { askedFactKey } from "./missing";
 import type { AnswerMap, AnswerValue, Question } from "./types";
 
@@ -35,7 +36,13 @@ export function applyAnswerToFact(
   }
 
   const next: AnswerMap = { ...current };
-  if (isProvided(value)) next[targetFact] = value;
+  /*
+   * Store the fact in the vocabulary the reasoning layer reads, not
+   * whatever shape the question happened to be asked in.
+   */
+  if (isProvided(value)) {
+    next[targetFact] = normaliseAnswerValue(targetFact, value) as AnswerValue;
+  }
   // Marked whether or not a value came back: "I'm not sure" resolves
   // nothing, but the fact must never be asked again.
   next[askedFactKey(targetFact)] = true;
@@ -78,8 +85,16 @@ export function validateAgainstQuestion(
       break;
   }
 
-  // Choice answers must come from the served option set.
-  if (q.options && q.options.length > 0 && isProvided(v)) {
+  /*
+   * Choice answers must come from the served option set.
+   *
+   * Scoped to choice types deliberately. This check used to run for
+   * every type that happened to carry options, so a boolean question
+   * with Yes/No labels rejected its own answer — `String(true)` is not
+   * one of the option values — and the customer could not proceed. For
+   * a boolean the type check above is already the whole value space.
+   */
+  if (isChoiceType(q.type) && q.options && q.options.length > 0 && isProvided(v)) {
     const allowed = new Set(q.options.map((o) => o.value));
     const picked = Array.isArray(v) ? v : [String(v)];
     const bad = picked.filter((p) => !allowed.has(p));

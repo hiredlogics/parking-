@@ -1,386 +1,182 @@
+/**
+ * @vitest-environment node
+ */
 import { describe, expect, it } from "vitest";
-import {
-  applyAnswer,
-  candidateRoutes,
-  nextQuestion,
-  runJourney,
-} from "@/lib/questions/engine";
-import { QUESTION_BANK } from "@/lib/questions/bank";
-import { deriveKnownFacts, FACT } from "@/lib/questions/facts";
-import {
-  checkBankKeeperSafe,
-  checkQuestionKeeperSafe,
-} from "@/lib/questions/keeperGuard";
-import type { AnswerMap, AnswerValue, Question } from "@/lib/questions/types";
+import { QUESTION_BANK, TAG_ROUTES } from "@/lib/questions/bank";
+import { toWireQuestion, countAnswered, askedKey } from "@/lib/questions/engine";
+import { checkBankKeeperSafe } from "@/lib/questions/keeperGuard";
+import { FACT, deriveKnownFacts } from "@/lib/questions/facts";
+import { bankQuestionsForFact, fallbackQuestionFor } from "@/lib/questions/fallback";
+import { TRIAGE_REQUIREMENTS, ROUTE_REQUIREMENTS } from "@/lib/questions/requirements";
 import type { ConfirmedPcn } from "@/types";
 
 /**
- * Encodes MASTER Developer Pack V2 Part 4 as executable tests:
- * one question at a time, never re-asking established facts, a short
- * journey, and absolute keeper safety.
+ * The controlled question bank, in its DEMOTED role.
+ *
+ * MASTER V2 Part 14 supersedes the fixed branch questionnaire, and the
+ * client confirmed the bank is now FALLBACK / REFERENCE / TEST
+ * COVERAGE / SAFETY only. `nextQuestion()` — the V1 selector that
+ * ordered by static priority and treated twelve answers as readiness —
+ * has been deleted, so these cover what the bank must still guarantee
+ * as a safety net.
  */
 
-const confirmedPostal: ConfirmedPcn = {
-  operator_name: "Euro Car Parks",
-  pcn_number: "ECP123456",
+const confirmed: ConfirmedPcn = {
+  operator_name: "Op Ltd",
+  pcn_number: "PCN1",
   vrm: "AB12CDE",
-  parking_location: "Retail Park, Northampton",
-  parking_event_date: "2026-05-02",
-  notice_issue_date: "2026-05-10",
+  parking_location: "Site",
+  parking_event_date: "2026-03-01",
   notice_route: "POSTAL",
-  charge_amount: 100,
-  alleged_breach: "Overstayed the maximum period",
-  case_stage: "INITIAL_OPERATOR_APPEAL",
-  confirmedAt: new Date().toISOString(),
-};
+  confirmedAt: "2026-03-05T00:00:00.000Z",
+} as ConfirmedPcn;
 
-/** Answer helper: keeper, driver not identified, England/Wales, private. */
-function baseAnswers(extra: AnswerMap = {}): AnswerMap {
-  return {
-    [FACT.JURISDICTION]: "ENGLAND_WALES",
-    "__asked:Q-SCOPE-JURISDICTION": true,
-    [FACT.VEHICLE_HIRE_STATUS]: "PRIVATE",
-    "__asked:Q-SCOPE-HIRE": true,
-    [FACT.REGISTERED_KEEPER]: "YES",
-    "__asked:Q-KEEPER-01": true,
-    [FACT.DRIVER_IDENTIFIED]: "NO",
-    "__asked:Q-DRIVER-ID-01": true,
-    ...extra,
-  };
-}
-
-describe("Keeper safety (non-negotiable)", () => {
-  it("no question in the bank asks who was driving", () => {
-    const violations = checkBankKeeperSafe(QUESTION_BANK);
-    expect(violations).toEqual([]);
+describe("Bank integrity", () => {
+  it("still holds the 27 controlled questions", () => {
+    expect(QUESTION_BANK).toHaveLength(27);
   });
 
-  it("the guard rejects a question that asks who was driving", () => {
-    const bad = {
-      questionId: "Q-BAD",
-      type: "short_text" as const,
-      label: "Who was driving the vehicle?",
-      required: true,
-    };
-    const issues = checkQuestionKeeperSafe(bad);
-    expect(issues.length).toBeGreaterThan(0);
-    expect(issues[0].why).toMatch(/who was driving/i);
-  });
-
-  it("the guard rejects 'were you driving' and 'did you park'", () => {
-    for (const label of [
-      "Were you driving at the time?",
-      "Did you park in the disabled bay?",
-      "What is the name of the driver?",
-    ]) {
-      const issues = checkQuestionKeeperSafe({
-        questionId: "Q-BAD",
-        type: "short_text",
-        label,
-        required: true,
-      });
-      expect(issues.length, label).toBeGreaterThan(0);
-    }
-  });
-
-  it("still permits asking whether driver details were already provided", () => {
-    const q = QUESTION_BANK.find((x) => x.questionId === "Q-DRIVER-ID-01")!;
-    expect(checkQuestionKeeperSafe(q)).toEqual([]);
-  });
-});
-
-describe("One question at a time", () => {
-  it("returns exactly one question, never a list", () => {
-    const r = nextQuestion({ confirmed: confirmedPostal });
-    expect(r.questioningComplete).toBe(false);
-    expect(r.question).not.toBeNull();
-    expect(Array.isArray(r.question)).toBe(false);
-  });
-
-  it("never exposes internal fields to the browser", () => {
-    const r = nextQuestion({ confirmed: confirmedPostal });
-    const keys = Object.keys(r.question!);
-    expect(keys).not.toContain("askWhen");
-    expect(keys).not.toContain("establishesFacts");
-    expect(keys).not.toContain("serves");
-    expect(keys).not.toContain("priority");
-    expect(keys).not.toContain("supportsModules");
-  });
-});
-
-describe("Never asks what is already established", () => {
-  it("skips the notice-route question when extraction established it", () => {
-    const r = runJourney(
-      { confirmed: confirmedPostal, answers: baseAnswers() },
-      (q) => answerGeneric(q),
-    );
-    const ids = r.asked.map((q) => q.questionId);
-    expect(ids).not.toContain("Q-NOTICE-ROUTE");
-  });
-
-  it("asks the notice-route question when extraction could not read it", () => {
-    const unknownRoute: ConfirmedPcn = {
-      ...confirmedPostal,
-      notice_route: "UNKNOWN",
-    };
-    const r = runJourney(
-      { confirmed: unknownRoute, answers: baseAnswers() },
-      (q) => answerGeneric(q),
-    );
-    expect(r.asked.map((q) => q.questionId)).toContain("Q-NOTICE-ROUTE");
-  });
-
-  it("does not re-ask a question once answered", () => {
-    let answers: AnswerMap = {};
-    const first = nextQuestion({ confirmed: confirmedPostal, answers });
-    const id = first.question!.questionId;
-    answers = applyAnswer(answers, id, answerGeneric(first.question!)).answers;
-    const second = nextQuestion({ confirmed: confirmedPostal, answers });
-    expect(second.question?.questionId).not.toBe(id);
-  });
-
-  it("does not repeat an optional question answered with nothing selected", () => {
-    let answers = baseAnswers();
-    const r1 = nextQuestion({ confirmed: confirmedPostal, answers });
-    expect(r1.question!.questionId).toBe("Q-WHAT-HAPPENED");
-    // Customer selects nothing.
-    answers = applyAnswer(answers, "Q-WHAT-HAPPENED", []).answers;
-    const r2 = nextQuestion({ confirmed: confirmedPostal, answers });
-    expect(r2.question?.questionId).not.toBe("Q-WHAT-HAPPENED");
-  });
-});
-
-describe("Journey length (V2 Part 4 — normally 3–6 after confirmation)", () => {
-  it("a simple keeper case completes in a short journey", () => {
-    const r = runJourney({ confirmed: confirmedPostal }, (q) =>
-      q.questionId === "Q-WHAT-HAPPENED" ? [] : answerGeneric(q),
-    );
-    expect(r.result.questioningComplete).toBe(true);
-    // 4 triage/scope + 1 "what happened" = 5.
-    expect(r.asked.length).toBeLessThanOrEqual(6);
-  });
-
-  it("a payment + keying case stays within a reasonable journey", () => {
-    const r = runJourney({ confirmed: confirmedPostal }, (q) => {
-      if (q.questionId === "Q-WHAT-HAPPENED") return ["payment_made", "vrm_error"];
-      return answerGeneric(q);
-    });
-    expect(r.result.questioningComplete).toBe(true);
-    expect(r.asked.length).toBeLessThanOrEqual(9);
-    const ids = r.asked.map((q) => q.questionId);
-    expect(ids).toContain("Q-PAY-METHOD");
-    expect(ids).toContain("Q-KEY-ENTERED");
-  });
-
-  it("terminates for every single-tag scenario", () => {
-    const tags = (
-      QUESTION_BANK.find((q) => q.questionId === "Q-WHAT-HAPPENED")!.options ?? []
-    ).map((o) => o.value);
-    for (const tag of tags) {
-      const r = runJourney({ confirmed: confirmedPostal }, (q) =>
-        q.questionId === "Q-WHAT-HAPPENED" ? [tag] : answerGeneric(q),
-      );
-      expect(r.result.questioningComplete, tag).toBe(true);
-      expect(r.asked.length, tag).toBeLessThanOrEqual(12);
-    }
-  });
-});
-
-describe("Route-specific questioning", () => {
-  it("asks breakdown questions only when the breakdown tag is set", () => {
-    const without = runJourney({ confirmed: confirmedPostal }, (q) =>
-      q.questionId === "Q-WHAT-HAPPENED" ? ["payment_made"] : answerGeneric(q),
-    );
-    expect(without.asked.map((q) => q.questionId)).not.toContain("Q-BREAK-NATURE");
-
-    const withTag = runJourney({ confirmed: confirmedPostal }, (q) =>
-      q.questionId === "Q-WHAT-HAPPENED"
-        ? ["breakdown_immobilised"]
-        : answerGeneric(q),
-    );
-    const ids = withTag.asked.map((q) => q.questionId);
-    expect(ids).toContain("Q-BREAK-NATURE");
-    expect(ids).toContain("Q-BREAK-PREVENTED");
-    expect(ids).toContain("Q-BREAK-EVIDENCE");
-  });
-
-  it("asks the lease permit-clause question only once an agreement exists", () => {
-    const noAgreement = runJourney({ confirmed: confirmedPostal }, (q) => {
-      if (q.questionId === "Q-WHAT-HAPPENED") return ["resident_parking_rights"];
-      if (q.questionId === "Q-RES-AGREEMENT") return "NO";
-      return answerGeneric(q);
-    });
-    expect(noAgreement.asked.map((q) => q.questionId)).not.toContain(
-      "Q-RES-PERMIT-CLAUSE",
-    );
-
-    const withAgreement = runJourney({ confirmed: confirmedPostal }, (q) => {
-      if (q.questionId === "Q-WHAT-HAPPENED") return ["resident_parking_rights"];
-      if (q.questionId === "Q-RES-AGREEMENT") return "YES";
-      return answerGeneric(q);
-    });
-    expect(withAgreement.asked.map((q) => q.questionId)).toContain(
-      "Q-RES-PERMIT-CLAUSE",
-    );
-  });
-
-  it("opens the PoFA route for an unidentified-driver keeper case", () => {
-    const facts = deriveKnownFacts({ answers: baseAnswers() });
-    expect(candidateRoutes(facts)).toContain("POFA");
-  });
-
-  it("maps tags onto the V2 route families", () => {
-    const facts = deriveKnownFacts({
-      answers: baseAnswers({
-        [FACT.SCENARIOS]: ["breakdown_immobilised", "resident_parking_rights"],
-      }),
-    });
-    const routes = candidateRoutes(facts);
-    expect(routes).toContain("BREAKDOWN");
-    expect(routes).toContain("RESIDENTIAL");
-  });
-});
-
-describe("Scope and jurisdiction gates (Source Register V1 §15)", () => {
-  it("routes a Scotland case to manual review", () => {
-    const r = nextQuestion({
-      confirmed: confirmedPostal,
-      answers: { ...baseAnswers(), [FACT.JURISDICTION]: "SCOTLAND" },
-    });
-    expect(r.questioningComplete).toBe(true);
-    expect(r.outOfScope?.action).toBe("MANUAL_REVIEW");
-    expect(r.outOfScope?.reason).toBe("JURISDICTION_SCOTLAND");
-    expect(r.question).toBeNull();
-  });
-
-  it("routes hire, lease and company vehicles to manual review", () => {
-    for (const status of ["HIRE", "LEASE", "COMPANY"]) {
-      const r = nextQuestion({
-        confirmed: confirmedPostal,
-        answers: { ...baseAnswers(), [FACT.VEHICLE_HIRE_STATUS]: status },
-      });
-      expect(r.outOfScope?.reason, status).toBe("HIRE_OR_COMPANY_VEHICLE");
-    }
-  });
-
-  it("routes a non-keeper appellant to manual review", () => {
-    const r = nextQuestion({
-      confirmed: confirmedPostal,
-      answers: { ...baseAnswers(), [FACT.REGISTERED_KEEPER]: "NO" },
-    });
-    expect(r.outOfScope?.reason).toBe("NOT_REGISTERED_KEEPER");
-  });
-
-  it("lets an England/Wales private-vehicle keeper case proceed", () => {
-    const r = nextQuestion({
-      confirmed: confirmedPostal,
-      answers: baseAnswers(),
-    });
-    expect(r.outOfScope).toBeUndefined();
-  });
-});
-
-describe("Answer validation", () => {
-  it("rejects an unknown question id", () => {
-    const r = applyAnswer({}, "Q-DOES-NOT-EXIST", "YES");
-    expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/unknown question/i);
-  });
-
-  it("rejects an option outside the declared set", () => {
-    const r = applyAnswer({}, "Q-KEEPER-01", "MAYBE");
-    expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/invalid option/i);
-  });
-
-  it("rejects a wrong value type", () => {
-    const r = applyAnswer({}, "Q-ANPR-VISITS", "three" as unknown as AnswerValue);
-    expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/expected a number/i);
-  });
-
-  it("enforces number bounds", () => {
-    expect(applyAnswer({}, "Q-ANPR-VISITS", 0).ok).toBe(false);
-    expect(applyAnswer({}, "Q-ANPR-VISITS", 25).ok).toBe(false);
-    expect(applyAnswer({}, "Q-ANPR-VISITS", 2).ok).toBe(true);
-  });
-
-  it("rejects an empty answer to a required question", () => {
-    const r = applyAnswer({}, "Q-KEEPER-01", "");
-    expect(r.ok).toBe(false);
-  });
-
-  it("accepts an empty answer to an optional question", () => {
-    const r = applyAnswer({}, "Q-WHAT-HAPPENED", []);
-    expect(r.ok).toBe(true);
-  });
-
-  it("writes the established fact keys", () => {
-    const r = applyAnswer({}, "Q-KEEPER-01", "YES");
-    expect(r.answers[FACT.REGISTERED_KEEPER]).toBe("YES");
-  });
-});
-
-describe("Question bank integrity", () => {
-  it("has unique question IDs", () => {
+  it("has unique question ids", () => {
     const ids = QUESTION_BANK.map((q) => q.questionId);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
-  it("declares at least one established fact per question", () => {
+  it("declares at least one fact for every question", () => {
     for (const q of QUESTION_BANK) {
       expect(q.establishesFacts.length, q.questionId).toBeGreaterThan(0);
     }
   });
 
-  it("gives every choice question a non-empty option set", () => {
+  it("only establishes facts from the FACT registry", () => {
+    const known = new Set(Object.values(FACT) as string[]);
     for (const q of QUESTION_BANK) {
-      if (q.type === "single_choice" || q.type === "multi_choice") {
-        expect(q.options?.length, q.questionId).toBeGreaterThan(1);
+      for (const f of q.establishesFacts) {
+        expect(known.has(f), `${q.questionId} → ${f}`).toBe(true);
       }
     }
   });
 
-  it("uses only the nine supported input types", () => {
-    const allowed = new Set([
-      "boolean", "single_choice", "multi_choice", "short_text",
-      "long_text", "date", "time", "number", "evidence_upload",
-    ]);
+  it("gives every choice question at least two options", () => {
     for (const q of QUESTION_BANK) {
-      expect(allowed.has(q.type), `${q.questionId}:${q.type}`).toBe(true);
-    }
-  });
-
-  it("covers every V2 route family that needs questioning", () => {
-    const served = new Set(QUESTION_BANK.map((q) => q.serves));
-    for (const family of [
-      "PAYMENT", "KEYING", "BREAKDOWN", "RESIDENTIAL", "EQUALITY",
-      "HOSPITAL", "LOADING", "EV_CHARGING", "INFRASTRUCTURE",
-      "ANPR", "CONSIDERATION", "GRACE", "SIGNAGE", "AUTHORIZATION",
-    ]) {
-      expect(served.has(family as never), family).toBe(true);
+      if (q.type !== "single_choice" && q.type !== "multi_choice") continue;
+      expect(q.options?.length ?? 0, q.questionId).toBeGreaterThanOrEqual(2);
     }
   });
 });
 
-/* ------------------------- helpers ------------------------- */
+/* ===================== Keeper safety (non-negotiable) ===================== */
 
-function answerGeneric(q: Question): AnswerValue {
-  switch (q.type) {
-    case "boolean":
-      return true;
-    case "number":
-      return q.min ?? 1;
-    case "multi_choice":
-      return q.options && q.required ? [q.options[0].value] : [];
-    case "single_choice": {
-      // Prefer in-scope answers so generic journeys don't bail out early.
-      const prefer = ["ENGLAND_WALES", "PRIVATE", "YES"];
-      const opts = q.options ?? [];
-      const match = opts.find((o) => prefer.includes(o.value));
-      return (match ?? opts[0]).value;
+describe("Keeper safety", () => {
+  it("holds across the entire bank", () => {
+    const violations = checkBankKeeperSafe(QUESTION_BANK);
+    expect(violations).toEqual([]);
+  });
+
+  it("permits the driver-notification question, which is about a past event", () => {
+    const q = QUESTION_BANK.find((x) => x.questionId === "Q-DRIVER-ID-01")!;
+    expect(q.label).toMatch(/already been given the driver's/i);
+    expect(checkBankKeeperSafe([q])).toEqual([]);
+  });
+
+  it("never ASKS who was driving anywhere in the bank", () => {
+    // The bank reassures the customer that we "will never ask you who
+    // was driving". That mentions the phrase without asking it, and is
+    // an explicitly permitted exception in the guard — so it is
+    // stripped before this stricter raw check runs.
+    const REASSURANCE = /we\s+will\s+never\s+ask\s+you\s+who\s+was\s+driving\.?/gi;
+    for (const q of QUESTION_BANK) {
+      const text = [q.label, q.helpText ?? "", ...(q.options ?? []).map((o) => o.label)]
+        .join(" ")
+        .replace(REASSURANCE, "");
+      expect(text, q.questionId).not.toMatch(/\bwho\s+(was|were)\s+driv/i);
+      expect(text, q.questionId).not.toMatch(/\bwere\s+you\s+driv/i);
+      expect(text, q.questionId).not.toMatch(/\bdriver'?s?\s+name\s*\?/i);
     }
-    default:
-      return "Provided detail for testing.";
-  }
-}
+  });
+});
+
+/* ========================= Wire projection ========================= */
+
+describe("Wire projection", () => {
+  it("strips internal fields before a question leaves the server", () => {
+    const wire = toWireQuestion(QUESTION_BANK[0]);
+    for (const internal of ["serves", "establishesFacts", "askWhen", "priority", "supportsModules"]) {
+      expect(Object.keys(wire)).not.toContain(internal);
+    }
+  });
+
+  it("keeps the fields the UI needs", () => {
+    const wire = toWireQuestion(QUESTION_BANK[0]);
+    expect(wire.questionId).toBeTruthy();
+    expect(wire.label).toBeTruthy();
+    expect(wire.type).toBeTruthy();
+  });
+});
+
+/* ====================== Fallback coverage ====================== */
+
+describe("Fallback coverage", () => {
+  const facts = deriveKnownFacts({ confirmed, answers: {} });
+
+  it("serves the triage facts the AI cannot skip", () => {
+    for (const fact of [
+      FACT.JURISDICTION, FACT.VEHICLE_HIRE_STATUS,
+      FACT.REGISTERED_KEEPER, FACT.DRIVER_IDENTIFIED,
+    ]) {
+      expect(bankQuestionsForFact(fact).length, fact).toBeGreaterThan(0);
+    }
+  });
+
+  it("returns a keeper-safe wire question for a triage requirement", () => {
+    const req = TRIAGE_REQUIREMENTS.find((r) => r.fact === FACT.REGISTERED_KEEPER)!;
+    const fb = fallbackQuestionFor(req, facts);
+    expect(fb).not.toBeNull();
+    expect(checkBankKeeperSafe([fb!.question])).toEqual([]);
+  });
+
+  it("reports honestly when the bank cannot cover a fact", () => {
+    // payment_made has no bank question — the engine must route to
+    // manual review rather than pretend the case is complete.
+    const req = ROUTE_REQUIREMENTS.PAYMENT!.find((r) => r.fact === FACT.PAYMENT_MADE)!;
+    expect(fallbackQuestionFor(req, facts)).toBeNull();
+  });
+});
+
+/* ==================== Route trigger data ==================== */
+
+describe("Route triggers", () => {
+  it("maps every scenario tag to at least one route", () => {
+    for (const [tag, routes] of Object.entries(TAG_ROUTES)) {
+      expect(routes.length, tag).toBeGreaterThan(0);
+    }
+  });
+
+  it("is now assisting data, not the sole route source", () => {
+    // Re-exported from the requirement map, which the reasoning layer
+    // owns. Proven by the candidacy tests in caseReasoning.test.ts.
+    expect(Object.keys(TAG_ROUTES).length).toBeGreaterThan(10);
+  });
+});
+
+/* ============ Count is reporting only, never readiness ============ */
+
+describe("Question count", () => {
+  it("counts asked questions for reporting", () => {
+    expect(countAnswered({ [askedKey("Q-A")]: true, [askedKey("Q-B")]: true })).toBe(2);
+  });
+
+  it("is not consulted by any readiness decision", async () => {
+    // Guard against the deleted behaviour returning: no live module may
+    // branch on how many questions were answered.
+    const { readFileSync } = await import("node:fs");
+    for (const file of [
+      "lib/questions/dynamicEngine.ts",
+      "lib/cases/sufficiency.ts",
+      "lib/questions/missing.ts",
+    ]) {
+      const src = readFileSync(file, "utf8");
+      expect(src, file).not.toMatch(/countAnswered/);
+      expect(src, file).not.toMatch(/answered\s*>=\s*max/);
+    }
+  });
+});

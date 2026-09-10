@@ -8,6 +8,9 @@ import {
   getQuestionPrompt,
 } from "../prompts/questions";
 import { serialiseQuestionContext } from "./contextSerialiser";
+import { modelFor } from "../models";
+import { withTransientRetry } from "../transport";
+import { recordAiUsage } from "@/lib/ai/usage";
 import type { QuestionProvider, QuestionProviderResult } from "./types";
 
 /**
@@ -36,11 +39,8 @@ export class OpenAIQuestionProvider implements QuestionProvider {
       );
     }
     this.client = new OpenAI({ apiKey: opts.apiKey, baseURL: opts.baseURL });
-    this.model =
-      opts.model ??
-      process.env.OPENAI_MODEL_QUESTIONS ??
-      process.env.OPENAI_MODEL ??
-      "gpt-4o";
+    // Model choice comes from the central configuration service.
+    this.model = opts.model ?? modelFor("QUESTION_GENERATION");
     this.promptVersion = opts.promptVersion ?? ACTIVE_QUESTION_PROMPT;
     this.id = `openai-question:${this.model}`;
   }
@@ -54,7 +54,8 @@ export class OpenAIQuestionProvider implements QuestionProvider {
     };
 
     try {
-      const response = await this.client.responses.create({
+      const response = await withTransientRetry(
+        () => this.client.responses.create({
         model: this.model,
         // Low: wording may vary per case, structure must not.
         temperature: 0.2,
@@ -69,6 +70,20 @@ export class OpenAIQuestionProvider implements QuestionProvider {
             ],
           },
         ],
+        }),
+        { operation: "QUESTION_GENERATION" },
+      );
+
+      await recordAiUsage({
+        caseId: context.caseId ?? null,
+        operation: "QUESTION_GENERATION",
+        provider: "openai",
+        model: this.model,
+        inputTokens: response.usage?.input_tokens,
+        cachedInputTokens:
+          response.usage?.input_tokens_details?.cached_tokens ?? 0,
+        outputTokens: response.usage?.output_tokens,
+        requestId: response.id ?? null,
       });
 
       const raw = (response.output_text ?? "").trim();

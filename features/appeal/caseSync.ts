@@ -342,3 +342,36 @@ export function fetchAppeal(caseId: string) {
 export function documentUrl(caseId: string, format: "pdf" | "docx") {
   return `/api/cases/${caseId}/document?format=${format}`;
 }
+
+/* ---------------------------- Outcome ---------------------------- */
+
+export type OutcomeStatusValue =
+  | "PENDING"
+  | "NO_RESPONSE"
+  | "ACCEPTED"
+  | "REJECTED";
+
+export interface OutcomeView {
+  outcomeStatus: OutcomeStatusValue;
+  outcomeRecordedAt: string | null;
+  submittedAt: string | null;
+  followUpDue: boolean;
+  secondStageMayApply: boolean;
+}
+
+/**
+ * Record what the parking operator decided.
+ *
+ * Independent of the workflow: a completed appeal stays completed
+ * whatever the answer.
+ */
+export function recordOutcome(
+  caseId: string,
+  outcomeStatus: OutcomeStatusValue,
+  detail?: string,
+) {
+  return call<{ outcome: OutcomeView }>(`/api/cases/${caseId}/outcome`, {
+    method: "POST",
+    body: JSON.stringify({ outcomeStatus, detail }),
+  });
+}

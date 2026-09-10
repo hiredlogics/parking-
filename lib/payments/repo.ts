@@ -71,6 +71,30 @@ export async function findPaidPaymentForCase(
   return rows[0] ? rowToPayment(rows[0]) : null;
 }
 
+/**
+ * Every payment across a customer's cases — the portal's Invoices view.
+ *
+ * Reads the same `case_payments` rows the payment gate writes, so there
+ * is no separate billing model to keep in step.
+ */
+export async function listPaymentsForCustomer(
+  customerId: string,
+): Promise<Array<CasePayment & { casePublicId: string; serviceType: string }>> {
+  const rows = await q(
+    `SELECT p.*, ac.public_id AS case_public_id, ac.service_type
+       FROM case_payments p
+       JOIN appeal_cases ac ON ac.id = p.case_id
+      WHERE ac.customer_id = $1
+      ORDER BY p.created_at DESC`,
+    [customerId],
+  );
+  return rows.map((r) => ({
+    ...rowToPayment(r),
+    casePublicId: r.case_public_id as string,
+    serviceType: r.service_type as string,
+  }));
+}
+
 export async function findPaymentBySession(
   providerSessionId: string,
 ): Promise<CasePayment | null> {

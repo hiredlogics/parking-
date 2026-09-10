@@ -196,9 +196,16 @@ export const TRIAGE_REQUIREMENTS: FactRequirement[] = [
       "Nothing on the notice explains why the charge is disputed. Until something is known about what actually happened, no substantive route can be opened.",
     kbModules: [],
     when: (f) => factStr(f, FACT.REGISTERED_KEEPER) !== null,
-    // Every substantive route in assessRoutes is gated on these tags.
-    // Without one, there is no appeal to write.
-    critical: true,
+    /*
+     * NOT critical any more.
+     *
+     * It was, while scenario tags were the only way to open a route —
+     * leaving it empty dead-ended the case. Routes now open from the
+     * operator's allegation, established facts and uploaded evidence
+     * too, so this question is a useful shortcut rather than a
+     * prerequisite. The dead-end guard moved to "no viable route was
+     * identified at all", which is the condition that actually matters.
+     */
   },
 ];
 

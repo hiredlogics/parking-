@@ -39,6 +39,10 @@ export const CASE_V2_STATEMENTS: string[] = [
   `ALTER TABLE case_documents_meta ADD COLUMN IF NOT EXISTS sha256 TEXT`,
   `ALTER TABLE case_documents_meta ADD COLUMN IF NOT EXISTS storage_provider TEXT NOT NULL DEFAULT 'memory'`,
   `ALTER TABLE case_documents_meta ADD COLUMN IF NOT EXISTS deleted_at TEXT`,
+  /* Ties a GENERATED file to the draft version that passed validation. */
+  `ALTER TABLE case_documents_meta ADD COLUMN IF NOT EXISTS source_draft_id TEXT`,
+  `CREATE INDEX IF NOT EXISTS case_documents_meta_type_idx ON case_documents_meta (case_id, document_type)`,
+  `CREATE INDEX IF NOT EXISTS case_documents_meta_draft_idx ON case_documents_meta (source_draft_id)`,
 
   /* ---------- orders: bind an order to a case ---------- */
   `ALTER TABLE orders ADD COLUMN IF NOT EXISTS appeal_case_id TEXT`,

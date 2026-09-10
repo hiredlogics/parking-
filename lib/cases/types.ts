@@ -1,6 +1,9 @@
 import type { ConfirmedPcn, ExtractionResult, EvidenceItem } from "@/types";
 import type {
   AppealCaseStatus,
+  CaseLifecycleStatus,
+  CaseOutcomeSource,
+  CaseOutcomeStatus,
   CasePaymentStatus,
   DriverStatus,
   NoticeRoute,
@@ -9,6 +12,13 @@ import type {
 } from "@/types/caseState";
 import type { AnswerMap } from "@/lib/questions/types";
 
+/**
+ * Services offered.
+ *
+ * A second-stage appeal will be a new value here rather than a flag on
+ * the existing case, so it gets its own workflow and payment gate from
+ * `lib/workflow/config.ts` without special-casing.
+ */
 export type ServiceType =
   | "PRIVATE_PARKING_INITIAL_APPEAL";
 
@@ -27,6 +37,11 @@ export interface CaseDocument {
   sizeBytes: number;
   /** Content hash recorded at upload, for integrity checks. */
   sha256: string | null;
+  /**
+   * For a GENERATED document: the validated draft it was rendered
+   * from. Makes "this PDF is the appeal we approved" provable.
+   */
+  sourceDraftId: string | null;
   description: string | null;
   uploadedAt: string;
   uploadedBy: string;
@@ -77,6 +92,34 @@ export interface AppealCase {
   appealLocked: boolean;
   orderId: string | null;
 
+  /**
+   * Coarse lifecycle position, derived from `status` — never stored.
+   * `lifecycleStatus = "COMPLETED"` with `outcomeStatus = "PENDING"` is
+   * valid and normal: the appeal is done, the operator has not replied.
+   */
+  lifecycleStatus: CaseLifecycleStatus;
+
+  /* ---------- Outcome (independent of workflow) ---------- */
+  outcomeStatus: CaseOutcomeStatus;
+  outcomeRecordedAt: string | null;
+  outcomeSource: CaseOutcomeSource | null;
+  outcomeDetail: string | null;
+
+  /** When the initial appeal was completed and sent. */
+  submittedAt: string | null;
+  /** When it becomes reasonable to ask whether an outcome arrived. */
+  followUpDueAt: string | null;
+
+  /* ---------- Multi-stage linkage ---------- */
+  /** 1 = initial operator appeal. A future second stage would be 2. */
+  stageNumber: number;
+  /**
+   * The case this one continues. Lets a second-stage appeal reuse the
+   * original notice, facts, answers, evidence and appeal instead of
+   * duplicating the customer's information.
+   */
+  parentCaseId: string | null;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -109,6 +152,14 @@ export interface CustomerCaseState {
   outOfScope: { detail: string } | null;
   paymentStatus: CasePaymentStatus;
   appealLocked: boolean;
+  /** Derived from status — safe to show, drives the portal's next step. */
+  lifecycleStatus: CaseLifecycleStatus;
+  /** Operator decision, or PENDING while we wait. */
+  outcomeStatus: CaseOutcomeStatus;
+  outcomeRecordedAt: string | null;
+  submittedAt: string | null;
+  /** Whether it is time to ask the customer if they have heard back. */
+  followUpDue: boolean;
   createdAt: string;
   updatedAt: string;
 }

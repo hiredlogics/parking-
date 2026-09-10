@@ -90,8 +90,10 @@ The operator is requested to cancel Parking Charge Notice ECP123456.`;
 /* ===================== Engine wiring ===================== */
 
 describe("Validation engine", () => {
-  it("registers all twelve validators exactly once", () => {
-    expect(VALIDATORS).toHaveLength(12);
+  it("registers all thirteen validators exactly once", () => {
+    // Thirteen since VAL-UNSUPPORTED completed the MASTER V2 Part 10
+    // set with unsupported claims and source governance.
+    expect(VALIDATORS).toHaveLength(13);
     const codes = VALIDATORS.map((v) => v.code).sort();
     expect(codes).toEqual([...ALL_VALIDATOR_CODES].sort());
   });
@@ -105,7 +107,7 @@ describe("Validation engine", () => {
   it("reports which validators passed", () => {
     const run = validateDraft(ctxFor(CLEAN_BODY));
     expect(run.passed).toContain("VAL-DRIVER");
-    expect(run.passed.length).toBe(12);
+    expect(run.passed.length).toBe(13);
   });
 
   it("fails the whole run on a single blocking issue", () => {

@@ -1,4 +1,5 @@
 import type { KnownFacts, Question } from "./types";
+import { checkAnswerContract } from "./answerContract";
 import type { GeneratedQuestion } from "./generated";
 import { GENERATABLE_TYPES } from "./generated";
 import {
@@ -226,6 +227,23 @@ export function validateGeneratedQuestion(
       );
       break;
     }
+  }
+
+  /*
+   * 12. The answer must match the fact's value space.
+   *
+   * A generated boolean for `registered_keeper` dead-ended a live case:
+   * the browser sent `true`, and every consumer of that fact compares
+   * against "YES" / "NO" / "UNSURE". Even had it been recorded, scope
+   * gating and route candidacy would have read it as unset.
+   */
+  const contractError = checkAnswerContract(
+    candidate.target_fact,
+    q.type,
+    q.options,
+  );
+  if (contractError) {
+    failures.push(fail("ANSWER_CONTRACT", contractError));
   }
 
   /* Choice questions need usable options. */

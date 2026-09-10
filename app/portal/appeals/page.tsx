@@ -1,19 +1,31 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
-import { useCrm } from "@/lib/crm/store";
-import { formatDate } from "@/lib/crm/format";
 import { AdminPage, AdminCard, AdminCardHeader } from "@/components/admin/ui";
+import { usePortalOverview } from "@/features/portal/usePortalOverview";
+import { formatDate } from "@/lib/crm/format";
 
+/**
+ * My Appeals — same layout as before, now backed by real cases.
+ *
+ * An appeal is a view of a case rather than a separate record, so this
+ * lists the customer's cases that have reached confirmation.
+ */
 export default function PortalAppealsPage() {
-  const client = useCrm((s) => s.clients[0]);
-  const appealsAll = useCrm((s) => s.appeals);
-  const appeals = useMemo(() => appealsAll.filter((a) => a.clientId === client?.id), [appealsAll, client?.id]);
+  const { data, error, loading } = usePortalOverview();
+  const appeals = data?.appeals ?? [];
+
   return (
     <AdminPage title="My Appeals" breadcrumb={<Link href="/portal" className="hover:text-brand-pink">Dashboard</Link>}>
       <AdminCard>
-        <AdminCardHeader title={`${appeals.length} appeal${appeals.length === 1 ? "" : "s"}`} />
+        <AdminCardHeader
+          title={loading ? "Loading…" : `${appeals.length} appeal${appeals.length === 1 ? "" : "s"}`}
+        />
+        {error && (
+          <div className="m-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+            {error}
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="min-w-full text-[13px]">
             <thead>
@@ -29,10 +41,14 @@ export default function PortalAppealsPage() {
             <tbody className="divide-y divide-brand-borderSoft">
               {appeals.map((a) => (
                 <tr key={a.id}>
-                  <td className="px-4 py-3 font-mono">{a.pcnReference}</td>
-                  <td className="px-4 py-3">{a.vrm}</td>
-                  <td className="px-4 py-3">{a.operator}</td>
-                  <td className="px-4 py-3">{a.service.replace(/_/g, " ")}</td>
+                  <td className="px-4 py-3 font-mono">
+                    <Link href={`/portal/cases/${a.caseId}`} className="hover:text-brand-pink hover:underline">
+                      {a.pcnReference ?? "—"}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3">{a.vrm ?? "—"}</td>
+                  <td className="px-4 py-3">{a.operator ?? "—"}</td>
+                  <td className="px-4 py-3">{a.service}</td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center rounded-full bg-brand-pinkLight px-2 py-0.5 text-[10.5px] font-semibold text-brand-pink">
                       {a.appealStatus}
@@ -41,7 +57,12 @@ export default function PortalAppealsPage() {
                   <td className="px-4 py-3 text-brand-mute">{formatDate(a.createdAt)}</td>
                 </tr>
               ))}
-              {appeals.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-brand-mute">No appeals yet.</td></tr>}
+              {!loading && appeals.length === 0 && (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-brand-mute">No appeals yet.</td></tr>
+              )}
+              {loading && (
+                <tr><td colSpan={6} className="px-4 py-8"><div className="h-12 animate-pulse rounded-xl bg-brand-canvas" /></td></tr>
+              )}
             </tbody>
           </table>
         </div>

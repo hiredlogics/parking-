@@ -1,4 +1,9 @@
-import type { AppealCaseStatus, CasePaymentStatus, RouteFamily } from "@/types/caseState";
+import type {
+  AppealCaseStatus,
+  CaseLifecycleStatus,
+  CasePaymentStatus,
+  RouteFamily,
+} from "@/types/caseState";
 
 /**
  * Customer-friendly ground labels.
@@ -69,6 +74,22 @@ const STATUS_LABELS: Record<AppealCaseStatus, string> = {
 
 export function caseStatusLabel(status: AppealCaseStatus): string {
   return STATUS_LABELS[status] ?? "In progress";
+}
+
+/** Plain-language wording for the derived case status. */
+const LIFECYCLE_LABELS: Record<CaseLifecycleStatus, string> = {
+  IN_PROGRESS: "In progress",
+  READY_FOR_PAYMENT: "Ready — payment needed",
+  PAID: "Paid",
+  GENERATING: "Preparing your appeal",
+  GENERATED: "Appeal ready",
+  SUBMITTED: "Appeal sent",
+  COMPLETED: "Completed",
+  MANUAL_REVIEW: "With our team",
+};
+
+export function lifecycleLabel(status: CaseLifecycleStatus): string {
+  return LIFECYCLE_LABELS[status] ?? "In progress";
 }
 
 /** Where the customer should go next for a case in this state. */

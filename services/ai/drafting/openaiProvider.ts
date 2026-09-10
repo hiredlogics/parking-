@@ -4,6 +4,9 @@ import {
   getDraftingPrompt,
 } from "../prompts/drafting";
 import { serialiseDraftingContext } from "./contextSerialiser";
+import { modelFor } from "../models";
+import { withTransientRetry } from "../transport";
+import { recordAiUsage } from "@/lib/ai/usage";
 import type { DraftResult, DraftingContext, DraftingProvider } from "../types";
 
 /**
@@ -39,11 +42,8 @@ export class OpenAIDraftingProvider implements DraftingProvider {
       );
     }
     this.client = new OpenAI({ apiKey: opts.apiKey, baseURL: opts.baseURL });
-    this.model =
-      opts.model ??
-      process.env.OPENAI_MODEL_DRAFTING ??
-      process.env.OPENAI_MODEL ??
-      "gpt-4o";
+    // Model choice comes from the central configuration service.
+    this.model = opts.model ?? modelFor("DRAFTING");
     this.promptVersion = opts.promptVersion ?? ACTIVE_DRAFTING_PROMPT;
     this.id = `openai-draft:${this.model}`;
   }
@@ -52,7 +52,8 @@ export class OpenAIDraftingProvider implements DraftingProvider {
     const prompt = getDraftingPrompt(this.promptVersion);
     const warnings: string[] = [];
 
-    const response = await this.client.responses.create({
+    const response = await withTransientRetry(
+      () => this.client.responses.create({
       model: this.model,
       // Low but non-zero: the letter should read naturally while staying
       // tightly anchored to the supplied context.
@@ -70,6 +71,20 @@ export class OpenAIDraftingProvider implements DraftingProvider {
           ],
         },
       ],
+      }),
+      { operation: "DRAFTING" },
+    );
+
+    await recordAiUsage({
+      caseId: context.caseId ?? null,
+      operation: "DRAFTING",
+      provider: "openai",
+      model: this.model,
+      inputTokens: response.usage?.input_tokens,
+      cachedInputTokens:
+        response.usage?.input_tokens_details?.cached_tokens ?? 0,
+      outputTokens: response.usage?.output_tokens,
+      requestId: response.id ?? null,
     });
 
     const body = (response.output_text ?? "").trim();

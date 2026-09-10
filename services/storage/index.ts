@@ -1,3 +1,4 @@
+import { refuseInProduction } from "@/lib/config/production";
 import { MemoryStorageProvider } from "./memoryStorage";
 import { R2StorageProvider, missingR2Vars, readR2Config } from "./r2Storage";
 import type { StorageProvider } from "./types";
@@ -38,6 +39,16 @@ export function getStorageProvider(): StorageProvider {
       `Unknown STORAGE_PROVIDER "${configured}". Use "memory" or "r2".`,
     );
   }
+
+  /*
+   * An unset STORAGE_PROVIDER used to mean "keep customer evidence in a
+   * Map", which in production means losing it on every restart and
+   * hiding it from every other instance.
+   */
+  refuseInProduction(
+    "STORAGE_PROVIDER",
+    "Storage would default to an in-process Map, so customer evidence and generated PDFs would be lost on restart. Set STORAGE_PROVIDER=s3 with S3_ENDPOINT for DigitalOcean Spaces.",
+  );
 
   cached = new MemoryStorageProvider();
   return cached;

@@ -4,7 +4,13 @@ import { nextPublicCaseId } from "./publicId";
 import type { AppealCase, CaseDocument, ServiceType, SufficiencyStatus } from "./types";
 import type { ConfirmedPcn, ExtractionResult } from "@/types";
 import type { AnswerMap } from "@/lib/questions/types";
-import type { AppealCaseStatus, RouteFamily } from "@/types/caseState";
+import {
+  lifecycleStatusFor,
+  type AppealCaseStatus,
+  type CaseOutcomeSource,
+  type CaseOutcomeStatus,
+  type RouteFamily,
+} from "@/types/caseState";
 
 /**
  * Case persistence. PostgreSQL is the authoritative store for a
@@ -69,6 +75,23 @@ function rowToCase(r: Row): AppealCase {
     appealLocked: r.appeal_locked === undefined ? true : Boolean(r.appeal_locked),
     orderId: (r.order_id as string | null) ?? null,
 
+    // Derived, never stored — see lifecycleStatusFor.
+    lifecycleStatus: lifecycleStatusFor(r.status as AppealCaseStatus, {
+      submittedAt: (r.submitted_at as string | null) ?? null,
+      outcomeStatus: (r.outcome_status as CaseOutcomeStatus) ?? "PENDING",
+    }),
+
+    outcomeStatus: (r.outcome_status as CaseOutcomeStatus) ?? "PENDING",
+    outcomeRecordedAt: (r.outcome_recorded_at as string | null) ?? null,
+    outcomeSource: (r.outcome_source as CaseOutcomeSource | null) ?? null,
+    outcomeDetail: (r.outcome_detail as string | null) ?? null,
+
+    submittedAt: (r.submitted_at as string | null) ?? null,
+    followUpDueAt: (r.follow_up_due_at as string | null) ?? null,
+
+    stageNumber: Number(r.stage_number ?? 1),
+    parentCaseId: (r.parent_case_id as string | null) ?? null,
+
     createdAt: r.created_at as string,
     updatedAt: r.updated_at as string,
   };
@@ -83,15 +106,30 @@ function genId(prefix: string): string {
 export async function createCase(input: {
   customerId: string;
   serviceType?: ServiceType;
+  /**
+   * Set when this case continues an earlier one. The child references
+   * the parent rather than copying its notice, facts and evidence.
+   */
+  parentCaseId?: string | null;
+  stageNumber?: number;
 }): Promise<AppealCase> {
   const id = genId("case");
   const publicId = await nextPublicCaseId();
   const now = new Date().toISOString();
   await q(
     `INSERT INTO appeal_cases
-       (id, public_id, customer_id, service_type, status, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,'DRAFT',$5,$5)`,
-    [id, publicId, input.customerId, input.serviceType ?? "PRIVATE_PARKING_INITIAL_APPEAL", now],
+       (id, public_id, customer_id, service_type, status,
+        parent_case_id, stage_number, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,'DRAFT',$5::text,$6::integer,$7,$7)`,
+    [
+      id,
+      publicId,
+      input.customerId,
+      input.serviceType ?? "PRIVATE_PARKING_INITIAL_APPEAL",
+      input.parentCaseId ?? null,
+      input.stageNumber ?? 1,
+      now,
+    ],
   );
   const rows = await q(`SELECT * FROM appeal_cases WHERE id = $1`, [id]);
   return rowToCase(rows[0]);
@@ -160,6 +198,141 @@ export async function setCaseStatus(
     `UPDATE appeal_cases SET status = $2, updated_at = $3 WHERE id = $1`,
     [id, status, new Date().toISOString()],
   );
+}
+
+/**
+ * How long after submission it becomes reasonable to ask the customer
+ * whether an outcome arrived. Operators are generally expected to reply
+ * within 28 days; 30 gives a little slack.
+ */
+export const FOLLOW_UP_DAYS = 30;
+
+/**
+ * Mark the initial appeal as completed and sent.
+ *
+ * Idempotent: a re-download or a regenerated draft must not move the
+ * submission date, because the follow-up window is measured from it.
+ */
+export async function markSubmitted(
+  id: string,
+  when = new Date(),
+): Promise<void> {
+  const now = when.toISOString();
+  const followUp = new Date(
+    when.getTime() + FOLLOW_UP_DAYS * 24 * 60 * 60 * 1000,
+  ).toISOString();
+  await q(
+    `UPDATE appeal_cases
+        SET submitted_at = COALESCE(submitted_at, $2::text),
+            follow_up_due_at = COALESCE(follow_up_due_at, $3::text),
+            updated_at = $2::text
+      WHERE id = $1`,
+    [id, now, followUp],
+  );
+}
+
+/**
+ * Record what the operator decided.
+ *
+ * Only the outcome columns move — the workflow `status` is untouched,
+ * so a completed case stays completed whatever the operator says.
+ */
+export async function recordOutcome(
+  id: string,
+  input: {
+    outcomeStatus: CaseOutcomeStatus;
+    source: CaseOutcomeSource;
+    detail?: string | null;
+  },
+): Promise<void> {
+  const now = new Date().toISOString();
+  await q(
+    `UPDATE appeal_cases
+        SET outcome_status = $2::text,
+            outcome_source = $3::text,
+            outcome_detail = $4::text,
+            outcome_recorded_at = $5::text,
+            updated_at = $5::text
+      WHERE id = $1`,
+    [id, input.outcomeStatus, input.source, input.detail ?? null, now],
+  );
+}
+
+/**
+ * Cases whose follow-up window has passed and whose outcome is still
+ * unknown. The future 30-day job will read exactly this; nothing calls
+ * it on a schedule yet.
+ */
+export async function findCasesAwaitingOutcome(
+  now = new Date(),
+  limit = 200,
+): Promise<AppealCase[]> {
+  const rows = await q(
+    `SELECT * FROM appeal_cases
+      WHERE submitted_at IS NOT NULL
+        AND outcome_status = 'PENDING'
+        AND follow_up_due_at IS NOT NULL
+        AND follow_up_due_at <= $1
+      ORDER BY follow_up_due_at
+      LIMIT $2`,
+    [now.toISOString(), limit],
+  );
+  return rows.map(rowToCase);
+}
+
+/**
+ * The generated document already rendered from a given draft.
+ *
+ * The immutability guarantee: if this returns a row, the PDF for that
+ * validated appeal already exists and must be reused, never re-made.
+ */
+export async function findGeneratedDocumentForDraft(
+  caseId: string,
+  sourceDraftId: string,
+): Promise<CaseDocument | null> {
+  const rows = await q(
+    `SELECT * FROM case_documents_meta
+      WHERE case_id = $1 AND source_draft_id = $2
+        AND document_type = 'GENERATED' AND deleted_at IS NULL
+      ORDER BY uploaded_at DESC LIMIT 1`,
+    [caseId, sourceDraftId],
+  );
+  return rows[0] ? rowToDocument(rows[0]) : null;
+}
+
+/**
+ * Every document across a customer's cases.
+ *
+ * Joined to the case so the portal can show which appeal a file belongs
+ * to without a query per row.
+ */
+export async function listDocumentsForCustomer(
+  customerId: string,
+): Promise<
+  Array<CaseDocument & { casePublicId: string; caseIdRef: string }>
+> {
+  const rows = await q(
+    `SELECT d.*, ac.public_id AS case_public_id
+       FROM case_documents_meta d
+       JOIN appeal_cases ac ON ac.id = d.case_id
+      WHERE ac.customer_id = $1 AND d.deleted_at IS NULL
+      ORDER BY d.uploaded_at DESC`,
+    [customerId],
+  );
+  return rows.map((r) => ({
+    ...rowToDocument(r),
+    casePublicId: r.case_public_id as string,
+    caseIdRef: r.case_id as string,
+  }));
+}
+
+/** Later stages of a case, if any exist. */
+export async function findChildCases(parentId: string): Promise<AppealCase[]> {
+  const rows = await q(
+    `SELECT * FROM appeal_cases WHERE parent_case_id = $1 ORDER BY stage_number`,
+    [parentId],
+  );
+  return rows.map(rowToCase);
 }
 
 /** Persist the raw extraction result exactly as returned. */
@@ -457,6 +630,7 @@ function rowToDocument(r: Row): CaseDocument {
     mimeType: r.mime_type as string,
     sizeBytes: Number(r.size_bytes ?? 0),
     sha256: (r.sha256 as string | null) ?? null,
+    sourceDraftId: (r.source_draft_id as string | null) ?? null,
     description: (r.description as string | null) ?? null,
     uploadedAt: r.uploaded_at as string,
     uploadedBy: r.uploaded_by as string,
@@ -475,13 +649,15 @@ export async function addCaseDocument(input: {
   description?: string | null;
   uploadedBy: string;
   sha256?: string | null;
+  sourceDraftId?: string | null;
 }): Promise<CaseDocument> {
   const id = genId("doc");
   await q(
     `INSERT INTO case_documents_meta
        (id, case_id, document_type, evidence_type, storage_key, storage_provider,
-        file_name, mime_type, size_bytes, description, sha256, uploaded_at, uploaded_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+        file_name, mime_type, size_bytes, description, sha256, uploaded_at,
+        uploaded_by, source_draft_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
     [
       id,
       input.caseId,
@@ -496,6 +672,7 @@ export async function addCaseDocument(input: {
       input.sha256 ?? null,
       new Date().toISOString(),
       input.uploadedBy,
+      input.sourceDraftId ?? null,
     ],
   );
   const rows = await q(`SELECT * FROM case_documents_meta WHERE id = $1`, [id]);

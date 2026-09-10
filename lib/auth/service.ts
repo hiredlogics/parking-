@@ -1,5 +1,7 @@
+import { timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import type { Client } from "@/lib/crm/types";
+import { refuseInProduction } from "@/lib/config/production";
 import {
   createCustomerAccount,
   findClientAuthByEmail,
@@ -59,30 +61,70 @@ export interface CustomerAuthResult {
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const DEV_ADMIN_PASSWORD = "changeme";
+
 /**
- * Hardcoded admin credentials. In production, override with the
- * ADMIN_EMAIL / ADMIN_PASSWORD env vars.
+ * The single administrator account.
+ *
+ * Read per call rather than captured at module load, so a corrected
+ * environment variable takes effect on restart rather than depending on
+ * import order.
  */
-const HARDCODED_ADMIN = {
-  id: "adm_default",
-  name: "Merika",
-  email: (process.env.ADMIN_EMAIL || "admin@parkingappealsgroup.co.uk").toLowerCase(),
-  password: process.env.ADMIN_PASSWORD || "changeme",
-  role: "OWNER",
-};
+function adminAccount(): { id: string; name: string; email: string; password: string; role: string } {
+  return {
+    id: "adm_default",
+    name: "Merika",
+    email: (process.env.ADMIN_EMAIL || "admin@parkingappealsgroup.co.uk").toLowerCase(),
+    password: process.env.ADMIN_PASSWORD || DEV_ADMIN_PASSWORD,
+    role: "OWNER",
+  };
+}
 
 export function adminEmailHint(): string {
-  return HARDCODED_ADMIN.email;
+  return adminAccount().email;
+}
+
+/**
+ * Compare in time independent of how much of the value matched, so a
+ * response time cannot be used to discover the password one character
+ * at a time.
+ */
+function secretsMatch(a: string, b: string): boolean {
+  const left = Buffer.from(a, "utf8");
+  const right = Buffer.from(b, "utf8");
+  if (left.length !== right.length) {
+    // Still compare something of equal length to keep timing flat.
+    timingSafeEqual(left, left);
+    return false;
+  }
+  return timingSafeEqual(left, right);
 }
 
 export async function loginAdmin(input: LoginInput): Promise<AdminAuthResult> {
+  const admin = adminAccount();
   const email = input.email.trim().toLowerCase();
   if (!email || !input.password) {
     return { ok: false, error: "Enter your admin email and password." };
   }
-  if (email !== HARDCODED_ADMIN.email || input.password !== HARDCODED_ADMIN.password) {
+
+  /*
+   * Never accept the placeholder password on a real deployment. Without
+   * this, a deploy that forgot ADMIN_PASSWORD hands over the admin area
+   * to anyone who tries "changeme".
+   */
+  if (admin.password === DEV_ADMIN_PASSWORD) {
+    refuseInProduction(
+      "ADMIN_PASSWORD",
+      'The admin account is still using the default password "changeme". Set ADMIN_PASSWORD.',
+    );
+  }
+
+  const emailOk = secretsMatch(email, admin.email);
+  const passwordOk = secretsMatch(input.password, admin.password);
+  if (!emailOk || !passwordOk) {
     return { ok: false, error: "Invalid admin credentials." };
   }
+  const HARDCODED_ADMIN = admin;
   return {
     ok: true,
     user: {

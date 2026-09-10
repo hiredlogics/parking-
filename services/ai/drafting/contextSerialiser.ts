@@ -1,4 +1,27 @@
 import type { DraftingContext } from "../types";
+import {
+  DATE_FACT_KEYS,
+  TIME_FACT_KEYS,
+  formatUkDate,
+  formatUkTime,
+} from "@/lib/format/ukDate";
+
+/**
+ * Present dates and times the way a UK letter writes them.
+ *
+ * The prompt instructs the model to reproduce supplied values exactly,
+ * so an ISO string in this payload becomes an ISO string in customer
+ * prose. Presentation only — the canonical values behind PoFA timing
+ * and Code applicability are computed in the analysis layer and are not
+ * touched here.
+ */
+function displayValue(field: string, value: unknown): string {
+  if (typeof value === "string") {
+    if (DATE_FACT_KEYS.has(field)) return formatUkDate(value) ?? value;
+    if (TIME_FACT_KEYS.has(field)) return formatUkTime(value) ?? value;
+  }
+  return JSON.stringify(value);
+}
 
 /**
  * Serialise the approved drafting context into the user-message payload.
@@ -15,7 +38,13 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
 
   lines.push("=== CASE REFERENCE DETAILS ===");
   for (const [k, v] of Object.entries(ctx.variables)) {
-    if (v && v.trim().length > 0) lines.push(`${k}: ${v}`);
+    if (!v || v.trim().length === 0) continue;
+    const shown = DATE_FACT_KEYS.has(k)
+      ? formatUkDate(v) ?? v
+      : TIME_FACT_KEYS.has(k)
+        ? formatUkTime(v) ?? v
+        : v;
+    lines.push(`${k}: ${shown}`);
   }
 
   lines.push("");
@@ -37,7 +66,7 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
   lines.push("=== VERIFIED FACTS (use these exact values; nothing else is established) ===");
   for (const f of a.verifiedFacts) {
     if (f.field.startsWith("__")) continue;
-    lines.push(`${f.field} = ${JSON.stringify(f.value)}  [${f.source}]`);
+    lines.push(`${f.field} = ${displayValue(f.field, f.value)}  [${f.source}]`);
   }
 
   lines.push("");

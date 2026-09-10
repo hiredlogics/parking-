@@ -1,3 +1,4 @@
+import { refuseInProduction } from "@/lib/config/production";
 import { DeterministicDraftingProvider } from "./deterministicProvider";
 import { OpenAIDraftingProvider } from "./openaiProvider";
 import type { DraftingProvider } from "../types";
@@ -38,6 +39,19 @@ export function getDraftingProvider(): DraftingProvider {
     }
     cached = new OpenAIDraftingProvider({ apiKey });
     return cached;
+  }
+
+  if (!apiKey || apiKey.trim().length === 0) {
+    /*
+     * The deterministic provider emits only approved wording, so this
+     * fallback is safe. It is not bespoke, though, and selling a
+     * customer template prose because a key was forgotten is not
+     * acceptable — production must choose it deliberately.
+     */
+    refuseInProduction(
+      "OPENAI_API_KEY",
+      "Drafting would silently fall back to non-bespoke template prose. Set OPENAI_API_KEY, or set DRAFTING_PROVIDER=deterministic to accept template output deliberately.",
+    );
   }
 
   cached = apiKey && apiKey.trim().length > 0

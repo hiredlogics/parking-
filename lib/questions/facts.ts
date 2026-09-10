@@ -36,27 +36,44 @@ export const FACT = {
 
   // --- Payment / keying ---
   PAYMENT_MADE: "payment_made",
+  PAYMENT_ATTEMPTED: "payment_attempted",
   PAYMENT_METHOD: "payment_method",
   PAYMENT_EVIDENCE: "payment_evidence",
+  MACHINE_OR_APP_ISSUE: "machine_or_app_issue",
   VRM_ENTERED: "vrm_entered",
+  KEYING_ERROR: "keying_error",
 
   // --- ANPR / duration ---
   CONTINUOUS_PRESENCE: "continuous_presence",
   VISIT_COUNT: "visit_count",
+  VEHICLE_LEFT_SITE_EVIDENCE: "vehicle_left_site_evidence",
+  TIMESTAMP_DISCREPANCY: "timestamp_discrepancy",
 
   // --- Consideration / grace ---
   INITIAL_PERIOD_REASON: "initial_period_reason",
   EXIT_DELAY_REASON: "exit_delay_reason",
+  ARRIVAL_CONTEXT: "arrival_context",
+  TERMS_READ: "terms_read",
+  PARKING_ACCEPTED: "parking_accepted",
+  PERMITTED_PERIOD: "permitted_period",
+  DEPARTURE_DELAY: "departure_delay",
+  ACTUAL_PARKING_PERIOD: "actual_parking_period",
 
   // --- Permit / authorisation ---
   PERMISSION_HELD: "permission_held",
   PERMISSION_SOURCE: "permission_source",
+  VISITOR_AUTHORISATION: "visitor_authorisation",
+  CUSTOMER_AUTHORISATION: "customer_authorisation",
+  AUTHORISATION_EVIDENCE: "authorisation_evidence",
 
   // --- Breakdown ---
   BREAKDOWN_OCCURRED: "breakdown_occurred",
   BREAKDOWN_NATURE: "breakdown_nature",
   BREAKDOWN_PREVENTED_DEPARTURE: "breakdown_prevented_departure",
   BREAKDOWN_EVIDENCE: "breakdown_evidence",
+  TIME_OF_FAILURE: "time_of_failure",
+  RECOVERY_ATTENDANCE: "recovery_attendance",
+  REPAIR_CARRIED_OUT: "repair_carried_out",
 
   // --- Residential ---
   OCCUPIER_STATUS: "occupier_status",
@@ -64,6 +81,9 @@ export const FACT = {
   AGREEMENT_PERMIT_CLAUSE: "agreement_permit_clause",
   BAY_ALLOCATED: "bay_allocated",
   BAY_REFERENCE: "bay_reference",
+  COMMUNAL_SPACE: "communal_space",
+  THIRD_PARTY_OPERATOR_CLAUSE: "third_party_operator_clause",
+  PARKING_RIGHT_EVIDENCE: "parking_right_evidence",
 
   // --- Signage ---
   SIGNAGE_ISSUE_BASIS: "signage_issue_basis",

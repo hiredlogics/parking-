@@ -3,6 +3,7 @@ import { analyseCase, factsForCase } from "@/lib/analysis/engine";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
 import { transformToKeeperSafe, validateKeeperSafe } from "@/lib/keeperSafe";
 import { getDraftingProvider } from "@/services/ai/drafting";
+import { TransportError } from "@/services/ai/transport";
 import type { DraftResult, DraftingContext } from "@/services/ai/types";
 import type { IssueAnalysis } from "@/lib/analysis/types";
 import type { AnswerMap } from "@/lib/questions/types";
@@ -172,7 +173,16 @@ export async function draftAppeal(
         ...warnings,
         err instanceof Error ? err.message : "Drafting provider failed.",
       ],
-      blockedReason: "DRAFTING_FAILED",
+      /*
+       * Transport and content failures are labelled differently.
+       * A UAT batch reported a dead socket as a zero-module
+       * MANUAL_REVIEW, which was indistinguishable from a knowledge
+       * failure and sent the investigation to the wrong layer.
+       */
+      blockedReason:
+        err instanceof TransportError
+          ? "DRAFTING_TRANSPORT_FAILED"
+          : "DRAFTING_FAILED",
       engineVersion: DRAFTING_ENGINE_VERSION,
     };
   }

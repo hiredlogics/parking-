@@ -1,4 +1,4 @@
-import type { ValidationIssue } from "@/lib/kb/types";
+import { NON_BINDING_STATUSES, type ValidationIssue } from "@/lib/kb/types";
 import { validateKeeperSafe } from "@/lib/keeperSafe";
 import { FACT, factStr } from "@/lib/questions/facts";
 import { findAll, issue, type Validator, type ValidatorContext } from "./context";
@@ -852,6 +852,155 @@ const valRepetition: Validator = {
   },
 };
 
+/* ========================= VAL-UNSUPPORTED ========================= */
+
+/**
+ * Unsupported legal claims, and source governance.
+ *
+ * MASTER V2 Part 9: the AI may not invent a legal proposition, an
+ * authority or a Code provision. Source Register §17: every proposition
+ * needs a source, and anything WITHDRAWN, GOVERNMENT_PROPOSAL or
+ * OPEN_INVESTIGATION must never be described as binding or current law.
+ *
+ * This is the last line of defence. The retrieval layer should already
+ * have excluded non-binding sources, so anything caught here means the
+ * drafter introduced material of its own.
+ */
+
+/** Named authorities the KB knows about, lower-cased. */
+function permittedAuthorityNames(ctx: ValidatorContext): string[] {
+  return ctx.sources.map((s) => s.title.toLowerCase());
+}
+
+/** Case-name shapes: "X v Y", with or without a citation. */
+const CASE_CITATION =
+  /\b([A-Z][A-Za-z'’-]+(?:\s+[A-Z][A-Za-z'’-]+){0,3})\s+v\.?\s+([A-Z][A-Za-z'’-]+(?:\s+[A-Za-z'’-]+){0,3})/g;
+
+/** Statute shapes: "<Name> Act <year>". */
+const STATUTE = /\b([A-Z][A-Za-z'’-]*(?:\s+[A-Z][A-Za-z'’-]*){0,5}\s+Act\s+(?:19|20)\d{2})/g;
+
+/** Wording that asserts something is current binding law. */
+const BINDING_ASSERTION =
+  /\b(?:is|are|remains?|constitutes?)\s+(?:now\s+)?(?:current\s+)?(?:binding|the\s+law|statutory\s+law|legally\s+binding|in\s+force)\b|\bthe\s+law\s+(?:now\s+)?requires\b|\bstatute\s+requires\b/i;
+
+/** Non-binding material that must never be dressed as law. */
+const NON_BINDING_MENTIONS: Array<{ re: RegExp; what: string }> = [
+  { re: /\bconsultation\b/i, what: "a government consultation" },
+  { re: /\bproposed\s+code\b/i, what: "a proposed Code" },
+  { re: /\bwithdrawn\s+code\b/i, what: "a withdrawn Code" },
+  { re: /\b2022\s+government\s+code\b/i, what: "the withdrawn 2022 government Code" },
+  { re: /\bopen\s+investigation\b/i, what: "an open investigation" },
+];
+
+const valUnsupported: Validator = {
+  code: "VAL-UNSUPPORTED",
+  description:
+    "A legal proposition, authority or Code provision is not supported by approved retrieved material.",
+  run(ctx) {
+    const issues: ValidationIssue[] = [];
+    const permitted = permittedAuthorityNames(ctx);
+    const moduleBasis = ctx.modules
+      .map((m) => `${m.legalBasis ?? ""} ${m.coreProposition}`.toLowerCase())
+      .join(" ");
+
+    const isKnown = (name: string) => {
+      const n = name.toLowerCase();
+      return (
+        permitted.some((p) => p.includes(n) || n.includes(p.split(",")[0])) ||
+        moduleBasis.includes(n)
+      );
+    };
+
+    // 1. Case authorities must come from the source register.
+    for (const m of findAll(ctx.body, CASE_CITATION)) {
+      const cited = `${m[1]} v ${m[2]}`;
+      if (isKnown(cited) || isKnown(m[1])) continue;
+      issues.push({
+        code: "VAL-UNSUPPORTED",
+        severity: "BLOCKING",
+        message: `The draft cites "${cited}", which is not in the approved source register. Authorities may not be introduced by the drafter.`,
+        excerpt: m[0],
+      });
+    }
+
+    // 2. Statutes must come from the source register.
+    for (const m of findAll(ctx.body, STATUTE)) {
+      if (isKnown(m[1])) continue;
+      issues.push({
+        code: "VAL-UNSUPPORTED",
+        severity: "BLOCKING",
+        message: `The draft relies on "${m[1]}", which is not in the approved source register.`,
+        excerpt: m[0],
+      });
+    }
+
+    // 3. Source governance — Source Register §17.
+    for (const { re, what } of NON_BINDING_MENTIONS) {
+      const hit = re.exec(ctx.body);
+      if (!hit) continue;
+      // Mentioning it is allowed; presenting it as law is not.
+      const nearby = contextAround(ctx.body, hit.index, 220);
+      if (BINDING_ASSERTION.test(nearby)) {
+        issues.push({
+          code: "VAL-UNSUPPORTED",
+          severity: "BLOCKING",
+          message: `The draft presents ${what} as binding or current law. Withdrawn, proposed and under-investigation material is context only.`,
+          excerpt: nearby.slice(0, 180),
+        });
+      }
+    }
+
+    // 4. A non-binding source must not be leaned on at all where the
+    //    retrieval layer let one through.
+    for (const source of ctx.sources) {
+      if (!NON_BINDING_STATUSES.includes(source.status)) continue;
+      const short = source.title.split(",")[0].toLowerCase();
+      if (short.length < 6) continue;
+      if (!ctx.body.toLowerCase().includes(short)) continue;
+      issues.push({
+        code: "VAL-UNSUPPORTED",
+        severity: "BLOCKING",
+        message: `The draft relies on "${source.title}", which is ${source.status} and may not be presented as a current requirement.`,
+        excerpt: short,
+      });
+    }
+
+    // 5. A Code requirement needs a resolved Code version behind it.
+    if (
+      /\bcode\s+(?:of\s+practice\s+)?(?:requires|mandates|provides\s+that|states\s+that)\b/i.test(
+        ctx.body,
+      ) &&
+      !ctx.analysis.codeVersionId
+    ) {
+      issues.push({
+        code: "VAL-UNSUPPORTED",
+        severity: "BLOCKING",
+        message:
+          "The draft asserts a Code requirement, but no applicable Code version was resolved for the parking event date.",
+        excerpt: "Code requirement without a resolved version",
+      });
+    }
+
+    // 6. Every module-free draft is unsupported by definition.
+    if (ctx.modules.length === 0) {
+      issues.push({
+        code: "VAL-UNSUPPORTED",
+        severity: "BLOCKING",
+        message:
+          "No approved knowledge module supports this draft, so nothing in it is traceable to reviewed material.",
+        excerpt: "no approved modules",
+      });
+    }
+
+    return issues;
+  },
+};
+
+/** Text either side of an index, for judging how a mention is used. */
+function contextAround(body: string, index: number, radius: number): string {
+  return body.slice(Math.max(0, index - radius), index + radius);
+}
+
 export const VALIDATORS: Validator[] = [
   valDriver,
   valFact,
@@ -865,4 +1014,5 @@ export const VALIDATORS: Validator[] = [
   valStage,
   valConflict,
   valRepetition,
+  valUnsupported,
 ];

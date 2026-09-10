@@ -22,7 +22,7 @@ import type { PofaAnalysis, RouteAssessment } from "./types";
  */
 
 /** Base ranks. Lower leads. Refined per Appendix B below. */
-const BASE_RANK: Record<RouteFamily, number> = {
+export const BASE_RANK: Record<RouteFamily, number> = {
   POFA: 10,
   RESIDENTIAL: 12,
   BREAKDOWN: 20,
@@ -42,6 +42,22 @@ const BASE_RANK: Record<RouteFamily, number> = {
   SIGNAGE: 60,
   LANDOWNER: 90,
 };
+
+/**
+ * Relative strength of a route, 0–1, where 1 is the strongest.
+ *
+ * Derived from the same Appendix B ranking the analysis layer uses, so
+ * question selection and drafting priority cannot disagree. V2 Part 5:
+ * "Strong primary grounds should not be diluted by generic secondary
+ * arguments" — that applies to what we ASK about, not only what we
+ * write.
+ */
+export function routeStrength(route: RouteFamily): number {
+  const rank = BASE_RANK[route];
+  if (rank === undefined) return 0;
+  // Ranks run 10 (strongest) to 90 (weakest).
+  return Math.max(0, Math.min(1, (100 - rank) / 90));
+}
 
 export interface RouteInput {
   facts: KnownFacts;

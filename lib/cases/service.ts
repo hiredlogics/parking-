@@ -9,6 +9,7 @@ import {
 } from "@/lib/questions/dynamicEngine";
 import { askedFactKey, missingRequirements } from "@/lib/questions/missing";
 import * as questionRepo from "./questionRepo";
+import { isFollowUpDue } from "./outcome";
 import { deriveKnownFacts, FACT, factStr } from "@/lib/questions/facts";
 import { EVIDENCE_TYPE_LABELS } from "@/types";
 import * as repo from "./repo";
@@ -318,9 +319,15 @@ async function resolveNextStep(
   }
 
   const outcome = await nextDynamicQuestion({
+    caseId,
     confirmed: appealCase.confirmed,
     answers,
     evidenceTypes,
+    // The operator's allegation opens routes on its own.
+    allegedBreach:
+      appealCase.confirmed?.alleged_breach ??
+      appealCase.extraction?.raw?.alleged_breach ??
+      null,
     askedFacts: history.map((h) => h.targetFact),
     askedLabels: history.map((h) => h.label),
   });
@@ -770,6 +777,14 @@ export async function getCustomerCaseState(
       outOfScope: c.outOfScopeDetail ? { detail: c.outOfScopeDetail } : null,
       paymentStatus: c.paymentStatus,
       appealLocked: c.appealLocked,
+      // Workflow position and operator decision are separate axes:
+      // COMPLETED with a PENDING outcome is the normal post-submission
+      // state.
+      lifecycleStatus: c.lifecycleStatus,
+      outcomeStatus: c.outcomeStatus,
+      outcomeRecordedAt: c.outcomeRecordedAt,
+      submittedAt: c.submittedAt,
+      followUpDue: isFollowUpDue(c),
       createdAt: c.createdAt,
       updatedAt: c.updatedAt,
     },

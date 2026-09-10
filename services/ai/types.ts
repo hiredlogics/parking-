@@ -11,6 +11,11 @@ import type { IssueAnalysis } from "@/lib/analysis/types";
 
 /** The approved context a drafter is allowed to work from. */
 export interface DraftingContext {
+  /**
+   * Attributes the provider call to a case for cost reporting. Not sent
+   * to the model — it is metadata, not reasoning input.
+   */
+  caseId?: string | null;
   analysis: IssueAnalysis;
   /** Retained knowledge modules, in drafting priority order. */
   modules: KbModule[];

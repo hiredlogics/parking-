@@ -63,6 +63,8 @@ export interface GenerationResult {
     promptVersion: string;
     model: string | null;
     bespoke: boolean;
+    /** Token usage for the accepted attempt, where the provider reports it. */
+    usage?: { promptTokens?: number; completionTokens?: number };
   } | null;
   warnings: string[];
   generationVersion: string;
@@ -154,13 +156,18 @@ export async function generateValidatedAppeal(
       // The drafting layer already blocks for keeper safety and
       // unresolved variables. Treat as manual review rather than retry
       // when the reason is structural.
+      /*
+       * ANY unreleasable outcome is MANUAL_REVIEW, not FAILED.
+       *
+       * V2 Part 2 step 11 and the client's §19: if blocking problems
+       * remain, route to review rather than releasing. FAILED was a
+       * dead end — the customer has paid, so an unusable draft must
+       * always land with a person. This fired in UAT when a
+       * regenerated draft was blocked by the keeper-safety layer.
+       */
       return {
         ...base,
-        status:
-          draft.blockedReason?.startsWith("MANUAL_REVIEW") ||
-          draft.blockedReason === "NO_APPROVED_MODULES"
-            ? "MANUAL_REVIEW"
-            : "FAILED",
+        status: "MANUAL_REVIEW",
         body: null,
         moduleIds: draft.draft?.moduleIds ?? [],
         provider: draft.draft
@@ -169,14 +176,17 @@ export async function generateValidatedAppeal(
               promptVersion: draft.draft.promptVersion,
               model: draft.draft.model,
               bespoke: draft.draft.bespoke,
+              usage: draft.draft.usage,
             }
           : null,
         warnings: [...warnings, ...draft.warnings],
         reason: draft.blockedReason ?? "DRAFTING_FAILED",
         detail:
           draft.blockedReason === "KEEPER_SAFETY_FAILED"
-            ? "The draft contained driver-identifying wording and was blocked."
-            : null,
+            ? "The draft contained driver-identifying wording and was blocked before release."
+            : draft.blockedReason === "DRAFTING_TRANSPORT_FAILED"
+              ? "We could not reach the drafting service. This is a temporary technical fault, not a problem with your case — it will be retried."
+              : "The appeal could not be produced safely and needs a person to review it.",
       };
     }
 
@@ -207,6 +217,7 @@ export async function generateValidatedAppeal(
               promptVersion: draft.draft.promptVersion,
               model: draft.draft.model,
               bespoke: draft.draft.bespoke,
+              usage: draft.draft.usage,
             }
           : null,
         warnings: [
@@ -252,6 +263,7 @@ export async function generateValidatedAppeal(
           promptVersion: lastDraft.draft.promptVersion,
           model: lastDraft.draft.model,
           bespoke: lastDraft.draft.bespoke,
+          usage: lastDraft.draft.usage,
         }
       : null,
     warnings: [...warnings, ...(lastDraft?.warnings ?? [])],

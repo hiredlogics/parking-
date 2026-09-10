@@ -188,7 +188,8 @@ export type ValidatorCode =
   | "VAL-ANPR"
   | "VAL-STAGE"
   | "VAL-CONFLICT"
-  | "VAL-REPETITION";
+  | "VAL-REPETITION"
+  | "VAL-UNSUPPORTED";
 
 export const ALL_VALIDATOR_CODES: readonly ValidatorCode[] = [
   "VAL-DRIVER",
@@ -203,6 +204,7 @@ export const ALL_VALIDATOR_CODES: readonly ValidatorCode[] = [
   "VAL-STAGE",
   "VAL-CONFLICT",
   "VAL-REPETITION",
+  "VAL-UNSUPPORTED",
 ] as const;
 
 export type ValidationSeverity = "BLOCKING" | "WARNING";

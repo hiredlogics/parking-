@@ -1,3 +1,4 @@
+import { refuseInProduction } from "@/lib/config/production";
 import { OpenAIQuestionProvider } from "./openaiProvider";
 import type { QuestionProvider } from "./types";
 
@@ -33,7 +34,18 @@ export function getQuestionProvider(): QuestionProvider | null {
     return cached;
   }
 
-  if (!apiKey || apiKey.trim().length === 0) return null;
+  if (!apiKey || apiKey.trim().length === 0) {
+    /*
+     * The bank is a safe fallback, but it is the fixed questionnaire the
+     * adaptive engine was built to replace. Falling back to it because a
+     * key was missing would quietly undo that, so production has to ask.
+     */
+    refuseInProduction(
+      "OPENAI_API_KEY",
+      "Question generation would silently fall back to the fixed question bank instead of adaptive questioning. Set OPENAI_API_KEY, or set QUESTION_PROVIDER=bank to accept the bank deliberately.",
+    );
+    return null;
+  }
   cached = new OpenAIQuestionProvider({ apiKey });
   return cached;
 }

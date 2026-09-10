@@ -1,6 +1,9 @@
 import OpenAI from "openai";
 import type { ExtractedPcn, ExtractionResult, NoticeRoute } from "@/types";
 import type { DocumentExtractionProvider } from "./types";
+import { modelFor } from "@/services/ai/models";
+import { withTransientRetry } from "@/services/ai/transport";
+import { recordAiUsage } from "@/lib/ai/usage";
 
 /**
  * Real OpenAI vision-based PCN extraction provider.
@@ -30,7 +33,8 @@ export class OpenAIExtractionProvider implements DocumentExtractionProvider {
       );
     }
     this.client = new OpenAI({ apiKey: opts.apiKey, baseURL: opts.baseURL });
-    this.model = opts.model ?? process.env.OPENAI_MODEL ?? "gpt-4o";
+    // Model choice comes from the central configuration service.
+    this.model = opts.model ?? modelFor("EXTRACTION");
     this.id = `openai:${this.model}`;
   }
 
@@ -38,6 +42,9 @@ export class OpenAIExtractionProvider implements DocumentExtractionProvider {
     name: string;
     mimeType: string;
     bytes: Uint8Array | ArrayBuffer;
+    hint?: string;
+    /** Attributes the call to a case for cost reporting. */
+    caseId?: string | null;
   }): Promise<ExtractionResult> {
     const bytes =
       file.bytes instanceof Uint8Array ? file.bytes : new Uint8Array(file.bytes);
@@ -64,7 +71,8 @@ export class OpenAIExtractionProvider implements DocumentExtractionProvider {
             file_data: `data:${mime};base64,${b64}`,
           });
 
-    const response = await this.client.responses.create({
+    const response = await withTransientRetry(
+      () => this.client.responses.create({
       model: this.model,
       // Keep temperature at 0 for deterministic extraction.
       temperature: 0,
@@ -89,6 +97,20 @@ export class OpenAIExtractionProvider implements DocumentExtractionProvider {
           strict: true,
         },
       },
+      }),
+      { operation: "EXTRACTION" },
+    );
+
+    await recordAiUsage({
+      caseId: file.caseId ?? null,
+      operation: "EXTRACTION",
+      provider: "openai",
+      model: this.model,
+      inputTokens: response.usage?.input_tokens,
+      cachedInputTokens:
+        response.usage?.input_tokens_details?.cached_tokens ?? 0,
+      outputTokens: response.usage?.output_tokens,
+      requestId: response.id ?? null,
     });
 
     const outputText = response.output_text?.trim() ?? "";

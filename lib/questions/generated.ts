@@ -61,6 +61,11 @@ export interface QuestionProvenance {
 
 /** Context handed to the generator. Contains no chain-of-thought. */
 export interface GenerationContext {
+  /**
+   * Attributes the provider call to a case for cost reporting. Not sent
+   * to the model — it is metadata, not reasoning input.
+   */
+  caseId?: string | null;
   /** Confirmed notice facts, already established. Never re-ask these. */
   confirmedFacts: Record<string, unknown>;
   /** Fact key → answer, from questions already put to the customer. */
@@ -76,6 +81,17 @@ export interface GenerationContext {
     route: RequirementScope;
     rationale: string;
     kbModules: string[];
+    /**
+     * Approved knowledge explaining why this fact matters. Route-scoped
+     * and status-filtered, with no module or source IDs — the KB owns
+     * the legal position, the model owns only the wording.
+     */
+    knowledge?: Array<{
+      topic: string;
+      proposition: string;
+      mustCheck: string[];
+      evidenceHelps: string[];
+    }>;
   }>;
   /** Labels already put to the customer, so none is repeated. */
   askedLabels: string[];

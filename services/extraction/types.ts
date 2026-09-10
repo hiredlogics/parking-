@@ -16,5 +16,7 @@ export interface DocumentExtractionProvider {
     bytes: Uint8Array | ArrayBuffer;
     /** Optional filename hint / demo case id. */
     hint?: string;
+    /** Attributes the call to a case for cost reporting. */
+    caseId?: string | null;
   }): Promise<ExtractionResult>;
 }

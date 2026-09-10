@@ -124,6 +124,8 @@ export async function POST(
       mimeType: mime,
       bytes,
       hint: typeof hint === "string" ? hint : undefined,
+      // Attributes the vision call's cost to this case.
+      caseId: id,
     });
   } catch (err) {
     console.error("[cases/extract] extraction failed:", err);
