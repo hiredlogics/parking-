@@ -137,31 +137,6 @@ export default function ReviewPage() {
 
   const r = readiness!;
 
-  // Out of scope — a person needs to look at this case.
-  if (r.outOfScope) {
-    return (
-      <Shell>
-        <div className="app-card">
-          <h1 className="text-[22px] font-black tracking-tight sm:text-[26px]">
-            This case needs a person to look at it
-          </h1>
-          <p className="mt-3 text-[14px] leading-relaxed text-brand-mute">
-            {r.outOfScope.detail}
-          </p>
-          <p className="mt-3 text-[13px] text-brand-mute">
-            Nothing you have entered is lost. Our team can pick this up rather
-            than us preparing something that may not fit your situation.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Link href="/portal" className="btn-brand-primary">
-              Go to my portal
-            </Link>
-          </div>
-        </div>
-      </Shell>
-    );
-  }
-
   return (
     <Shell>
       <div className="mb-6">
@@ -176,7 +151,7 @@ export default function ReviewPage() {
         </h1>
         <p className="mt-2 max-w-2xl text-[14.5px] leading-relaxed text-brand-mute">
           {r.sufficient
-            ? "Here is a summary of what we will base your appeal on. Your appeal is prepared after checkout."
+            ? "Here is a summary of what we will base your appeal on. After checkout we prepare it for review, then you can view and download the PDF."
             : "Please complete the outstanding items below and we will check again."}
         </p>
       </div>
@@ -254,16 +229,22 @@ export default function ReviewPage() {
       </section>
 
       {/* Outstanding items */}
-      {!r.sufficient && r.blockers.length > 0 && (
+      {!r.sufficient && (
         <section className="app-card mt-4 border-amber-200 bg-amber-50">
           <p className="text-[13px] font-semibold text-amber-900">
             Before we can prepare your appeal
           </p>
-          <ul className="mt-2 list-disc space-y-1 pl-5 text-[13.5px] text-amber-900">
-            {r.blockers.map((b) => (
-              <li key={b}>{b}</li>
-            ))}
-          </ul>
+          {r.blockers.length > 0 ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-[13.5px] text-amber-900">
+              {r.blockers.map((b) => (
+                <li key={b}>{b}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-[13.5px] text-amber-900">
+              Please finish any remaining questions, then check again.
+            </p>
+          )}
           <div className="mt-4 flex flex-wrap gap-3">
             <Link href="/appeal/questions" className="btn-brand-primary">
               Continue questions
@@ -300,8 +281,8 @@ export default function ReviewPage() {
 
       {r.sufficient && r.paymentRequired && (
         <p className="mt-3 text-center text-[12px] text-brand-mute">
-          Your appeal is prepared and checked after payment. You will be able
-          to view and download it straight away.
+          After payment we prepare your appeal for review. You can view and
+          download the PDF once it is ready in your portal.
         </p>
       )}
     </Shell>

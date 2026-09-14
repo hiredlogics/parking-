@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth/session";
-import { hasDb } from "@/lib/db/pool";
+import { requireAdmin } from "@/lib/auth/require-admin";
+import { fail } from "@/lib/api/envelope";
 import {
   setBlockStatus,
   setModuleStatus,
@@ -22,19 +22,9 @@ type Body =
  * Every change writes an audit event.
  */
 export async function POST(request: Request) {
-  if (!hasDb()) {
-    return NextResponse.json(
-      { success: false, error: { code: "DB_NOT_CONFIGURED", message: "Database is not configured." } },
-      { status: 503 },
-    );
-  }
-  const session = await getSession();
-  if (!session.userId || session.kind !== "ADMIN") {
-    return NextResponse.json(
-      { success: false, error: { code: "FORBIDDEN", message: "Admin access required." } },
-      { status: 403 },
-    );
-  }
+  const auth = await requireAdmin();
+  if (!auth.ok) return fail(auth.code, auth.error, auth.status);
+  const session = auth.session;
   let body: Body;
   try {
     body = (await request.json()) as Body;

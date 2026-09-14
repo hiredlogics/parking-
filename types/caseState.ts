@@ -26,6 +26,7 @@ export type AppealCaseStatus =
   | "AWAITING_PAYMENT"
   | "PAID"
   | "UNLOCKED"
+  | "AWAITING_ADMIN_APPROVAL"
   | "MANUAL_REVIEW"
   | "OUT_OF_SCOPE"
   | "FAILED";
@@ -95,6 +96,7 @@ export type CaseLifecycleStatus =
   | "READY_FOR_PAYMENT"
   | "PAID"
   | "GENERATING"
+  | "UNDER_REVIEW"
   | "GENERATED"
   | "SUBMITTED"
   | "COMPLETED"
@@ -105,6 +107,7 @@ export const ALL_LIFECYCLE_STATUSES: readonly CaseLifecycleStatus[] = [
   "READY_FOR_PAYMENT",
   "PAID",
   "GENERATING",
+  "UNDER_REVIEW",
   "GENERATED",
   "SUBMITTED",
   "COMPLETED",
@@ -119,14 +122,16 @@ export function lifecycleStatusFor(
   } = {},
 ): CaseLifecycleStatus {
   switch (status) {
+    case "AWAITING_ADMIN_APPROVAL":
+      return "UNDER_REVIEW";
+
     case "MANUAL_REVIEW":
     case "OUT_OF_SCOPE":
     case "FAILED":
-      return "MANUAL_REVIEW";
+      // Customer-facing: still "under review" — never expose engine terms.
+      return "UNDER_REVIEW";
 
     case "UNLOCKED": {
-      // An appeal exists. How far it has travelled depends on whether
-      // it was sent, and whether the operator has since replied.
       const outcome = opts.outcomeStatus ?? "PENDING";
       if (outcome !== "PENDING") return "COMPLETED";
       return opts.submittedAt ? "SUBMITTED" : "GENERATED";

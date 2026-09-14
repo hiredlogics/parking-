@@ -12,11 +12,7 @@ import {
   extractNotice,
   isAuthFailure,
 } from "@/features/appeal/caseSync";
-import {
-  CheckIcon,
-  LockIcon,
-  ShieldIcon,
-} from "@/components/landing/Icons";
+import { CheckIcon } from "@/components/landing/Icons";
 
 const ACCEPT = "application/pdf,image/jpeg,image/png";
 const MAX_BYTES = 12 * 1024 * 1024;
@@ -130,15 +126,12 @@ export default function UploadPage() {
   ].join(" ");
 
   return (
-    <div className="app-shell">
+    <div className="app-shell flex min-h-screen flex-col">
       <AppHeader />
       <ProgressSteps current="upload" />
-      <main className="container-page py-8 sm:py-10 lg:py-14">
-        <div className="mx-auto max-w-2xl">
-          <span className="app-badge">
-            <ShieldIcon className="h-3.5 w-3.5" /> Secure upload
-          </span>
-          <h1 className="mt-3 text-[26px] font-black leading-tight tracking-tight text-brand-text sm:text-[32px]">
+      <main className="container-page flex flex-1 flex-col items-center justify-center py-8 sm:py-10">
+        <div className="mx-auto w-full max-w-2xl text-center">
+          <h1 className="text-[26px] font-black leading-tight tracking-tight text-brand-text sm:text-[32px]">
             Upload Your Parking Notice
           </h1>
           <p className="mt-2 text-[14.5px] leading-relaxed text-brand-mute">
@@ -225,30 +218,13 @@ export default function UploadPage() {
                 >
                   Retry
                 </button>
-                <Link href="/start" className="btn-brand-ghost">
+                <Link href="/" className="btn-brand-ghost">
                   Back
                 </Link>
               </div>
             </div>
           )}
 
-          {/* Trust list */}
-          <ul className="mt-6 grid grid-cols-1 gap-2 sm:grid-cols-3">
-            {[
-              { icon: <LockIcon className="h-3.5 w-3.5" />, label: "Secure upload" },
-              { icon: <ShieldIcon className="h-3.5 w-3.5" />, label: "Kept confidential" },
-              { icon: <CheckIcon className="h-3.5 w-3.5" />, label: "Auto-read for you" },
-            ].map((t) => (
-              <li key={t.label} className="flex items-center gap-2 text-[13px] text-brand-text/80">
-                <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-brand-pinkLight text-brand-pink">
-                  {t.icon}
-                </span>
-                {t.label}
-              </li>
-            ))}
-          </ul>
-
-          {/* File status card (after selection) */}
           {fileName && status !== "success" && (
             <div className="app-card mt-6 flex items-start justify-between gap-4">
               <div className="min-w-0">
@@ -279,16 +255,10 @@ export default function UploadPage() {
             </div>
           )}
 
-          <div className="mt-8 flex items-center justify-between text-sm text-brand-mute">
-            <Link href="/start" className="btn-brand-ghost">
+          <div className="mt-8 flex justify-center">
+            <Link href="/" className="btn-brand-ghost">
               ← Back
             </Link>
-            <span>
-              No PCN handy?{" "}
-              <Link href="/start" className="font-semibold text-brand-pink hover:underline">
-                Try a demo case
-              </Link>
-            </span>
           </div>
         </div>
       </main>

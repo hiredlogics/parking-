@@ -1,6 +1,7 @@
 import type { SessionData } from "@/lib/auth/session";
 import { requireCaseAccess } from "@/lib/cases/service";
 import { isPaidStep, servicePrice } from "@/lib/workflow/config";
+import { paths, publicUrl } from "@/lib/config/publicUrl";
 import * as repo from "./repo";
 import { getPaymentService } from "./index";
 import type { CheckoutSession, PaymentStatus } from "./types";
@@ -38,7 +39,7 @@ const APP_URL = () =>
  * Start checkout for a case.
  *
  * Refuses unless the sufficient-information check has passed, so a
- * customer cannot be charged for a case we cannot prepare.
+ * customer is never charged for a case we cannot prepare.
  */
 export async function startCheckout(
   caseId: string,
@@ -65,14 +66,6 @@ export async function startCheckout(
         "We need a little more information before checkout. Please complete the outstanding items.",
     };
   }
-  if (c.outOfScopeDetail) {
-    return {
-      ok: false,
-      status: 409,
-      code: "MANUAL_REVIEW",
-      message: "This case is with our team for review and cannot be paid for online.",
-    };
-  }
 
   const price = servicePrice(c.serviceType);
   const base = APP_URL();
@@ -96,8 +89,8 @@ export async function startCheckout(
     description: price.description,
     customerEmail: session.email ?? null,
     // Relative URLs are fine for the demo provider; Stripe needs absolute.
-    successUrl: `${base}/checkout/${caseId}/success`,
-    cancelUrl: `${base}/appeal/review`,
+    successUrl: publicUrl(paths.checkoutSuccess(caseId)),
+    cancelUrl: publicUrl(paths.checkoutCancel),
   });
 
   return { ok: true, checkout };

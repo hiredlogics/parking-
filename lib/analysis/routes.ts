@@ -7,6 +7,11 @@ import type { PofaAnalysis, RouteAssessment } from "./types";
 /**
  * Route detection and priority.
  *
+ * @deprecated Phase 5 — issue activation is driven by Admin
+ * `issues` / `issue_knowledge` via `lib/engine/issueEngine`. This
+ * ranking still feeds draft assembly until generation is fully
+ * config-driven. Do not extend for questioning; remove in Phase 6–7.
+ *
  * MASTER Developer Pack V2 Part 5 (AI issue-spotting hierarchy),
  * KB §16 (drafting priority and suppression) and KB Appendix B (ground
  * selection matrix).

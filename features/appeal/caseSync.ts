@@ -323,7 +323,7 @@ export function confirmDemoPayment(caseId: string) {
 /* ---------------------------- Appeal ---------------------------- */
 
 export interface AppealView {
-  status: "READY" | "MANUAL_REVIEW" | "FAILED";
+  status: "READY" | "UNDER_REVIEW" | "FAILED" | "MANUAL_REVIEW";
   paragraphs: { id: string; text: string }[];
   groundLabels: string[];
   needsReview: boolean;

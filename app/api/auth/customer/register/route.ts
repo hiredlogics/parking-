@@ -20,9 +20,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Invalid request body." }, { status: 400 });
   }
   const b = body as Partial<{ name: string; email: string; password: string; phone: string }>;
+  const email = String(b.email ?? "").trim().toLowerCase();
+  const { enforceRateLimit } = await import("@/lib/rateLimit");
+  const limited = await enforceRateLimit(email || "anonymous", "AUTH");
+  if (limited) return limited;
+
   const result = await registerCustomer({
     name: String(b.name ?? ""),
-    email: String(b.email ?? ""),
+    email,
     password: String(b.password ?? ""),
     phone: b.phone ? String(b.phone) : undefined,
   });

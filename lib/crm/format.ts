@@ -1,24 +1,3 @@
-import type { CaseType, KanbanStatus, Priority } from "./types";
-
-export function humanCaseType(t: CaseType): string {
-  switch (t) {
-    case "PRIVATE_PARKING":
-      return "Private Parking";
-    case "COUNCIL_PCN":
-      return "Council PCN";
-    case "CHARGE_CERTIFICATE":
-      return "Charge Certificate";
-    case "ORDER_FOR_RECOVERY":
-      return "Order for Recovery";
-    case "COUNTY_COURT":
-      return "County Court Claim";
-    case "CCJ_REMOVAL":
-      return "CCJ Removal";
-    case "BAILIFF_ENFORCEMENT":
-      return "Bailiff / Enforcement";
-  }
-}
-
 export function formatCurrency(amount: number): string {
   return new Intl.NumberFormat("en-GB", {
     style: "currency",
@@ -51,36 +30,4 @@ export function timeAgo(iso: string): string {
   const month = Math.round(day / 30);
   if (month < 12) return `${month}mo ago`;
   return `${Math.round(month / 12)}y ago`;
-}
-
-export function statusColor(status: KanbanStatus): {
-  bg: string;
-  text: string;
-  ring: string;
-} {
-  switch (status) {
-    case "AWAITING_REVIEW":
-      return { bg: "bg-amber-100", text: "text-amber-700", ring: "ring-amber-200" };
-    case "IN_PROGRESS":
-      return { bg: "bg-blue-100", text: "text-blue-700", ring: "ring-blue-200" };
-    case "AWAITING_CLIENT":
-      return { bg: "bg-violet-100", text: "text-violet-700", ring: "ring-violet-200" };
-    case "READY_TO_DRAFT":
-      return { bg: "bg-orange-100", text: "text-orange-700", ring: "ring-orange-200" };
-    case "COMPLETED":
-      return { bg: "bg-emerald-100", text: "text-emerald-700", ring: "ring-emerald-200" };
-  }
-}
-
-export function priorityColor(p: Priority): { bg: string; text: string } {
-  switch (p) {
-    case "LOW":
-      return { bg: "bg-slate-100", text: "text-slate-600" };
-    case "MEDIUM":
-      return { bg: "bg-yellow-100", text: "text-yellow-700" };
-    case "HIGH":
-      return { bg: "bg-orange-100", text: "text-orange-700" };
-    case "URGENT":
-      return { bg: "bg-red-100", text: "text-red-700" };
-  }
 }

@@ -87,11 +87,20 @@ export interface PortalInvoiceRow {
   paidAt: string | null;
 }
 
+export interface PortalEventRow {
+  id: string;
+  caseId: string;
+  casePublicId: string;
+  description: string;
+  createdAt: string;
+}
+
 export interface PortalOverview {
   cases: PortalCaseRow[];
   appeals: PortalAppealRow[];
   documents: PortalDocumentRow[];
   invoices: PortalInvoiceRow[];
+  events: PortalEventRow[];
   summary: {
     totalCases: number;
     awaitingPayment: number;
@@ -116,6 +125,24 @@ const SERVICE_LABELS: Record<string, string> = {
 function serviceLabel(serviceType: string): string {
   return SERVICE_LABELS[serviceType] ?? serviceType.replace(/_/g, " ");
 }
+
+/**
+ * Customer-safe subset of case_events for the "Recent activity" panel.
+ * Internal/operational event types (extraction retries, admin
+ * hold/reject on a draft, PDF pipeline failures, etc.) are deliberately
+ * excluded so this feed never surfaces ops detail the customer has no
+ * context for.
+ */
+const CUSTOMER_EVENT_LABELS: Record<string, string> = {
+  CASE_CREATED: "Case created",
+  PAYMENT_CONFIRMED: "Payment received",
+  EXTRACTION_CONFIRMED: "Parking notice details confirmed",
+  DOCUMENT_UPLOADED: "Evidence uploaded",
+  DOCUMENT_REMOVED: "Evidence removed",
+  APPEAL_AWAITING_ADMIN_APPROVAL: "Appeal submitted for review",
+  APPEAL_APPROVED: "Appeal approved — ready to view",
+  OUTCOME_RECORDED: "Outcome recorded",
+};
 
 /** Categories the portal shows for a document. */
 function documentCategory(
@@ -156,6 +183,23 @@ export async function buildPortalOverview(
     caseRepo.listDocumentsForCustomer(customerId),
     listPaymentsForCustomer(customerId),
   ]);
+
+  const eventsByCase = await Promise.all(
+    cases.map((c) => caseRepo.listCaseEvents(c.id)),
+  );
+  const eventRows: PortalEventRow[] = cases
+    .flatMap((c, i) =>
+      eventsByCase[i].map((e) => ({ caseId: c.id, casePublicId: c.publicId, event: e })),
+    )
+    .filter(({ event }) => event.eventType in CUSTOMER_EVENT_LABELS)
+    .map(({ caseId, casePublicId, event }) => ({
+      id: event.id,
+      caseId,
+      casePublicId,
+      description: CUSTOMER_EVENT_LABELS[event.eventType],
+      createdAt: event.createdAt,
+    }))
+    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 
   const caseRows: PortalCaseRow[] = cases.map((c) => ({
     id: c.id,
@@ -200,7 +244,18 @@ export async function buildPortalOverview(
       createdAt: c.createdAt,
     }));
 
-  const documentRows: PortalDocumentRow[] = documents.map((d) => ({
+  // GENERATED PDFs only appear after admin approval (case UNLOCKED).
+  const documentRows: PortalDocumentRow[] = documents
+    .filter((d) => {
+      if (d.documentType !== "GENERATED") return true;
+      const c = cases.find((x) => x.id === d.caseIdRef);
+      return (
+        c?.lifecycleStatus === "GENERATED" ||
+        c?.lifecycleStatus === "SUBMITTED" ||
+        c?.lifecycleStatus === "COMPLETED"
+      );
+    })
+    .map((d) => ({
     id: d.id,
     caseId: d.caseIdRef,
     casePublicId: d.casePublicId,
@@ -236,6 +291,7 @@ export async function buildPortalOverview(
       appeals: appealRows,
       documents: documentRows,
       invoices: invoiceRows,
+      events: eventRows,
       summary: {
         totalCases: caseRows.length,
         awaitingPayment: caseRows.filter(

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCrm } from "@/lib/crm/store";
+import { useEffect, useState } from "react";
 import { AdminPage, AdminCard, AdminCardHeader, KpiCard } from "@/components/admin/ui";
 import { formatCurrency } from "@/lib/crm/format";
 
@@ -13,40 +13,79 @@ function Ic({ children }: { children: React.ReactNode }) {
   );
 }
 
+interface ReportsData {
+  totalCases: number;
+  openCases: number;
+  completedCases: number;
+  revenue: number;
+  pending: number;
+  refunded: number;
+  byLifecycle: Record<string, number>;
+}
+
+const LIFECYCLE_LABELS: Record<string, string> = {
+  IN_PROGRESS: "In progress",
+  READY_FOR_PAYMENT: "Waiting for payment",
+  PAID: "Being prepared",
+  GENERATING: "Being prepared",
+  UNDER_REVIEW: "Under review",
+  GENERATED: "Appeal ready",
+  SUBMITTED: "Submitted",
+  COMPLETED: "Completed",
+  MANUAL_REVIEW: "Under review",
+};
+
 export default function AdminReportsPage() {
-  const cases = useCrm((s) => s.cases);
-  const appeals = useCrm((s) => s.appeals);
-  const payments = useCrm((s) => s.payments);
-  const revenue = payments.filter((p) => p.status === "PAID").reduce((s, p) => s + p.amount, 0);
+  const [data, setData] = useState<ReportsData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/admin/reports", { credentials: "same-origin", cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (cancelled) return;
+      if (!res.ok || !json?.success) {
+        setError(json?.error?.message ?? `Could not load reports (${res.status}).`);
+        return;
+      }
+      setData(json.data as ReportsData);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const byLifecycle = data?.byLifecycle ?? {};
+
   return (
     <AdminPage
       title="Reports"
       breadcrumb={<Link href="/admin" className="hover:text-brand-pink">Dashboard</Link>}
     >
+      {error && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">{error}</div>
+      )}
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <KpiCard tone="pink" label="Open Cases" value={cases.filter((c) => c.status !== "COMPLETED").length} icon={<Ic><rect x="4" y="6" width="16" height="14" rx="2" /></Ic>} />
-        <KpiCard tone="blue" label="Completed Cases" value={cases.filter((c) => c.status === "COMPLETED").length} icon={<Ic><path d="M20 6L9 17l-5-5" /></Ic>} />
-        <KpiCard tone="amber" label="Total Appeals" value={appeals.length} icon={<Ic><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6z" /></Ic>} />
-        <KpiCard tone="emerald" label="Revenue" value={formatCurrency(revenue)} icon={<Ic><path d="M12 3v18" /></Ic>} />
+        <KpiCard tone="pink" label="Open Cases" value={data?.openCases ?? 0} icon={<Ic><rect x="4" y="6" width="16" height="14" rx="2" /></Ic>} />
+        <KpiCard tone="blue" label="Completed Cases" value={data?.completedCases ?? 0} icon={<Ic><path d="M20 6L9 17l-5-5" /></Ic>} />
+        <KpiCard tone="emerald" label="Revenue" value={formatCurrency(data?.revenue ?? 0)} icon={<Ic><path d="M12 3v18" /></Ic>} />
+        <KpiCard tone="amber" label="Pending" value={formatCurrency(data?.pending ?? 0)} icon={<Ic><path d="M12 8v4l3 2" /><circle cx="12" cy="12" r="9" /></Ic>} />
       </div>
 
       <AdminCard className="mt-6">
-        <AdminCardHeader title="Downloadable reports" />
+        <AdminCardHeader title="Cases by status" />
         <ul className="divide-y divide-brand-borderSoft text-[13px]">
-          {[
-            "Cases opened this month",
-            "Cases completed this month",
-            "Revenue by service",
-            "Client acquisition — 30 days",
-            "Overdue tasks — active queue",
-          ].map((label) => (
-            <li key={label} className="flex items-center justify-between px-4 py-3">
-              <span>{label}</span>
-              <button type="button" className="text-[11.5px] font-semibold uppercase text-brand-pink" onClick={() => alert("Report generation is stubbed in the demo.")}>
-                Generate CSV
-              </button>
+          {Object.entries(byLifecycle).map(([status, count]) => (
+            <li key={status} className="flex items-center justify-between px-4 py-3">
+              <span>{LIFECYCLE_LABELS[status] ?? status.replace(/_/g, " ")}</span>
+              <span className="font-semibold text-brand-text">{count}</span>
             </li>
           ))}
+          {data && Object.keys(byLifecycle).length === 0 && (
+            <li className="px-4 py-8 text-center text-brand-mute">No cases yet.</li>
+          )}
         </ul>
       </AdminCard>
     </AdminPage>

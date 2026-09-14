@@ -10,6 +10,10 @@ import {
 /**
  * Missing material facts, derived from the routes in play.
  *
+ * @deprecated Phase 5 — superseded by `lib/engine/issueEngine` when
+ * USE_ADMIN_ISSUE_ENGINE is on (default). Kept as feature-flag fallback.
+ * Do not extend; remove in Phase 6–7 after parity tests.
+ *
  * The old implementation walked the question bank and called a fact
  * missing if some question would have asked it. That made a hard-coded
  * list the authority on case completeness. Here completeness is decided

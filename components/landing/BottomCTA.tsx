@@ -25,7 +25,7 @@ export function BottomCTA() {
           </div>
 
           <Link
-            href="/start"
+            href="/appeal/upload"
             className="btn-brand-primary w-full justify-center sm:w-auto"
             data-testid="bottom-cta"
           >

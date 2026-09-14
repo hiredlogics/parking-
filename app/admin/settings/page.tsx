@@ -1,13 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCrm } from "@/lib/crm/store";
-import { AdminPage, AdminCard, AdminCardHeader, AdminPrimary, AdminOutline } from "@/components/admin/ui";
+import { AdminPage, AdminCard, AdminCardHeader, AdminPrimary } from "@/components/admin/ui";
 
 export default function AdminSettingsPage() {
-  const reseed = useCrm((s) => s.reseed);
-  const clearAll = useCrm((s) => s.clearAll);
-
   return (
     <AdminPage
       title="Settings"
@@ -61,19 +57,6 @@ export default function AdminSettingsPage() {
               </li>
             ))}
           </ul>
-        </AdminCard>
-
-        <AdminCard className="lg:col-span-2">
-          <AdminCardHeader title="Demo data" />
-          <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-[13px] text-brand-mute">
-              The CRM demo runs on seeded fixtures stored in your browser. Reseed to reset to the demo baseline, or wipe to start empty.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <AdminOutline onClick={() => { if (confirm("Reseed all CRM data?")) reseed(); }}>Reseed data</AdminOutline>
-              <AdminOutline onClick={() => { if (confirm("Wipe all CRM data?")) clearAll(); }}>Wipe data</AdminOutline>
-            </div>
-          </div>
         </AdminCard>
       </div>
     </AdminPage>

@@ -2,9 +2,6 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { statusColor, priorityColor } from "@/lib/crm/format";
-import { humanStatus, humanPriority } from "@/lib/crm/store";
-import type { KanbanStatus, Priority } from "@/lib/crm/types";
 
 /** Full-width white page shell with an optional title + right actions. */
 export function AdminPage({
@@ -107,26 +104,6 @@ export function KpiCard({
   const className =
     "block rounded-xl border border-brand-border bg-white shadow-card transition hover:-translate-y-0.5 hover:shadow-cardHover";
   return href ? <Link href={href} className={className}>{inner}</Link> : <div className={className}>{inner}</div>;
-}
-
-/** Small status pill for Kanban statuses. */
-export function StatusPill({ status, size = "md" }: { status: KanbanStatus; size?: "sm" | "md" }) {
-  const c = statusColor(status);
-  const sizeCls = size === "sm" ? "px-2 py-0.5 text-[10.5px]" : "px-2.5 py-1 text-[11px]";
-  return (
-    <span className={`inline-flex items-center rounded-full font-semibold ring-1 ${c.bg} ${c.text} ${c.ring} ${sizeCls}`}>
-      {humanStatus(status)}
-    </span>
-  );
-}
-
-export function PriorityPill({ priority }: { priority: Priority }) {
-  const c = priorityColor(priority);
-  return (
-    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10.5px] font-semibold ${c.bg} ${c.text}`}>
-      {humanPriority(priority)}
-    </span>
-  );
 }
 
 /** Small primary + outline buttons used across the admin UI. */

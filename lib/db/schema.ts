@@ -7,6 +7,7 @@ import { RATE_LIMIT_STATEMENTS } from "./rateLimitSchema";
 import { QUESTION_STATEMENTS } from "./questionSchema";
 import { OUTCOME_STATEMENTS } from "./outcomeSchema";
 import { USAGE_STATEMENTS } from "./usageSchema";
+import { ADMIN_CONFIG_STATEMENTS } from "./adminConfigSchema";
 
 /**
  * Idempotent DDL. Runs on demand from ensureSchema(); safe to call from
@@ -282,6 +283,8 @@ const STATEMENTS = [
   ...OUTCOME_STATEMENTS,
   /* AI usage and cost. Depends on appeal_cases. */
   ...USAGE_STATEMENTS,
+  /* Admin-driven config + first-class case_appeals + email outbox. */
+  ...ADMIN_CONFIG_STATEMENTS,
 ];
 
 let ensured: Promise<void> | null = null;
@@ -292,7 +295,7 @@ let ensured: Promise<void> | null = null;
  *
  * Update this whenever a new table is appended.
  */
-const SENTINEL_TABLE = "ai_usage";
+const SENTINEL_TABLE = "case_appeals";
 
 /**
  * A column added after SENTINEL_TABLE was created.
@@ -302,7 +305,10 @@ const SENTINEL_TABLE = "ai_usage";
  * skip the new columns entirely. Checking a late column as well closes
  * that gap.
  */
-const SENTINEL_COLUMN = { table: "appeal_cases", column: "outcome_status" };
+const SENTINEL_COLUMN = {
+  table: "appeal_cases",
+  column: "awaiting_admin_approval",
+};
 
 /**
  * Create the schema, once.

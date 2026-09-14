@@ -26,6 +26,13 @@ export async function POST(
   const session = await getSession();
   const { id } = await ctx.params;
 
+  if (session.userId) {
+    const limited = await (
+      await import("@/lib/rateLimit")
+    ).enforceRateLimit(session.userId, "UPLOAD");
+    if (limited) return limited;
+  }
+
   let form: FormData;
   try {
     form = await request.formData();

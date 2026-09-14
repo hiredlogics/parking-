@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DEMO_SCENARIOS } from "@/lib/demoScenarios";
+import { DEMO_SCENARIOS } from "@/tests/fixtures/demoScenarios";
 import { evaluate } from "@/rules";
 import { assembleAppeal } from "@/lib/assembly";
 import { renderAppealPdf } from "@/services/documents/pdf";

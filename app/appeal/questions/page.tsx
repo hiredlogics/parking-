@@ -31,16 +31,19 @@ export default function QuestionsPage() {
 
   const [state, setState] = useState<QuestionStep | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loadingQuestion, setLoadingQuestion] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const loadedRef = useRef(false);
+  const loadedForCaseRef = useRef<string | null>(null);
 
   // The server owns the answer map, so the page only needs the case id.
   const { caseId, status: sessionStatus } = useCaseSession();
 
   const load = useCallback(async () => {
     if (!caseId) return;
+    setLoadingQuestion(true);
     setError(null);
     const res = await fetchNextQuestion(caseId);
+    setLoadingQuestion(false);
     if (!res.ok) {
       setError(res.message || "We could not load the next question.");
       return;
@@ -49,10 +52,11 @@ export default function QuestionsPage() {
   }, [caseId]);
 
   useEffect(() => {
-    if (sessionStatus !== "ready" || loadedRef.current) return;
-    loadedRef.current = true;
+    if (sessionStatus !== "ready" || !caseId) return;
+    if (loadedForCaseRef.current === caseId) return;
+    loadedForCaseRef.current = caseId;
     void load();
-  }, [load, sessionStatus]);
+  }, [load, sessionStatus, caseId]);
 
   const answer = async (value: AnswerValue) => {
     if (!caseId || !state?.question) return;
@@ -125,7 +129,17 @@ export default function QuestionsPage() {
               role="alert"
               className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"
             >
-              {error}
+              <p>{error}</p>
+              <button
+                type="button"
+                className="btn-brand-outline mt-3"
+                onClick={() => {
+                  loadedForCaseRef.current = null;
+                  void load();
+                }}
+              >
+                Try again
+              </button>
             </div>
           )}
 
@@ -133,22 +147,32 @@ export default function QuestionsPage() {
           {state?.outOfScope || state?.needsReview ? (
             <div className="app-card">
               <h1 className="text-[20px] font-black tracking-tight sm:text-[24px]">
-                This case needs a person to look at it
+                Under review
               </h1>
               <p className="mt-3 text-[14px] leading-relaxed text-brand-mute">
-                {(state.outOfScope ?? state.needsReview)?.detail}
+                {(state.outOfScope ?? state.needsReview)?.detail ??
+                  "We're reviewing your appeal."}
               </p>
               <p className="mt-3 text-[13px] text-brand-mute">
-                Nothing you have entered is lost. Our team can pick this up
-                rather than us generating something that may not fit your
-                situation.
+                You can still add evidence and finish checkout. Your appeal PDF
+                is released after payment and review — not before.
               </p>
               <div className="mt-6 flex flex-wrap gap-3">
-                <Link href="/portal" className="btn-brand-primary">
-                  Go to my portal
-                </Link>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep("evidence");
+                    router.push("/appeal/evidence");
+                  }}
+                  className="btn-brand-primary"
+                >
+                  Continue to evidence
+                </button>
                 <Link href="/appeal/confirm" className="btn-brand-ghost">
                   Back to details
+                </Link>
+                <Link href="/portal" className="btn-brand-ghost">
+                  My portal
                 </Link>
               </div>
             </div>
@@ -192,8 +216,16 @@ export default function QuestionsPage() {
               </p>
             </>
           ) : (
-            <div className="app-card">
-              <div className="h-24 animate-pulse rounded-xl bg-brand-canvas" />
+            <div className="app-card text-center">
+              <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-brand-pinkLight border-t-brand-pink" />
+              <p className="mt-4 text-[15px] font-semibold text-brand-text">
+                {loadingQuestion
+                  ? "Preparing your next question…"
+                  : "Loading…"}
+              </p>
+              <p className="mt-1 text-[13px] text-brand-mute">
+                This can take a few seconds on the first question.
+              </p>
             </div>
           )}
         </div>

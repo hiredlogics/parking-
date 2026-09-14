@@ -51,7 +51,7 @@ let drafts: Array<Record<string, unknown> & {
   paragraphs: Array<{ id: string; text: string }>;
   version: number; supersededAt: string | null;
 }> = [];
-let events: Array<{ caseId: string; eventType: string }> = [];
+let events: Array<{ id: string; caseId: string; eventType: string; payload: unknown; createdAt: string }> = [];
 let docSeq = 0;
 
 function makeCase(over: Partial<AppealCase> = {}): AppealCase {
@@ -86,7 +86,12 @@ function makeCase(over: Partial<AppealCase> = {}): AppealCase {
   };
 }
 
-vi.mock("@/lib/db/pool", () => ({ hasDb: () => true, getSql: () => null }));
+vi.mock("@/lib/db/pool", () => ({
+  hasDb: () => true,
+  getSql: () => ({
+    query: async () => ({ rows: [{ email: "a@example.com" }] }),
+  }),
+}));
 vi.mock("@/lib/db/schema", () => ({ ensureSchema: async () => {} }));
 
 /**
@@ -133,12 +138,20 @@ vi.mock("@/lib/cases/repo", () => ({
     documents.push(doc);
     return doc;
   },
-  addCaseEvent: async (e: { caseId: string; eventType: string }) => {
-    events.push({ caseId: e.caseId, eventType: e.eventType });
+  addCaseEvent: async (e: { caseId: string; eventType: string; payload?: unknown }) => {
+    events.push({
+      id: `evt_${events.length + 1}`,
+      caseId: e.caseId,
+      eventType: e.eventType,
+      payload: e.payload ?? null,
+      createdAt: "2026-07-24T00:00:00.000Z",
+    });
   },
+  listCaseEvents: async (caseId: string) => events.filter((e) => e.caseId === caseId),
   setCaseStatus: async (id: string, status: string) => {
     cases[id] = { ...cases[id], status: status as AppealCase["status"] };
   },
+  setAwaitingAdminApproval: async () => {},
   markSubmitted: async (id: string) => {
     cases[id] = {
       ...cases[id],
@@ -146,6 +159,98 @@ vi.mock("@/lib/cases/repo", () => ({
       followUpDueAt: "2026-08-23T00:00:00.000Z",
     };
   },
+}));
+
+let caseAppeals: Array<{
+  id: string;
+  caseId: string;
+  status: string;
+  body: string | null;
+  paragraphs: Array<{ id: string; text: string }>;
+  sourceDraftId: string | null;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  approvedParagraphs: Array<{ id: string; text: string }> | null;
+  approvedVersion: number | null;
+  knowledgeSnapshot: unknown[];
+  moduleIds: string[];
+  version: number;
+  supersededAt: string | null;
+}> = [];
+
+vi.mock("@/lib/appeals/repo", () => ({
+  findCurrentAppeal: async (caseId: string) =>
+    caseAppeals.find((a) => a.caseId === caseId && !a.supersededAt) ?? null,
+  findAppealById: async (id: string) =>
+    caseAppeals.find((a) => a.id === id) ?? null,
+  saveAwaitingApprovalAppeal: async (input: {
+    caseId: string;
+    body: string | null;
+    paragraphs: Array<{ id: string; text: string }>;
+    sourceDraftId?: string | null;
+    moduleIds?: string[];
+    knowledgeSnapshot?: unknown[];
+  }) => {
+    for (const a of caseAppeals) {
+      if (a.caseId === input.caseId && !a.supersededAt) a.supersededAt = "now";
+    }
+    const row = {
+      id: `cap_${caseAppeals.length + 1}`,
+      caseId: input.caseId,
+      status: "AWAITING_ADMIN_APPROVAL",
+      body: input.body,
+      paragraphs: input.paragraphs,
+      sourceDraftId: input.sourceDraftId ?? null,
+      approvedBy: null,
+      approvedAt: null,
+      approvedParagraphs: null as Array<{ id: string; text: string }> | null,
+      approvedVersion: null as number | null,
+      knowledgeSnapshot: input.knowledgeSnapshot ?? [],
+      moduleIds: input.moduleIds ?? [],
+      version: caseAppeals.filter((a) => a.caseId === input.caseId).length + 1,
+      supersededAt: null as string | null,
+    };
+    caseAppeals.push(row);
+    return row;
+  },
+  markAppealApproved: async (input: { appealId: string; approvedBy: string }) => {
+    const a = caseAppeals.find((x) => x.id === input.appealId);
+    if (!a) throw new Error("not found");
+    a.status = "APPROVED";
+    a.approvedBy = input.approvedBy;
+    a.approvedAt = "2026-07-24T01:00:00.000Z";
+    a.approvedParagraphs = a.paragraphs;
+    a.approvedVersion = a.version;
+    return a;
+  },
+  markAppealHeld: async () => ({}),
+  markAppealRejected: async () => ({}),
+}));
+
+vi.mock("@/lib/config/seedAdminConfig", () => ({
+  ensureAdminConfigSeeded: async () => {},
+}));
+vi.mock("@/lib/engine/issueEngine", () => ({
+  evaluateIssues: async () => ({
+    activeIssues: [{ code: "PAYMENT_KEYING", label: "Payment", moduleIds: ["KB-PAY-01"] }],
+    missingFacts: [],
+    nextFact: null,
+    applicableModuleIds: ["KB-PAY-01"],
+    sufficient: true,
+    origin: "admin_config",
+    serviceCode: "PRIVATE_PARKING_INITIAL_APPEAL",
+  }),
+  isAdminIssueEngineEnabled: () => true,
+}));
+vi.mock("@/lib/config/adminRepo", () => ({
+  getServiceByCode: async () => ({ id: "svc_1", code: "PRIVATE_PARKING_INITIAL_APPEAL" }),
+}));
+vi.mock("@/lib/analysis/engine", () => ({
+  factsForCase: () => ({ values: {}, tags: [] }),
+}));
+vi.mock("@/lib/email/outbox", () => ({
+  queueAppealReadyEmail: async () => "eml_1",
+  processOutboxItem: async () => true,
 }));
 
 vi.mock("@/lib/cases/draftRepo", async () => {
@@ -248,8 +353,31 @@ const { getAppealForCase } = await import("@/lib/generation/caseGeneration");
 const { ensureFinalAppealDocument, getCaseDocumentDelivery } = await import(
   "@/lib/cases/finalDocument"
 );
+const { approveAppeal } = await import("@/lib/appeals/approve");
 const { buildPortalOverview } = await import("@/lib/portal/overview");
 const { resetStorageProvider } = await import("@/services/storage");
+
+const ADMIN_SESSION: SessionData = {
+  userId: "adm_1",
+  email: "admin@example.com",
+  kind: "ADMIN",
+};
+
+async function generateThenApprove() {
+  const appeal = await getAppealForCase(CASE_ID, SESSION_A);
+  expect(appeal.ok).toBe(true);
+  if (!appeal.ok) throw new Error("generation failed");
+  expect(appeal.appeal.status).toBe("UNDER_REVIEW");
+  expect(documents.filter((d) => d.documentType === "GENERATED")).toHaveLength(0);
+
+  const pending = caseAppeals.find(
+    (a) => a.caseId === CASE_ID && !a.supersededAt,
+  );
+  if (!pending) throw new Error("expected case_appeal");
+  const approved = await approveAppeal(pending.id, ADMIN_SESSION);
+  expect(approved.ok).toBe(true);
+  return { customerView: appeal, approved };
+}
 
 beforeEach(() => {
   cases = { [CASE_ID]: makeCase() };
@@ -265,6 +393,7 @@ beforeEach(() => {
   ];
   drafts = [];
   events = [];
+  caseAppeals = [];
   docSeq = 100;
   generateSpy.mockReset();
   generateSpy.mockResolvedValue(readyResult());
@@ -274,32 +403,44 @@ beforeEach(() => {
 
 /* ==================== The complete journey ==================== */
 
-describe("Complete appeal journey — paid case to portal", () => {
-  it("generates, validates, persists the draft and produces the PDF", async () => {
+describe("Complete appeal journey — paid case → admin approve → portal", () => {
+  it("generates into Under review with NO customer PDF", async () => {
     const appeal = await getAppealForCase(CASE_ID, SESSION_A);
     expect(appeal.ok).toBe(true);
     if (!appeal.ok) return;
-    expect(appeal.appeal.status).toBe("READY");
-    expect(appeal.appeal.paragraphs.length).toBeGreaterThan(0);
-
-    // Validated draft persisted.
+    expect(appeal.appeal.status).toBe("UNDER_REVIEW");
+    expect(appeal.appeal.paragraphs).toEqual([]);
+    expect(appeal.appeal.reviewDetail).toBe("We're reviewing your appeal.");
     expect(drafts).toHaveLength(1);
     expect(drafts[0].status).toBe("READY");
+    expect(documents.filter((d) => d.documentType === "GENERATED")).toHaveLength(0);
+    expect(cases[CASE_ID].status).toBe("AWAITING_ADMIN_APPROVAL");
+    expect(cases[CASE_ID].submittedAt).toBeNull();
+  });
 
-    // Final PDF document row created against the SAME case.
+  it("admin APPROVE persists immutable PDF and releases to customer", async () => {
+    await generateThenApprove();
+
     const generated = documents.filter((d) => d.documentType === "GENERATED");
     expect(generated).toHaveLength(1);
     expect(generated[0].caseId).toBe(CASE_ID);
     expect(generated[0].mimeType).toBe("application/pdf");
     expect(generated[0].sizeBytes).toBeGreaterThan(0);
     expect(generated[0].sha256).toBeTruthy();
-    // Tied to the exact validated draft.
     expect(generated[0].sourceDraftId).toBe(drafts[0].id);
-    expect(events.map((e) => e.eventType)).toContain("PDF_GENERATED");
+    expect(events.map((e) => e.eventType)).toContain("APPEAL_APPROVED");
+    expect(cases[CASE_ID].status).toBe("UNLOCKED");
+    expect(cases[CASE_ID].submittedAt).toBeTruthy();
+
+    const after = await getAppealForCase(CASE_ID, SESSION_A);
+    expect(after.ok).toBe(true);
+    if (!after.ok) return;
+    expect(after.appeal.status).toBe("READY");
+    expect(after.appeal.paragraphs.length).toBeGreaterThan(0);
   });
 
-  it("produces a real PDF from the persisted validated text", async () => {
-    await getAppealForCase(CASE_ID, SESSION_A);
+  it("produces a real PDF from the approved text", async () => {
+    await generateThenApprove();
     const doc = documents.find((d) => d.documentType === "GENERATED")!;
     const delivery = await getCaseDocumentDelivery(CASE_ID, SESSION_A, doc.id);
     expect(delivery.ok).toBe(true);
@@ -310,9 +451,10 @@ describe("Complete appeal journey — paid case to portal", () => {
     expect(head).toBe("%PDF-");
   });
 
-  it("NEVER re-renders or re-drafts on a repeat request", async () => {
-    await getAppealForCase(CASE_ID, SESSION_A);
+  it("NEVER re-drafts on repeat customer requests after approval", async () => {
+    await generateThenApprove();
     const firstId = documents.find((d) => d.documentType === "GENERATED")!.id;
+    const firstHash = documents.find((d) => d.documentType === "GENERATED")!.sha256;
 
     await getAppealForCase(CASE_ID, SESSION_A);
     const again = await ensureFinalAppealDocument(CASE_ID, SESSION_A);
@@ -321,23 +463,17 @@ describe("Complete appeal journey — paid case to portal", () => {
     if (!again.ok) return;
     expect(again.final.created).toBe(false);
     expect(again.final.document.id).toBe(firstId);
-    // One drafting call, one stored document, for the life of the draft.
+    expect(again.final.document.sha256).toBe(firstHash);
     expect(generateSpy).toHaveBeenCalledTimes(1);
     expect(documents.filter((d) => d.documentType === "GENERATED")).toHaveLength(1);
-  });
-
-  it("marks the case submitted, starting the outcome clock", async () => {
-    await getAppealForCase(CASE_ID, SESSION_A);
-    expect(cases[CASE_ID].submittedAt).toBeTruthy();
-    expect(cases[CASE_ID].status).toBe("UNLOCKED");
   });
 });
 
 /* ========================= Portal screens ========================= */
 
-describe("Portal shows the completed case", () => {
+describe("Portal shows the completed case after approval", () => {
   beforeEach(async () => {
-    await getAppealForCase(CASE_ID, SESSION_A);
+    await generateThenApprove();
   });
 
   it("My Cases shows the case", async () => {
@@ -347,7 +483,7 @@ describe("Portal shows the completed case", () => {
     expect(res.overview.cases[0].id).toBe(CASE_ID);
   });
 
-  it("My Appeals shows the appeal for that case", async () => {
+  it("My Appeals shows the appeal as downloadable", async () => {
     const res = await buildPortalOverview(SESSION_A);
     if (!res.ok) throw new Error("expected ok");
     expect(res.overview.appeals).toHaveLength(1);
@@ -356,7 +492,6 @@ describe("Portal shows the completed case", () => {
   });
 
   it("My Documents shows the final appeal PDF", async () => {
-    // The acceptance gate.
     const res = await buildPortalOverview(SESSION_A);
     if (!res.ok) throw new Error("expected ok");
     const final = res.overview.documents.find((d) => d.isFinalAppeal);
@@ -413,7 +548,7 @@ describe("Document security", () => {
   let finalDocId = "";
 
   beforeEach(async () => {
-    await getAppealForCase(CASE_ID, SESSION_A);
+    await generateThenApprove();
     finalDocId = documents.find((d) => d.documentType === "GENERATED")!.id;
   });
 
@@ -443,7 +578,6 @@ describe("Document security", () => {
   });
 
   it("an UNPAID case cannot retrieve the protected final appeal", async () => {
-    // The stored PDF exists, but entitlement is re-checked on delivery.
     cases[CASE_ID] = { ...cases[CASE_ID], paymentStatus: "UNPAID" };
     const res = await getCaseDocumentDelivery(CASE_ID, SESSION_A, finalDocId);
     expect(res.ok).toBe(false);
@@ -452,12 +586,11 @@ describe("Document security", () => {
 
   it("an unpaid case cannot even reach generation", async () => {
     cases = { [CASE_ID]: makeCase({ paymentStatus: "UNPAID", status: "AWAITING_PAYMENT" }) };
-    drafts = []; documents = [];
+    drafts = []; documents = []; caseAppeals = [];
     generateSpy.mockClear();
     const res = await getAppealForCase(CASE_ID, SESSION_A);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.status).toBe(402);
-    // No AI call, no draft, no PDF.
     expect(generateSpy).not.toHaveBeenCalled();
     expect(documents.filter((d) => d.documentType === "GENERATED")).toHaveLength(0);
   });
@@ -466,7 +599,7 @@ describe("Document security", () => {
 /* ==================== Validation failure ==================== */
 
 describe("Validation failure cannot release a PDF", () => {
-  it("produces no document when validation blocks release", async () => {
+  it("produces no document when validation blocks and admin has not approved", async () => {
     generateSpy.mockResolvedValue({
       ...readyResult(),
       status: "MANUAL_REVIEW",
@@ -478,10 +611,9 @@ describe("Validation failure cannot release a PDF", () => {
     const appeal = await getAppealForCase(CASE_ID, SESSION_A);
     expect(appeal.ok).toBe(true);
     if (!appeal.ok) return;
-    expect(appeal.appeal.status).toBe("MANUAL_REVIEW");
+    expect(appeal.appeal.status).toBe("UNDER_REVIEW");
     expect(appeal.appeal.paragraphs).toEqual([]);
 
-    // No PDF, and the case is not marked submitted.
     expect(documents.filter((d) => d.documentType === "GENERATED")).toHaveLength(0);
     expect(cases[CASE_ID].submittedAt).toBeNull();
 
@@ -490,7 +622,7 @@ describe("Validation failure cannot release a PDF", () => {
     if (!final.ok) expect(final.code).toBe("APPEAL_NOT_RELEASED");
   });
 
-  it("does not show a blocked appeal as downloadable", async () => {
+  it("does not show a blocked appeal as downloadable before approval", async () => {
     generateSpy.mockResolvedValue({
       ...readyResult(), status: "MANUAL_REVIEW", body: null,
       reason: "VALIDATION_FAILED", detail: "Blocked.",
@@ -499,32 +631,19 @@ describe("Validation failure cannot release a PDF", () => {
     const res = await buildPortalOverview(SESSION_A);
     if (!res.ok) throw new Error("expected ok");
     expect(res.overview.documents.some((d) => d.isFinalAppeal)).toBe(false);
+    expect(res.overview.appeals[0]?.downloadable).toBe(false);
   });
 });
 
-/* ============== PDF failure must not lose the draft ============== */
+/* ============== PDF only after approval ============== */
 
-describe("PDF failure is separable from drafting", () => {
-  it("keeps the validated draft and retries the PDF without re-drafting", async () => {
-    const pdf = await import("@/services/documents/pdf");
-    const spy = vi
-      .spyOn(pdf, "renderAppealPdf")
-      .mockRejectedValueOnce(new Error("renderer exploded"));
-
-    // First attempt: PDF fails.
+describe("PDF is not creatable before admin approval", () => {
+  it("ensureFinalAppealDocument refuses while awaiting approval", async () => {
+    await getAppealForCase(CASE_ID, SESSION_A);
+    expect(drafts).toHaveLength(1);
     const failed = await ensureFinalAppealDocument(CASE_ID, SESSION_A);
     expect(failed.ok).toBe(false);
-    if (!failed.ok) expect(failed.code).toBe("PDF_RENDER_FAILED");
-    // The validated draft survives.
-    expect(drafts).toHaveLength(1);
-    expect(drafts[0].status).toBe("READY");
-    expect(events.map((e) => e.eventType)).toContain("PDF_GENERATION_FAILED");
-
-    // Retry succeeds without another drafting call.
-    spy.mockRestore();
-    const retried = await ensureFinalAppealDocument(CASE_ID, SESSION_A);
-    expect(retried.ok).toBe(true);
-    expect(generateSpy).toHaveBeenCalledTimes(1);
-    expect(drafts).toHaveLength(1);
+    if (!failed.ok) expect(failed.code).toBe("APPEAL_NOT_RELEASED");
+    expect(documents.filter((d) => d.documentType === "GENERATED")).toHaveLength(0);
   });
 });

@@ -73,7 +73,7 @@ export function Header() {
         {/* CTA + mobile menu button */}
         <div className="flex items-center gap-2 sm:gap-3">
           <Link
-            href="/start"
+            href="/appeal/upload"
             className="btn-brand-nav hidden sm:inline-flex"
             data-testid="header-cta"
           >
@@ -122,7 +122,7 @@ export function Header() {
             </Link>
           ))}
           <Link
-            href="/start"
+            href="/appeal/upload"
             onClick={() => setMenuOpen(false)}
             className="btn-brand-primary mt-2 sm:hidden"
           >

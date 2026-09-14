@@ -2,18 +2,14 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
-import { useCrm } from "@/lib/crm/store";
+import { useEffect, useState } from "react";
 
 const NAV = [
-  { href: "/portal", label: "My Dashboard" },
+  { href: "/portal", label: "Home" },
   { href: "/portal/cases", label: "My Cases" },
-  { href: "/portal/appeals", label: "My Appeals" },
-  { href: "/portal/documents", label: "My Documents" },
-  { href: "/portal/messages", label: "Messages" },
-  { href: "/portal/invoices", label: "Invoices" },
-  { href: "/portal/community", label: "Community" },
-  { href: "/portal/settings", label: "Account Settings" },
+  { href: "/portal/documents", label: "Documents" },
+  { href: "/portal/invoices", label: "Payments" },
+  { href: "/portal/settings", label: "Account" },
 ];
 
 interface PortalUser {
@@ -32,8 +28,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<PortalUser | null>(null);
   const [signingOut, setSigningOut] = useState(false);
-  const refreshFromPortalServer = useCrm((s) => s.refreshFromPortalServer);
-  const inFlight = useRef(false);
 
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" })
@@ -43,27 +37,6 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
       })
       .catch(() => undefined);
   }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      if (document.hidden || inFlight.current) return;
-      inFlight.current = true;
-      try {
-        await refreshFromPortalServer();
-      } finally {
-        inFlight.current = false;
-      }
-    };
-    void tick();
-    const interval = window.setInterval(() => {
-      if (!cancelled) void tick();
-    }, 8_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [refreshFromPortalServer]);
 
   const signOut = async () => {
     setSigningOut(true);

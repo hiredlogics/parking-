@@ -6,9 +6,11 @@ import type {
   RetrievalOutput,
 } from "@/lib/kb/types";
 import { NON_BINDING_STATUSES } from "@/lib/kb/types";
-import { ALL_KB_MODULES } from "@/lib/kb/seed";
-import { LEGAL_SOURCES } from "@/lib/kb/seed/sources";
-import { buildAllDraftingBlocks } from "@/lib/kb/seed/blocks";
+import {
+  blocksForRetrieval,
+  modulesForRetrieval,
+  sourcesForRetrieval,
+} from "@/lib/kb/catalog";
 import type { IssueAnalysis } from "@/lib/analysis/types";
 import type { KnownFacts } from "@/lib/questions/types";
 import { blockAllowed, moduleAllowed, type GateInput } from "./gates";
@@ -128,9 +130,11 @@ const PROHIBITION_BLOCKS_MODULE: Record<string, string[]> = {
 };
 
 export function retrieveKnowledge(input: RetrievalInput): RetrievalResult {
-  const modules = input.modules ?? ALL_KB_MODULES;
-  const sources = input.sources ?? LEGAL_SOURCES;
-  const allBlocks = input.blocks ?? buildAllDraftingBlocks();
+  // Production refuses the compiled seed when callers omit the catalog.
+  // Live paths must await loadKbCatalog() and pass modules/sources/blocks.
+  const modules = modulesForRetrieval(input.modules);
+  const sources = sourcesForRetrieval(input.sources);
+  const allBlocks = blocksForRetrieval(input.blocks);
   const analysis = input.analysis;
 
   const sourceById = new Map(sources.map((s) => [s.sourceId, s]));

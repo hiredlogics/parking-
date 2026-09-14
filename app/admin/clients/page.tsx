@@ -1,34 +1,51 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { useCrm } from "@/lib/crm/store";
+import { useEffect, useMemo, useState } from "react";
 import { formatDate, timeAgo } from "@/lib/crm/format";
 import { AdminPage, AdminCard, AdminCardHeader } from "@/components/admin/ui";
 
+interface ClientRow {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  status: string;
+  joinedAt: string;
+  lastActivityAt: string;
+  totalCases: number;
+  activeCases: number;
+}
+
 export default function AdminClientsPage() {
-  const clients = useCrm((s) => s.clients);
-  const cases = useCrm((s) => s.cases);
+  const [clients, setClients] = useState<ClientRow[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
 
-  const rows = useMemo(() => {
-    return clients.map((c) => {
-      const casesForClient = cases.filter((cc) => cc.clientId === c.id);
-      return {
-        ...c,
-        activeCases: casesForClient.filter((cc) => cc.status !== "COMPLETED").length,
-        totalCases: casesForClient.length,
-      };
-    });
-  }, [clients, cases]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch("/api/admin/clients", { credentials: "same-origin", cache: "no-store" });
+      const json = await res.json().catch(() => null);
+      if (cancelled) return;
+      if (!res.ok || !json?.success) {
+        setError(json?.error?.message ?? `Could not load clients (${res.status}).`);
+        setClients([]);
+        return;
+      }
+      setClients(json.data.clients as ClientRow[]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  const filtered = q.trim()
-    ? rows.filter((r) =>
-        `${r.name} ${r.email} ${r.phone ?? ""}`
-          .toLowerCase()
-          .includes(q.trim().toLowerCase()),
-      )
-    : rows;
+  const filtered = useMemo(() => {
+    if (!clients) return [];
+    if (!q.trim()) return clients;
+    const s = q.trim().toLowerCase();
+    return clients.filter((r) => `${r.name} ${r.email} ${r.phone ?? ""}`.toLowerCase().includes(s));
+  }, [clients, q]);
 
   return (
     <AdminPage
@@ -44,7 +61,18 @@ export default function AdminClientsPage() {
       }
     >
       <AdminCard>
-        <AdminCardHeader title={`${filtered.length} of ${clients.length} client${clients.length === 1 ? "" : "s"}`} />
+        <AdminCardHeader
+          title={
+            clients === null
+              ? "Loading…"
+              : `${filtered.length} of ${clients.length} client${clients.length === 1 ? "" : "s"}`
+          }
+        />
+        {error && (
+          <div className="m-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+            {error}
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="min-w-full text-[13px]">
             <thead>
@@ -79,15 +107,22 @@ export default function AdminClientsPage() {
                   </td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10.5px] font-semibold text-emerald-700">
-                      {c.status ?? "ACTIVE"}
+                      {c.status}
                     </span>
                   </td>
                 </tr>
               ))}
-              {filtered.length === 0 && (
+              {clients !== null && filtered.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-brand-mute">
                     No clients match your search.
+                  </td>
+                </tr>
+              )}
+              {clients === null && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-8">
+                    <div className="h-16 animate-pulse rounded-xl bg-brand-canvas" />
                   </td>
                 </tr>
               )}

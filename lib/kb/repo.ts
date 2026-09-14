@@ -71,6 +71,8 @@ export async function upsertLegalSource(s: LegalSource): Promise<void> {
       s.lastReviewedAt, s.quotationEnabled, s.notes, now,
     ],
   );
+  const { invalidateKbCatalog } = await import("@/lib/kb/catalog");
+  invalidateKbCatalog();
 }
 
 /**
@@ -86,6 +88,8 @@ export async function setQuotationEnabled(
     `UPDATE legal_sources SET quotation_enabled = $2, updated_at = $3 WHERE source_id = $1`,
     [sourceId, enabled, new Date().toISOString()],
   );
+  const { invalidateKbCatalog } = await import("@/lib/kb/catalog");
+  invalidateKbCatalog();
 }
 
 /* --------------------------- Code versions --------------------------- */
@@ -137,6 +141,8 @@ export async function upsertCodeVersion(c: CodeVersion): Promise<void> {
       c.notes, now,
     ],
   );
+  const { invalidateKbCatalog } = await import("@/lib/kb/catalog");
+  invalidateKbCatalog();
 }
 
 /* ------------------------------ Modules ------------------------------ */
@@ -224,6 +230,8 @@ export async function upsertKbModule(m: KbModule): Promise<void> {
       m.lastLegalReview, m.changeNotes, now,
     ],
   );
+  const { invalidateKbCatalog } = await import("@/lib/kb/catalog");
+  invalidateKbCatalog();
 }
 
 export async function setModuleStatus(
@@ -234,6 +242,135 @@ export async function setModuleStatus(
     `UPDATE kb_modules SET status = $2, updated_at = $3 WHERE module_id = $1`,
     [moduleId, status, new Date().toISOString()],
   );
+  // Live retrieval reads through the catalog cache — drop it so the
+  // next appeal sees this governance decision immediately.
+  const { invalidateKbCatalog } = await import("@/lib/kb/catalog");
+  invalidateKbCatalog();
+}
+
+/**
+ * Archive the current row, then apply an approved content update.
+ *
+ * History is never overwritten: the previous version is written to
+ * kb_module_revisions before the live row changes. Retrieval continues
+ * to use the current ACTIVE row filtered by effective dates.
+ */
+export async function updateKbModuleContent(
+  moduleId: string,
+  patch: {
+    coreProposition?: string;
+    useWhen?: string[];
+    doNotUseWhen?: string[];
+    legalBasis?: string | null;
+    evidenceNeeded?: string[];
+    draftingNotes?: string | null;
+    aiMustCheck?: string[];
+    effectiveFrom?: string | null;
+    effectiveTo?: string | null;
+    lastLegalReview?: string | null;
+    changeNotes?: string | null;
+    status?: KbModule["status"];
+  },
+): Promise<KbModule | null> {
+  const rows = await q(`SELECT * FROM kb_modules WHERE module_id = $1`, [
+    moduleId,
+  ]);
+  if (rows.length === 0) return null;
+  const current = rowToModule(rows[0]);
+  const now = new Date().toISOString();
+
+  await q(
+    `INSERT INTO kb_module_revisions (
+       module_id, version, snapshot_json, archived_at, change_notes
+     ) VALUES ($1, $2, $3, $4, $5)`,
+    [
+      current.moduleId,
+      current.version,
+      JSON.stringify(current),
+      now,
+      patch.changeNotes ?? current.changeNotes,
+    ],
+  );
+
+  const next: KbModule = {
+    ...current,
+    coreProposition: patch.coreProposition ?? current.coreProposition,
+    useWhen: patch.useWhen ?? current.useWhen,
+    doNotUseWhen: patch.doNotUseWhen ?? current.doNotUseWhen,
+    legalBasis:
+      patch.legalBasis !== undefined ? patch.legalBasis : current.legalBasis,
+    evidenceNeeded: patch.evidenceNeeded ?? current.evidenceNeeded,
+    draftingNotes:
+      patch.draftingNotes !== undefined
+        ? patch.draftingNotes
+        : current.draftingNotes,
+    aiMustCheck: patch.aiMustCheck ?? current.aiMustCheck,
+    effectiveFrom:
+      patch.effectiveFrom !== undefined
+        ? patch.effectiveFrom
+        : current.effectiveFrom,
+    effectiveTo:
+      patch.effectiveTo !== undefined
+        ? patch.effectiveTo
+        : current.effectiveTo,
+    lastLegalReview:
+      patch.lastLegalReview !== undefined
+        ? patch.lastLegalReview
+        : current.lastLegalReview,
+    changeNotes:
+      patch.changeNotes !== undefined ? patch.changeNotes : current.changeNotes,
+    status: patch.status ?? current.status,
+    version: current.version + 1,
+  };
+
+  await q(
+    `UPDATE kb_modules SET
+       use_when = $2, do_not_use_when = $3, legal_basis = $4,
+       core_proposition = $5, ai_must_check = $6, evidence_needed = $7,
+       drafting_notes = $8, version = $9, effective_from = $10,
+       effective_to = $11, status = $12, last_legal_review = $13,
+       change_notes = $14, updated_at = $15
+     WHERE module_id = $1`,
+    [
+      next.moduleId,
+      JSON.stringify(next.useWhen),
+      JSON.stringify(next.doNotUseWhen),
+      next.legalBasis,
+      next.coreProposition,
+      JSON.stringify(next.aiMustCheck),
+      JSON.stringify(next.evidenceNeeded),
+      next.draftingNotes,
+      next.version,
+      next.effectiveFrom,
+      next.effectiveTo,
+      next.status,
+      next.lastLegalReview,
+      next.changeNotes,
+      now,
+    ],
+  );
+
+  const { invalidateKbCatalog } = await import("@/lib/kb/catalog");
+  invalidateKbCatalog();
+  return next;
+}
+
+/** Historic snapshots for audit / event-date reconstruction. */
+export async function listModuleRevisions(
+  moduleId: string,
+): Promise<Array<{ version: number; archivedAt: string; module: KbModule }>> {
+  const rows = await q(
+    `SELECT version, archived_at, snapshot_json
+     FROM kb_module_revisions
+     WHERE module_id = $1
+     ORDER BY version DESC`,
+    [moduleId],
+  );
+  return rows.map((r) => ({
+    version: Number(r.version),
+    archivedAt: r.archived_at as string,
+    module: r.snapshot_json as KbModule,
+  }));
 }
 
 export async function linkModuleSource(
@@ -245,6 +382,8 @@ export async function linkModuleSource(
      ON CONFLICT DO NOTHING`,
     [moduleId, sourceId],
   );
+  const { invalidateKbCatalog } = await import("@/lib/kb/catalog");
+  invalidateKbCatalog();
 }
 
 export async function linkModuleBlock(
@@ -256,6 +395,8 @@ export async function linkModuleBlock(
      ON CONFLICT DO NOTHING`,
     [moduleId, blockId],
   );
+  const { invalidateKbCatalog } = await import("@/lib/kb/catalog");
+  invalidateKbCatalog();
 }
 
 /* --------------------------- Drafting blocks --------------------------- */
@@ -306,6 +447,8 @@ export async function upsertDraftingBlock(b: DraftingBlock): Promise<void> {
       b.inV2Appendix, b.usageNotes, now,
     ],
   );
+  const { invalidateKbCatalog } = await import("@/lib/kb/catalog");
+  invalidateKbCatalog();
 }
 
 export async function setBlockStatus(
@@ -316,4 +459,6 @@ export async function setBlockStatus(
     `UPDATE drafting_blocks SET status = $2, updated_at = $3 WHERE block_id = $1`,
     [blockId, status, new Date().toISOString()],
   );
+  const { invalidateKbCatalog } = await import("@/lib/kb/catalog");
+  invalidateKbCatalog();
 }

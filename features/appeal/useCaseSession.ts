@@ -80,7 +80,7 @@ export function useCaseSession(options: { createIfMissing?: boolean } = {}) {
   }, [resolve]);
 
   return {
-    caseId: useAppealStore.getState().caseId,
+    caseId,
     casePublicId,
     status,
     error,

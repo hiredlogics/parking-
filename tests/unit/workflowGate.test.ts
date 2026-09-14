@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, beforeAll } from "vitest";
 import {
   freeSteps,
   getWorkflow,
@@ -113,11 +113,11 @@ function makeCase(over: Partial<AppealCase> = {}): AppealCase {
 /* ===================== Workflow gate configuration ===================== */
 
 describe("Payment gate is configuration, not hard-coded", () => {
-  it("places payment after the sufficiency check for private parking", () => {
+  it("places payment after the sufficiency check for private parking", async () => {
     expect(paymentGateStep(SERVICE)).toBe("SUFFICIENCY_CHECK");
   });
 
-  it("treats everything before the gate as free", () => {
+  it("treats everything before the gate as free", async () => {
     const free = freeSteps(SERVICE);
     for (const step of [
       "UPLOAD", "EXTRACTION", "CONFIRMATION", "QUESTIONING",
@@ -128,7 +128,7 @@ describe("Payment gate is configuration, not hard-coded", () => {
     }
   });
 
-  it("puts analysis, drafting, validation, PDF and delivery behind the gate", () => {
+  it("puts analysis, drafting, validation, PDF and delivery behind the gate", async () => {
     for (const step of [
       "ANALYSIS", "RETRIEVAL", "DRAFTING", "VALIDATION", "PDF", "DELIVERY",
     ] as WorkflowStep[]) {
@@ -136,14 +136,14 @@ describe("Payment gate is configuration, not hard-coded", () => {
     }
   });
 
-  it("exposes the price from configuration", () => {
+  it("exposes the price from configuration", async () => {
     const p = servicePrice(SERVICE);
     expect(p.amount).toBeGreaterThan(0);
     expect(p.currency).toBe("GBP");
     expect(p.description).toMatch(/Private Parking/i);
   });
 
-  it("re-evaluates the gate when the configured position moves", () => {
+  it("re-evaluates the gate when the configured position moves", async () => {
     // Proves the gate really is data: a service that charges after
     // drafting leaves analysis free without any code change.
     const custom: ServiceWorkflow = {
@@ -159,7 +159,7 @@ describe("Payment gate is configuration, not hard-coded", () => {
     expect(custom.pipeline.indexOf("PDF")).toBeGreaterThan(gateIndex);
   });
 
-  it("throws for an unconfigured service rather than guessing", () => {
+  it("throws for an unconfigured service rather than guessing", async () => {
     // @ts-expect-error deliberately invalid service type
     expect(() => getWorkflow("COUNCIL_PCN_APPEAL")).toThrow(/No workflow configured/);
   });
@@ -168,21 +168,21 @@ describe("Payment gate is configuration, not hard-coded", () => {
 /* ================== Sufficient-information check ================== */
 
 describe("Sufficiency check", () => {
-  it("blocks when the notice has not been confirmed", () => {
-    const r = assessSufficiency(makeCase({ confirmed: null }), []);
+  it("blocks when the notice has not been confirmed", async () => {
+    const r = await assessSufficiency(makeCase({ confirmed: null }), []);
     expect(r.sufficient).toBe(false);
     expect(r.status).toBe("INCOMPLETE");
     expect(r.blockers.join(" ")).toMatch(/confirm the details/i);
   });
 
-  it("blocks while questions remain unanswered", () => {
-    const r = assessSufficiency(makeCase({ adaptiveAnswers: {} }), []);
+  it("blocks while questions remain unanswered", async () => {
+    const r = await assessSufficiency(makeCase({ adaptiveAnswers: {} }), []);
     expect(r.sufficient).toBe(false);
     expect(r.blockers.join(" ")).toMatch(/remaining questions/i);
   });
 
-  it("passes once questioning is complete and a ground is supported", () => {
-    const r = assessSufficiency(
+  it("passes once questioning is complete and a ground is supported", async () => {
+    const r = await assessSufficiency(
       makeCase({
         adaptiveAnswers: answers({
           [FACT.SCENARIOS]: ["payment_made"],
@@ -201,20 +201,20 @@ describe("Sufficiency check", () => {
     expect(r.groundLabels.length).toBeGreaterThan(0);
   });
 
-  it("routes an out-of-scope case out of the automated flow", () => {
-    const r = assessSufficiency(
+  it("allows checkout for Scotland — admin review after payment", async () => {
+    const r = await assessSufficiency(
       makeCase({
         adaptiveAnswers: answers({ [FACT.JURISDICTION]: "SCOTLAND" }),
       }),
       [],
     );
-    expect(r.sufficient).toBe(false);
-    expect(r.outOfScope?.detail).toMatch(/Scotland/i);
-    expect(r.groundLabels).toEqual([]);
+    expect(r.sufficient).toBe(true);
+    expect(r.outOfScope).toBeNull();
+    expect(r.groundLabels.join(" ")).toMatch(/team/i);
   });
 
-  it("suggests evidence that would unlock a set-aside ground", () => {
-    const r = assessSufficiency(
+  it("suggests evidence that would unlock a set-aside ground", async () => {
+    const r = await assessSufficiency(
       makeCase({
         adaptiveAnswers: answers({
           [FACT.SCENARIOS]: ["breakdown_immobilised"],
@@ -237,64 +237,68 @@ describe("Sufficiency check", () => {
 /* ================== No internal leakage ================== */
 
 describe("Pre-payment summary is customer-safe", () => {
-  const ready = assessSufficiency(
-    makeCase({
-      adaptiveAnswers: answers({
-        [FACT.SCENARIOS]: ["payment_made", "vrm_error"],
-        "__asked:Q-WHAT-HAPPENED": true,
-        [FACT.PAYMENT_METHOD]: "app",
-        "__asked:Q-PAY-METHOD": true,
-        [FACT.PAYMENT_EVIDENCE]: "YES",
-        "__asked:Q-PAY-EVIDENCE": true,
-        [FACT.VRM_ENTERED]: "AB12CDF",
-        "__asked:Q-KEY-ENTERED": true,
-      }),
-    }),
-    ["receipt"],
-  );
+  let ready: Awaited<ReturnType<typeof assessSufficiency>>;
+  let customerFacing = "";
 
-  /** Everything except the explicitly-internal block. */
-  const customerFacing = JSON.stringify({
-    sufficient: ready.sufficient,
-    status: ready.status,
-    blockers: ready.blockers,
-    groundLabels: ready.groundLabels,
-    outstandingCount: ready.outstandingCount,
-    evidence: ready.evidence,
-    outOfScope: ready.outOfScope,
+  beforeAll(async () => {
+    ready = await assessSufficiency(
+      makeCase({
+        adaptiveAnswers: answers({
+          [FACT.SCENARIOS]: ["payment_made", "vrm_error"],
+          "__asked:Q-WHAT-HAPPENED": true,
+          [FACT.PAYMENT_METHOD]: "app",
+          "__asked:Q-PAY-METHOD": true,
+          [FACT.PAYMENT_EVIDENCE]: "YES",
+          "__asked:Q-PAY-EVIDENCE": true,
+          [FACT.VRM_ENTERED]: "AB12CDF",
+          "__asked:Q-KEY-ENTERED": true,
+        }),
+      }),
+      ["receipt"],
+    );
+
+    customerFacing = JSON.stringify({
+      sufficient: ready.sufficient,
+      status: ready.status,
+      blockers: ready.blockers,
+      groundLabels: ready.groundLabels,
+      outstandingCount: ready.outstandingCount,
+      evidence: ready.evidence,
+      outOfScope: ready.outOfScope,
+    });
   });
 
-  it("identifies grounds in plain language", () => {
+  it("identifies grounds in plain language", async () => {
     expect(ready.groundLabels.length).toBeGreaterThan(0);
     expect(ready.groundLabels.join(" ")).toMatch(/payment|registration/i);
   });
 
-  it("never exposes route identifiers", () => {
+  it("never exposes route identifiers", async () => {
     for (const id of ["POFA", "PAYMENT", "KEYING", "RESIDENTIAL", "ANPR"]) {
       expect(customerFacing, id).not.toContain(id);
     }
   });
 
-  it("never exposes knowledge-module, source or validator identifiers", () => {
+  it("never exposes knowledge-module, source or validator identifiers", async () => {
     expect(customerFacing).not.toMatch(/\bKB-[A-Z]+-\d/);
     expect(customerFacing).not.toMatch(/\bSRC-[A-Z]/);
     expect(customerFacing).not.toMatch(/\bVAL-[A-Z]/);
     expect(customerFacing).not.toMatch(/\bPP-[A-Z]+-\d/);
   });
 
-  it("never exposes internal fact keys", () => {
+  it("never exposes internal fact keys", async () => {
     expect(customerFacing).not.toContain("payment_method");
     expect(customerFacing).not.toContain("driver_identified");
   });
 
-  it("contains no appeal wording, because nothing is drafted yet", () => {
+  it("contains no appeal wording, because nothing is drafted yet", async () => {
     // Phrases that only appear in approved appeal paragraphs.
     expect(customerFacing).not.toMatch(/registered keeper of vehicle/i);
     expect(customerFacing).not.toMatch(/Schedule 4/i);
     expect(customerFacing).not.toMatch(/Protection of Freedoms/i);
   });
 
-  it("keeps the internal block separate from what the customer sees", () => {
+  it("keeps the internal block separate from what the customer sees", async () => {
     // The internal data exists for persistence, and is not part of the
     // customer projection above.
     expect(ready.internal.primaryRoute).toBeTruthy();

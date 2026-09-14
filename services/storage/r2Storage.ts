@@ -30,9 +30,18 @@ export class R2StorageProvider implements StorageProvider {
   readonly id = "r2";
   private readonly client: S3Client;
   private readonly bucket: string;
+  private readonly sendChecksumHeader: boolean;
 
   constructor(config: R2Config) {
     this.bucket = config.bucket;
+    /*
+     * Spaces rejects the SDK's additional-checksum headers
+     * (x-amz-checksum-sha256) that R2 accepts, so uploads must not
+     * send one there. The hash is still computed and stored as object
+     * metadata and in the database either way, so integrity checking
+     * does not depend on this.
+     */
+    this.sendChecksumHeader = !isSpacesEndpoint(config.endpoint);
     this.client = new S3Client({
       region: config.region,
       endpoint: config.endpoint,
@@ -59,7 +68,9 @@ export class R2StorageProvider implements StorageProvider {
         Key: storageKey,
         Body: input.bytes,
         ContentType: input.mimeType,
-        ChecksumSHA256: Buffer.from(sha256, "hex").toString("base64"),
+        ...(this.sendChecksumHeader
+          ? { ChecksumSHA256: Buffer.from(sha256, "hex").toString("base64") }
+          : {}),
         // Original filename and hash travel with the object so the
         // bucket is still meaningful without the database.
         Metadata: {
@@ -173,9 +184,34 @@ export function readR2Config(env: StorageEnv = process.env): R2Config | null {
     endpoint,
     accessKeyId,
     secretAccessKey,
-    // R2 ignores region but the SDK requires one.
-    region: env.R2_REGION?.trim() || "auto",
+    /*
+     * R2 ignores the region, so "auto" is fine there and the SDK still
+     * needs a value. DigitalOcean Spaces does NOT ignore it: SigV4
+     * signs with the region, and signing with "auto" against Spaces
+     * fails with AuthorizationHeaderMalformed. The region is part of
+     * the Spaces endpoint, so derive it rather than making an explicit
+     * R2_REGION the difference between working and not.
+     */
+    region: env.R2_REGION?.trim() || regionForEndpoint(endpoint),
   };
+}
+
+/** True for a DigitalOcean Spaces endpoint. */
+export function isSpacesEndpoint(endpoint: string): boolean {
+  return /digitaloceanspaces\.com/i.test(endpoint);
+}
+
+/**
+ * The signing region implied by an endpoint.
+ *
+ * "https://lon1.digitaloceanspaces.com" -> "lon1"
+ */
+export function regionForEndpoint(endpoint: string): string {
+  const match = /^https?:\/\/(?:[^.]+\.)?([a-z]{2,4}\d)\.digitaloceanspaces\.com/i.exec(
+    endpoint.trim(),
+  );
+  if (match) return match[1].toLowerCase();
+  return "auto";
 }
 
 /** Which config values are missing, for a precise error message. */

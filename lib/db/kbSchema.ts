@@ -70,6 +70,19 @@ export const KB_STATEMENTS: string[] = [
   `CREATE INDEX IF NOT EXISTS kb_modules_route_idx ON kb_modules (route_family)`,
   `CREATE INDEX IF NOT EXISTS kb_modules_status_idx ON kb_modules (status)`,
 
+  /* ---------- Module content history (non-destructive) ---------- */
+  `CREATE TABLE IF NOT EXISTS kb_module_revisions (
+    id            BIGSERIAL PRIMARY KEY,
+    module_id     TEXT NOT NULL REFERENCES kb_modules(module_id) ON DELETE CASCADE,
+    version       INTEGER NOT NULL,
+    snapshot_json JSONB NOT NULL,
+    archived_at   TEXT NOT NULL,
+    change_notes  TEXT,
+    UNIQUE (module_id, version)
+  )`,
+  `CREATE INDEX IF NOT EXISTS kb_module_revisions_module_idx
+     ON kb_module_revisions (module_id, version DESC)`,
+
   /* ---------- Module ↔ source join (KB-GOV-02) ---------- */
   `CREATE TABLE IF NOT EXISTS kb_module_sources (
     module_id  TEXT NOT NULL REFERENCES kb_modules(module_id) ON DELETE CASCADE,

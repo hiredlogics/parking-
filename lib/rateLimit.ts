@@ -135,3 +135,101 @@ export const EXTRACTION_RATE_LIMIT = (): RateLimitRule => ({
   limit: envInt("RATE_LIMIT_EXTRACT_PER_HOUR", 12),
   windowSeconds: 3600,
 });
+
+/** Endpoint class → rule. Tuned per cost / abuse risk — not one global limit. */
+export const RateLimitClass = {
+  AUTH: (): RateLimitRule => ({
+    action: "auth",
+    limit: envInt("RATE_LIMIT_AUTH_PER_HOUR", 30),
+    windowSeconds: 3600,
+  }),
+  UPLOAD: (): RateLimitRule => ({
+    action: "upload",
+    limit: envInt("RATE_LIMIT_UPLOAD_PER_HOUR", 40),
+    windowSeconds: 3600,
+  }),
+  EXTRACTION: EXTRACTION_RATE_LIMIT,
+  QUESTION: (): RateLimitRule => ({
+    action: "question",
+    limit: envInt("RATE_LIMIT_QUESTION_PER_HOUR", 120),
+    windowSeconds: 3600,
+  }),
+  CHECKOUT: (): RateLimitRule => ({
+    action: "checkout",
+    limit: envInt("RATE_LIMIT_CHECKOUT_PER_HOUR", 20),
+    windowSeconds: 3600,
+  }),
+  GENERATION: (): RateLimitRule => ({
+    action: "generation",
+    limit: envInt("RATE_LIMIT_GENERATION_PER_HOUR", 20),
+    windowSeconds: 3600,
+  }),
+  DOCUMENT: (): RateLimitRule => ({
+    action: "document",
+    limit: envInt("RATE_LIMIT_DOCUMENT_PER_HOUR", 60),
+    windowSeconds: 3600,
+  }),
+  PORTAL_READ: (): RateLimitRule => ({
+    action: "portal_read",
+    limit: envInt("RATE_LIMIT_PORTAL_READ_PER_HOUR", 300),
+    windowSeconds: 3600,
+  }),
+  ADMIN: (): RateLimitRule => ({
+    action: "admin",
+    limit: envInt("RATE_LIMIT_ADMIN_PER_HOUR", 240),
+    windowSeconds: 3600,
+  }),
+  /**
+   * WEBHOOK is intentionally absent. Stripe (and similar) must not be
+   * throttled by customer-oriented budgets — signature + idempotency
+   * protect that path instead.
+   */
+} as const;
+
+export type RateLimitClassName = keyof typeof RateLimitClass;
+
+/** Standard 429 payload for API routes. */
+export function rateLimitResponse(result: RateLimitResult): Response {
+  return new Response(
+    JSON.stringify({
+      success: false,
+      error: {
+        code: "RATE_LIMITED",
+        message: "Too many requests. Please try again shortly.",
+        retryAfterSeconds: result.retryAfterSeconds,
+      },
+    }),
+    {
+      status: 429,
+      headers: {
+        "Content-Type": "application/json",
+        "Retry-After": String(result.retryAfterSeconds),
+        "X-RateLimit-Limit": String(result.limit),
+        "X-RateLimit-Remaining": String(result.remaining),
+        "X-RateLimit-Reset": result.resetAt,
+      },
+    },
+  );
+}
+
+/**
+ * Consume a class budget for a subject. Returns null when allowed, or a
+ * ready-to-return 429 Response when not. Callers that lack a stable
+ * subject (rare) should use a coarse shared key carefully.
+ */
+export async function enforceRateLimit(
+  subject: string,
+  className: Exclude<RateLimitClassName, never>,
+): Promise<Response | null> {
+  const factory = RateLimitClass[className];
+  if (!factory) return null;
+  try {
+    const result = await consumeRateLimit(subject, factory());
+    return result.allowed ? null : rateLimitResponse(result);
+  } catch (err) {
+    // Never take down a customer request because the limiter itself
+    // cannot reach Postgres — fail open and log.
+    console.warn("[rateLimit] enforce failed open:", err);
+    return null;
+  }
+}

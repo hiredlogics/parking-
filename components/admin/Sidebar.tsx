@@ -30,8 +30,9 @@ function Icon({ children }: { children: ReactNode }) {
 
 const NAV: NavItem[] = [
   { href: "/admin", label: "Dashboard", icon: <Icon><path d="M3 12l9-9 9 9" /><path d="M5 10v10h4v-6h6v6h4V10" /></Icon> },
-  { href: "/admin/cases", label: "Cases", icon: <Icon><rect x="4" y="6" width="16" height="14" rx="2" /><path d="M9 6V4h6v2" /><path d="M8 12h8M8 16h5" /></Icon> },
+  { href: "/admin/review", label: "Appeals for Review", icon: <Icon><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></Icon> },
   { href: "/admin/appeals", label: "Appeal Cases", icon: <Icon><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" /><path d="M15 3v4h4" /><path d="M8 13h6M8 17h4" /></Icon> },
+  { href: "/admin/config", label: "Configuration", icon: <Icon><circle cx="12" cy="12" r="3" /><path d="M4 12h2M18 12h2M12 4v2M12 18v2" /></Icon> },
   { href: "/admin/clients", label: "Clients", icon: <Icon><circle cx="9" cy="8" r="3.5" /><path d="M3 20c.9-3.5 3-5.5 6-5.5s5.1 2 6 5.5" /><circle cx="17" cy="9" r="2.5" /><path d="M15 20c.5-2 1.7-3.5 4-3.5" /></Icon> },
   { href: "/admin/appeal-builder", label: "Appeal Builder™", icon: <Icon><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" /><path d="M15 3v4h4" /><path d="M9 13l2 2 4-4" /></Icon> },
   { href: "/admin/appeal-logic", label: "Appeal Logic", icon: <Icon><circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="6" r="2.5" /><circle cx="12" cy="18" r="2.5" /><path d="M8 7.5L11 16M16 7.5L13 16M8.3 6h7.4" /></Icon> },

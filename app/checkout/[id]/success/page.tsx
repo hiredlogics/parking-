@@ -160,15 +160,14 @@ export default function CheckoutSuccessPage() {
       <Shell>
         <div className="app-card">
           <h1 className="text-[22px] font-black tracking-tight sm:text-[26px]">
-            Our team is finishing your appeal
+            Under review
           </h1>
           <p className="mt-3 text-[14px] leading-relaxed text-brand-mute">
-            {appeal.reviewDetail ??
-              "Your case needs a person to review it before we release the appeal. We would rather do that than send you something we are not confident in."}
+            {appeal.reviewDetail ?? "We're reviewing your appeal."}
           </p>
           <p className="mt-3 text-[13px] text-brand-mute">
-            Your payment is recorded and nothing you entered is lost. We will be
-            in touch shortly.
+            Your payment is recorded. You will be able to view and download
+            your appeal once it is ready.
           </p>
           <Link href="/portal" className="btn-brand-primary mt-5">
             Go to my portal
@@ -188,11 +187,10 @@ export default function CheckoutSuccessPage() {
             <CheckIcon className="h-3.5 w-3.5" /> Payment successful
           </span>
           <h1 className="mt-3 text-[26px] font-black tracking-tight sm:text-[32px]">
-            Your Complete Appeal Is Ready
+            Appeal ready
           </h1>
           <p className="mt-2 max-w-2xl text-[14.5px] leading-relaxed text-brand-mute">
-            This appeal was written for your case and independently checked
-            before release. Download it as a PDF or Word document below.
+            Your appeal has been reviewed and is ready to view and download.
           </p>
         </div>
         <div className="no-print flex flex-wrap gap-3">
@@ -204,15 +202,6 @@ export default function CheckoutSuccessPage() {
             data-testid="download-pdf"
           >
             {downloading === "pdf" ? "Preparing PDF…" : "Download PDF"}
-          </button>
-          <button
-            type="button"
-            onClick={() => doDownload("docx")}
-            className="btn-brand-outline"
-            disabled={downloading !== null}
-            data-testid="download-docx"
-          >
-            {downloading === "docx" ? "Preparing Word…" : "Download Word"}
           </button>
         </div>
       </div>

@@ -23,21 +23,21 @@ export function AppealBuilderSection() {
             icon={<CourthouseIcon className="h-7 w-7" />}
             title="Council PCN"
             description="Penalty Charge Notice issued by a council."
-            ctaHref="/start"
+            ctaHref="/appeal/upload"
             testId="card-council-pcn"
           />
           <SelfServiceCard
             icon={<CarIcon className="h-7 w-7" />}
             title="Private Parking PCN"
             description="Parking Charge Notice issued by a private parking company."
-            ctaHref="/start"
+            ctaHref="/appeal/upload"
             testId="card-private-parking-pcn"
           />
           <SelfServiceCard
             icon={<DocumentIcon className="h-7 w-7" />}
             title="Charge Certificate"
             description="Taken the next step? Challenge your Charge Certificate."
-            ctaHref="/start"
+            ctaHref="/appeal/upload"
             testId="card-charge-certificate"
           />
         </div>

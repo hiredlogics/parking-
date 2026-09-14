@@ -131,6 +131,7 @@ vi.mock("@/lib/cases/repo", () => ({
   listCaseDocuments: async () => [],
   addCaseEvent: async () => {},
   setCaseStatus: (id: string, s: string) => setCaseStatus(id, s),
+  setAwaitingAdminApproval: async () => {},
   markSubmitted: (id: string) => markSubmitted(id),
 }));
 
@@ -142,6 +143,46 @@ vi.mock("@/lib/generation/engine", () => ({
 vi.mock("@/lib/kb/audit", () => ({ insertAuditEvent: async () => {} }));
 vi.mock("@/lib/generation/manualReview", () => ({
   openManualReview: async () => "rev_1",
+}));
+
+let currentAppeal: { id: string; status: string; caseId: string } | null = null;
+
+vi.mock("@/lib/appeals/repo", () => ({
+  findCurrentAppeal: async (caseId: string) =>
+    currentAppeal && currentAppeal.caseId === caseId ? currentAppeal : null,
+  saveAwaitingApprovalAppeal: async (input: { caseId: string }) => {
+    currentAppeal = {
+      id: "cap_1",
+      status: "AWAITING_ADMIN_APPROVAL",
+      caseId: input.caseId,
+    };
+    return currentAppeal;
+  },
+}));
+
+vi.mock("@/lib/engine/issueEngine", () => ({
+  evaluateIssues: async () => ({
+    serviceCode: "PRIVATE_PARKING_INITIAL_APPEAL",
+    activeIssues: [{ code: "PAYMENT_KEYING", label: "Payment", moduleIds: ["KB-PAY-01"] }],
+    missingFacts: [],
+    nextFact: null,
+    applicableModuleIds: ["KB-PAY-01"],
+    sufficient: true,
+    origin: "admin_config",
+  }),
+  isAdminIssueEngineEnabled: () => true,
+}));
+
+vi.mock("@/lib/config/seedAdminConfig", () => ({
+  ensureAdminConfigSeeded: async () => {},
+}));
+
+vi.mock("@/lib/config/adminRepo", () => ({
+  getServiceByCode: async () => ({ id: "svc_1", code: "PRIVATE_PARKING_INITIAL_APPEAL" }),
+}));
+
+vi.mock("@/lib/analysis/engine", () => ({
+  factsForCase: () => ({ values: {}, tags: [] }),
 }));
 
 vi.mock("@/lib/cases/draftRepo", async () => {
@@ -198,6 +239,7 @@ const { toParagraphs } = await import("@/lib/cases/draftRepo");
 beforeEach(() => {
   current = makeCase();
   drafts = [];
+  currentAppeal = null;
   generateSpy.mockReset();
   generateSpy.mockResolvedValue(readyResult());
   setCaseStatus.mockClear();
@@ -293,11 +335,13 @@ describe("Generate once", () => {
     expect(drafts.filter((d) => !d.supersededAt)).toHaveLength(1);
   });
 
-  it("retries generation after a blocked outcome", async () => {
+  it("reuses a blocked draft while awaiting admin (regen requires force)", async () => {
     generateSpy.mockResolvedValueOnce(blockedResult());
     await generateAppealForCase("case_1", OWNER);
-    // A blocked draft is not a released draft, so the next call retries.
     await generateAppealForCase("case_1", OWNER);
+    // Awaiting-admin reuses; admin REGENERATE uses force:true.
+    expect(generateSpy).toHaveBeenCalledTimes(1);
+    await generateAppealForCase("case_1", OWNER, { force: true });
     expect(generateSpy).toHaveBeenCalledTimes(2);
   });
 
@@ -308,27 +352,22 @@ describe("Generate once", () => {
     if (!res.ok) expect(res.code).toBe("CONFIRMATION_REQUIRED");
   });
 
-  it("moves the case to UNLOCKED on release", async () => {
+  it("moves the case to AWAITING_ADMIN_APPROVAL (not customer release)", async () => {
     await generateAppealForCase("case_1", OWNER);
-    expect(setCaseStatus).toHaveBeenCalledWith("case_1", "UNLOCKED");
+    expect(setCaseStatus).toHaveBeenCalledWith("case_1", "AWAITING_ADMIN_APPROVAL");
   });
 
-  it("records the submission date on release, starting the follow-up clock", async () => {
+  it("does not unlock or mark submitted until admin approves", async () => {
     await generateAppealForCase("case_1", OWNER);
-    expect(markSubmitted).toHaveBeenCalledWith("case_1");
-  });
-
-  it("does not record a submission date for a blocked appeal", async () => {
-    generateSpy.mockResolvedValueOnce(blockedResult());
-    await generateAppealForCase("case_1", OWNER);
-    // Nothing was sent, so there is nothing to await an outcome on.
     expect(markSubmitted).not.toHaveBeenCalled();
+    expect(setCaseStatus).not.toHaveBeenCalledWith("case_1", "UNLOCKED");
   });
 
-  it("moves the case to MANUAL_REVIEW when blocked", async () => {
+  it("still queues admin review when validation blocks the draft", async () => {
     generateSpy.mockResolvedValueOnce(blockedResult());
     await generateAppealForCase("case_1", OWNER);
-    expect(setCaseStatus).toHaveBeenCalledWith("case_1", "MANUAL_REVIEW");
+    expect(setCaseStatus).toHaveBeenCalledWith("case_1", "AWAITING_ADMIN_APPROVAL");
+    expect(markSubmitted).not.toHaveBeenCalled();
   });
 
   it("persists a blocked outcome for the reviewer", async () => {
@@ -360,35 +399,68 @@ describe("Customer-safe projection", () => {
     }
   });
 
-  it("translates routes into friendly labels", async () => {
+  it("shows Under review with no paragraphs before approval", async () => {
     const res = await getAppealForCase("case_1", OWNER);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.appeal.groundLabels.length).toBeGreaterThan(0);
-    // No raw route identifiers.
-    for (const label of res.appeal.groundLabels) {
-      expect(label).not.toMatch(/^(POFA|SIGNAGE|BREAKDOWN)$/);
-    }
+    expect(res.appeal.status).toBe("UNDER_REVIEW");
+    expect(res.appeal.paragraphs).toEqual([]);
+    expect(res.appeal.reviewDetail).toBe("We're reviewing your appeal.");
   });
 
-  it("returns no paragraphs and no labels for a blocked draft", () => {
+  it("returns no paragraphs and no labels until approved", () => {
     const view = toCustomerView({
       ...drafts[0],
       id: "d",
       caseId: "case_1",
       version: 1,
-      status: "MANUAL_REVIEW",
-      body: null,
+      status: "READY",
+      body: "secret",
       paragraphs: [{ id: "p1", text: "leak" }],
       primaryRoute: "POFA",
       secondaryRoutes: [],
       blockDetail: "A person will review this.",
     } as AppealDraftRow);
 
+    expect(view.status).toBe("UNDER_REVIEW");
     expect(view.paragraphs).toEqual([]);
     expect(view.groundLabels).toEqual([]);
     expect(view.needsReview).toBe(true);
-    expect(view.reviewDetail).toBe("A person will review this.");
+    expect(view.reviewDetail).toBe("We're reviewing your appeal.");
+  });
+
+  it("exposes paragraphs only after admin approval", () => {
+    const view = toCustomerView(
+      {
+        id: "d",
+        caseId: "case_1",
+        version: 1,
+        status: "READY",
+        body: "Para",
+        paragraphs: [{ id: "p1", text: "Approved text" }],
+        primaryRoute: "POFA",
+        secondaryRoutes: [],
+        moduleIds: [],
+        codeVersionId: null,
+        pofaRoute: null,
+        providerId: null,
+        promptVersion: null,
+        model: null,
+        bespoke: false,
+        validation: null,
+        checklist: null,
+        warnings: [],
+        attempts: 1,
+        blockReason: null,
+        blockDetail: null,
+        generationVersion: "generation-v1",
+        createdAt: "2025-02-01T00:00:00.000Z",
+        supersededAt: null,
+      } as AppealDraftRow,
+      { approved: true },
+    );
+    expect(view.status).toBe("READY");
+    expect(view.paragraphs).toEqual([{ id: "p1", text: "Approved text" }]);
   });
 });
 

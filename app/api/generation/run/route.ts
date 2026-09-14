@@ -34,6 +34,11 @@ export async function POST(request: Request) {
     );
   }
 
+  const limited = await (
+    await import("@/lib/rateLimit")
+  ).enforceRateLimit(session.userId, "GENERATION");
+  if (limited) return limited;
+
   let body: Body;
   try {
     body = (await request.json()) as Body;

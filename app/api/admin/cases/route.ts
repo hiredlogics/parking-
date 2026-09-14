@@ -31,6 +31,7 @@ export async function GET() {
       customerName: c.customerName,
       customerEmail: c.customerEmail,
       status: c.status,
+      lifecycleStatus: c.lifecycleStatus,
       serviceType: c.serviceType,
       operatorName: c.operatorName,
       pcnNumber: c.pcnNumber,

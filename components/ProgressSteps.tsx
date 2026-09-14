@@ -29,8 +29,8 @@ export function ProgressSteps({ current }: { current: StepKey }) {
   const currentIndex = STEPS.findIndex((s) => s.key === current);
   return (
     <nav aria-label="Appeal progress" className="border-b border-brand-borderSoft bg-white">
-      <div className="container-page py-4">
-        <ol className="flex flex-wrap items-center gap-x-1 gap-y-3 text-[12px] sm:text-[13px]">
+      <div className="container-page flex justify-center py-4">
+        <ol className="flex flex-wrap items-center justify-center gap-x-1 gap-y-3 text-[12px] sm:text-[13px]">
           {STEPS.map((s, i) => {
             const state: "done" | "active" | "todo" =
               i < currentIndex ? "done" : i === currentIndex ? "active" : "todo";

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEMO_SCENARIOS } from "@/lib/demoScenarios";
+import { DEMO_SCENARIOS } from "@/tests/fixtures/demoScenarios";
 import { evaluate } from "@/rules";
 import { assembleAppeal } from "@/lib/assembly";
 import { validateKeeperSafe } from "@/lib/keeperSafe";

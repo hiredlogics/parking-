@@ -23,7 +23,7 @@ export function Hero() {
 
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <Link
-              href="/start"
+              href="/appeal/upload"
               className="btn-brand-primary"
               data-testid="hero-cta"
             >

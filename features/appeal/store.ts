@@ -95,7 +95,6 @@ interface AppealSessionActions {
   removeEvidence(id: string): void;
   setStep(step: AppealSessionState["currentStep"]): void;
   reset(): void;
-  seedFromScenario(input: { pcn: ExtractedPcn; answers: AllAnswers }): void;
 }
 
 const initial: AppealSessionState = {
@@ -165,18 +164,6 @@ export const useAppealStore = create<AppealSessionState & AppealSessionActions>(
       removeEvidence: (id) =>
         set((state) => ({ evidence: state.evidence.filter((e) => e.id !== id) })),
       setStep: (step) => set(() => ({ currentStep: step })),
-      seedFromScenario: ({ pcn, answers }) =>
-        set(() => ({
-          extraction: {
-            raw: { ...pcn },
-            confidence: {},
-            providerId: "seed",
-            extractedAt: new Date().toISOString(),
-            warnings: [],
-          },
-          answers,
-          currentStep: "confirm",
-        })),
       reset: () => set(() => ({ ...initial, answers: { core: { scenarios: [] }, branch: {} } })),
     }),
     {

@@ -5,6 +5,11 @@ import type { KnownFacts } from "./types";
 /**
  * Fact-requirement map.
  *
+ * @deprecated Phase 5 — relationships now live in
+ * `issue_required_facts` / `issue_knowledge` (Admin config). This file
+ * seeds the initial graph and remains as legacy fallback. Do not extend
+ * for live behaviour; remove in Phase 6–7 after parity tests.
+ *
  * This replaces the question bank as the definition of "what a case
  * still needs". Previously a fact counted as missing only if some
  * hard-coded question happened to ask it, which made the bank the

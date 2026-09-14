@@ -70,6 +70,7 @@ vi.mock("@/lib/cases/repo", () => ({
   listDocumentsForCustomer: async () => documents,
   findCase: async (id: string) => cases.find((c) => c.id === id) ?? null,
   listCaseDocuments: async () => [],
+  listCaseEvents: async () => [],
   addCaseEvent: async () => {},
 }));
 
@@ -118,6 +119,7 @@ describe("Case status vocabulary", () => {
       [
         "COMPLETED", "GENERATED", "GENERATING", "IN_PROGRESS",
         "MANUAL_REVIEW", "PAID", "READY_FOR_PAYMENT", "SUBMITTED",
+        "UNDER_REVIEW",
       ].sort(),
     );
   });
@@ -163,9 +165,9 @@ describe("Case status vocabulary", () => {
     expect(lifecycleStatusFor("GENERATING")).toBe("GENERATING");
   });
 
-  it("maps every review state to MANUAL_REVIEW", () => {
-    for (const s of ["MANUAL_REVIEW", "OUT_OF_SCOPE", "FAILED"] as AppealCaseStatus[]) {
-      expect(lifecycleStatusFor(s), s).toBe("MANUAL_REVIEW");
+  it("maps review states to UNDER_REVIEW (customer-safe)", () => {
+    for (const s of ["MANUAL_REVIEW", "OUT_OF_SCOPE", "FAILED", "AWAITING_ADMIN_APPROVAL"] as AppealCaseStatus[]) {
+      expect(lifecycleStatusFor(s), s).toBe("UNDER_REVIEW");
     }
   });
 });
@@ -186,7 +188,7 @@ describe("Portal overview", () => {
     if (!res.ok) return;
     expect(res.overview.cases).toHaveLength(1);
     expect(res.overview.cases[0].publicId).toBe("CASE-2026-000001");
-    expect(res.overview.cases[0].caseStatusLabel).toBe("Appeal sent");
+    expect(res.overview.cases[0].caseStatusLabel).toBe("Submitted");
   });
 
   it("derives appeals from cases rather than a second record", async () => {

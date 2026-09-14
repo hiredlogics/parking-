@@ -637,7 +637,7 @@ export async function runReadinessCheck(
   const docs = await repo.listCaseDocuments(caseId, "EVIDENCE");
   const evidenceTypes = docs.map((d) => d.evidenceType ?? "other");
 
-  const result = assessSufficiency(c, evidenceTypes);
+  const result = await assessSufficiency(c, evidenceTypes);
 
   // Where does payment sit for this service?
   const gatedStep: WorkflowStep = "ANALYSIS";

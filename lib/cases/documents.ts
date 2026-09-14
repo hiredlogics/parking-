@@ -1,8 +1,10 @@
 import type { SessionData } from "@/lib/auth/session";
 import type { EvidenceItem } from "@/types";
 import { renderAppealPdf } from "@/services/documents/pdf";
-import { renderAppealDocx } from "@/services/documents/docx";
 import { generateAppealForCase, type GenerationFailure } from "@/lib/generation/caseGeneration";
+import { findCurrentAppeal } from "@/lib/appeals/repo";
+import { getStorageProvider } from "@/services/storage";
+import { ensureFinalAppealDocument } from "./finalDocument";
 import * as repo from "./repo";
 
 /**
@@ -39,6 +41,17 @@ export async function renderCaseDocument(
   | GenerationFailure
   | { ok: false; status: 409; code: string; message: string }
 > {
+  const appeal = await findCurrentAppeal(caseId);
+  if (!appeal || appeal.status !== "APPROVED") {
+    return {
+      ok: false,
+      status: 409,
+      code: "APPEAL_NOT_RELEASED",
+      message:
+        "This appeal is with our team for review and is not available to download yet.",
+    };
+  }
+
   const generated = await generateAppealForCase(caseId, session);
   if (!generated.ok) return generated;
   const draft = generated.draft;
@@ -63,6 +76,48 @@ export async function renderCaseDocument(
     };
   }
 
+  /*
+   * Serve the persisted appeal, not a fresh render.
+   *
+   * The releasable PDF is produced once from the validated draft and
+   * stored. Re-rendering on every download was measurably returning
+   * different bytes each time — PDF output embeds a creation timestamp
+   * — so a customer could download "their" appeal twice and get two
+   * different files, neither matching the stored artefact of record.
+   *
+   * DOCX is deferred until a persisted artefact exists (see
+   * docs/operations/DOCX_DEFERRED.md). On-demand regeneration of
+   * released appeal content is not allowed in production.
+   */
+  if (format === "docx") {
+    return {
+      ok: false,
+      status: 409,
+      code: "DOCX_NOT_AVAILABLE",
+      message:
+        "Word download is not available yet. Please download the PDF — it is the released appeal of record.",
+    };
+  }
+
+  if (format === "pdf") {
+    const final = await ensureFinalAppealDocument(caseId, session);
+    if (final.ok) {
+      const doc = final.final.document;
+      const object = await getStorageProvider().get(doc.storageKey);
+      if (object) {
+        return {
+          ok: true,
+          document: {
+            bytes: new Uint8Array(object.bytes),
+            filename: doc.fileName,
+            contentType: doc.mimeType || CONTENT_TYPES.pdf,
+          },
+        };
+      }
+      // Object lost: fall through and re-render from the same draft.
+    }
+  }
+
   const docs = await repo.listCaseDocuments(caseId, "EVIDENCE");
   const evidence: EvidenceItem[] = docs.map((d) => ({
     id: d.id,
@@ -81,17 +136,14 @@ export async function renderCaseDocument(
     appeal: { paragraphs: draft.paragraphs },
   };
 
-  const bytes =
-    format === "pdf"
-      ? await renderAppealPdf(input)
-      : await renderAppealDocx(input);
+  const bytes = await renderAppealPdf(input);
 
   return {
     ok: true,
     document: {
       bytes: new Uint8Array(bytes),
-      filename: `${documentBasename(appealCase.pcnNumber, appealCase.vrm, appealCase.publicId)}.${format}`,
-      contentType: CONTENT_TYPES[format],
+      filename: `${documentBasename(appealCase.pcnNumber, appealCase.vrm, appealCase.publicId)}.pdf`,
+      contentType: CONTENT_TYPES.pdf,
     },
   };
 }

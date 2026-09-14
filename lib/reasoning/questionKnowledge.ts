@@ -1,8 +1,10 @@
 import type { RouteFamily } from "@/types/caseState";
-import { ALL_KB_MODULES } from "@/lib/kb/seed";
-import { LEGAL_SOURCES } from "@/lib/kb/seed/sources";
 import { NON_BINDING_STATUSES } from "@/lib/kb/types";
-import type { KbModule } from "@/lib/kb/types";
+import type { KbModule, LegalSource } from "@/lib/kb/types";
+import {
+  modulesForRetrieval,
+  sourcesForRetrieval,
+} from "@/lib/kb/catalog";
 import { moduleAllowed } from "@/lib/retrieval/gates";
 import type { KnownFacts } from "@/lib/questions/types";
 import type { FactRequirement } from "@/lib/questions/requirements";
@@ -27,6 +29,10 @@ import type { PofaAnalysis } from "@/lib/analysis/types";
  * wording. No module or source ID is ever included, so nothing
  * identifying the knowledge base can reach a customer even if the
  * model tried to echo its context.
+ *
+ * Catalog: the same loadKbCatalog() repository as drafting. Callers
+ * must pass modules (and ideally sources) from that catalog in
+ * production — see modulesForRetrieval.
  */
 
 export interface QuestionKnowledge {
@@ -51,26 +57,34 @@ export interface RetrieveForQuestionInput {
    * computed in code — never guessed by a model.
    */
   pofa: PofaAnalysis;
-  /** Injectable for tests. */
+  /** Injectable for tests / live catalog. Same source as drafting. */
   modules?: KbModule[];
+  /** Injectable sources — blocked-status set is derived from these. */
+  sources?: LegalSource[];
 }
 
-/** Sources that may never be presented as current law. */
-const BLOCKED_SOURCE_IDS = new Set(
-  LEGAL_SOURCES.filter((s) => NON_BINDING_STATUSES.includes(s.status)).map(
-    (s) => s.sourceId,
-  ),
-);
+function blockedSourceIds(sources: LegalSource[]): Set<string> {
+  return new Set(
+    sources
+      .filter((s) => NON_BINDING_STATUSES.includes(s.status))
+      .map((s) => s.sourceId),
+  );
+}
 
+/**
+ * Effective-date window — aligned with lib/retrieval/engine.ts so
+ * questioning and drafting cannot disagree about which version applies.
+ */
 function withinEffectiveWindow(
   module: KbModule,
   eventDate: string | null | undefined,
 ): boolean {
-  if (!eventDate) return true;
+  if (!module.effectiveFrom && !module.effectiveTo) return true;
+  if (!eventDate) return false;
   const t = Date.parse(eventDate);
-  if (Number.isNaN(t)) return true;
+  if (Number.isNaN(t)) return false;
   if (module.effectiveFrom && Date.parse(module.effectiveFrom) > t) return false;
-  if (module.effectiveTo && Date.parse(module.effectiveTo) < t) return false;
+  if (module.effectiveTo && Date.parse(module.effectiveTo) <= t) return false;
   return true;
 }
 
@@ -88,7 +102,9 @@ export function retrieveForQuestion(
   // to retrieve and nothing for the model to misread.
   if (route === "TRIAGE" || route === "SCOPE") return [];
 
-  const all = input.modules ?? ALL_KB_MODULES;
+  const all = modulesForRetrieval(input.modules);
+  const sources = sourcesForRetrieval(input.sources);
+  const blocked = blockedSourceIds(sources);
   const cited = new Set(input.requirement.kbModules);
 
   const eligible = all.filter((m) => {
@@ -101,7 +117,7 @@ export function retrieveForQuestion(
     // question about what the law requires.
     if (
       m.sourceIds.length > 0 &&
-      m.sourceIds.every((id) => BLOCKED_SOURCE_IDS.has(id))
+      m.sourceIds.every((id) => blocked.has(id))
     ) {
       return false;
     }
@@ -120,27 +136,12 @@ export function retrieveForQuestion(
   const ordered = [
     ...eligible.filter((m) => cited.has(m.moduleId)),
     ...eligible.filter((m) => !cited.has(m.moduleId)),
-  ];
+  ].slice(0, 2);
 
-  return ordered.slice(0, 2).map((m) => ({
+  return ordered.map((m) => ({
     topic: m.topic,
     proposition: m.coreProposition,
-    mustCheck: m.aiMustCheck.slice(0, 3),
-    evidenceHelps: m.evidenceNeeded.slice(0, 3),
+    mustCheck: m.aiMustCheck.slice(0, 4),
+    evidenceHelps: m.evidenceNeeded.slice(0, 4),
   }));
-}
-
-/**
- * Why this fact matters, in one short line for the prompt.
- *
- * Falls back to the requirement's own rationale when no module
- * survives the filters — the rationale is itself reviewed text from the
- * requirement map, so the model is never left to invent a reason.
- */
-export function whyFactMatters(
-  requirement: FactRequirement,
-  knowledge: QuestionKnowledge[],
-): string {
-  if (knowledge.length === 0) return requirement.rationale;
-  return `${requirement.rationale} Relevant approved position: ${knowledge[0].proposition}`;
 }

@@ -24,6 +24,13 @@ export async function GET(
   const session = await getSession();
   const { id } = await ctx.params;
 
+  if (session.userId) {
+    const limited = await (
+      await import("@/lib/rateLimit")
+    ).enforceRateLimit(session.userId, "DOCUMENT");
+    if (limited) return limited;
+  }
+
   const requested = new URL(request.url).searchParams.get("format") ?? "pdf";
   if (requested !== "pdf" && requested !== "docx") {
     return fail("BAD_FORMAT", "Format must be pdf or docx.", 400);

@@ -83,8 +83,11 @@ export function AdaptiveQuestion({
   };
 
   return (
-    <div className="app-card">
-      <h1 className="text-[20px] font-black leading-snug tracking-tight sm:text-[24px]">
+    <div className="app-card" data-testid="adaptive-question">
+      <h1
+        className="text-[20px] font-black leading-snug tracking-tight sm:text-[24px]"
+        data-testid="question-label"
+      >
         {question.label}
       </h1>
       {question.helpText && (

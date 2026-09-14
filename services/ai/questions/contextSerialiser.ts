@@ -1,4 +1,5 @@
 import type { GenerationContext } from "@/lib/questions/generated";
+import { canonicalValuesFor } from "@/lib/questions/answerContract";
 
 /**
  * Serialise the case for the question generator.
@@ -84,6 +85,24 @@ export function serialiseQuestionContext(ctx: GenerationContext): string {
         `- fact: ${m.fact} | reason_code: ${m.reasonCode} | route: ${m.route}`,
       );
       lines.push(`  why it matters: ${m.rationale}`);
+
+      /*
+       * The fact's value space, where it has one.
+       *
+       * Without this the model invents plausible-looking option values
+       * ("england", "pay_and_display_machine") that the answer-contract
+       * validator then rejects. A measured run needed 13 generation
+       * calls to produce 7 questions and fell back to the bank twice,
+       * purely because the allowed values were never stated.
+       */
+      const values = canonicalValuesFor(m.fact);
+      if (values) {
+        lines.push(
+          `  answer with single_choice or multi_choice using EXACTLY these option values: ${values
+            .map((v) => `"${v}"`)
+            .join(", ")} (you choose the customer-facing labels)`,
+        );
+      }
       /*
        * Approved knowledge, where retrieved. This is the ONLY legal
        * material the generator sees, and it exists so the model

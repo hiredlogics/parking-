@@ -32,6 +32,13 @@ import type {
 } from "./generated";
 import { getQuestionProvider } from "@/services/ai/questions";
 import type { QuestionProvider } from "@/services/ai/questions";
+import { KbCatalogError, loadKbCatalog } from "@/lib/kb/catalog";
+import type { KbModule, LegalSource } from "@/lib/kb/types";
+import {
+  evaluateIssues,
+  isAdminIssueEngineEnabled,
+} from "@/lib/engine/issueEngine";
+import { ALL_REASON_CODES } from "./requirements";
 
 /**
  * AI-dynamic question orchestration.
@@ -123,6 +130,7 @@ function buildContext(
   askedLabels: string[],
   askedFacts: string[],
   pofa: PofaAnalysis,
+  catalog: { modules: KbModule[]; sources: LegalSource[] },
   feedback?: string,
 ): GenerationContext {
   return {
@@ -143,6 +151,8 @@ function buildContext(
        * Retrieved only for the few facts the model will realistically
        * choose between. Retrieving for every outstanding fact would be
        * broad legal RAG, which §K explicitly rules out.
+       *
+       * Same catalog as drafting — admin disable/effective dates apply here.
        */
       knowledge:
         index < 3
@@ -152,6 +162,8 @@ function buildContext(
               evidenceTypes,
               parkingEventDate: confirmed?.parking_event_date ?? null,
               pofa,
+              modules: catalog.modules,
+              sources: catalog.sources,
             })
           : undefined,
     })),
@@ -202,6 +214,11 @@ export async function nextDynamicQuestion(
    * facts, the evidence, and the customer's description. Routes
    * contradicted by a confirmed fact are excluded.
    */
+  /*
+   * @deprecated assessCandidacy — used for provider labels / PoFA context
+   * and as legacy fallback when USE_ADMIN_ISSUE_ENGINE=0. Do not extend;
+   * remove in Phase 6–7 after parity tests.
+   */
   const candidacy = assessCandidacy({
     facts,
     allegedBreach: input.allegedBreach ?? input.confirmed?.alleged_breach ?? null,
@@ -223,18 +240,67 @@ export async function nextDynamicQuestion(
   // Deterministic — never delegated to a model (§M).
   const pofa = analysePofa({ facts });
 
-  const missing = missingRequirements(facts, routes);
+  /*
+   * Phase 5: Admin-configured issue engine is the authority for missing
+   * facts. Legacy missingRequirements is fallback only.
+   */
+  let missing: FactRequirement[];
+  let adminSufficient = false;
+
+  if (isAdminIssueEngineEnabled()) {
+    try {
+      const evaluated = await evaluateIssues({
+        serviceCode: "PRIVATE_PARKING_INITIAL_APPEAL",
+        facts,
+        evidenceTypes,
+      });
+      adminSufficient = evaluated.sufficient;
+      missing = evaluated.missingFacts.map((m) => ({
+        fact: m.factKey,
+        reasonCode: (ALL_REASON_CODES.includes(m.reasonCode as never)
+          ? m.reasonCode
+          : "GROUNDS_UNIDENTIFIED") as FactRequirement["reasonCode"],
+        route: "TRIAGE" as FactRequirement["route"],
+        priority: m.priority,
+        rationale: `Required for ${m.issueCode}`,
+        kbModules: evaluated.applicableModuleIds.slice(0, 4),
+        when: () => true,
+      }));
+      if (adminSufficient && missing.length === 0) {
+        return {
+          status: "SUFFICIENT_INFORMATION",
+          eligibleRoutes: routes,
+          missingFacts: [],
+          readyForNextStage: true,
+        };
+      }
+      if (missing.length === 0 && !adminSufficient) {
+        return {
+          status: "MANUAL_REVIEW",
+          reason: "NO_VIABLE_ROUTE",
+          detail:
+            "We could not identify a ground to appeal on from the notice and the answers given. A member of our team will review this rather than us preparing something unsupported.",
+          eligibleRoutes: [],
+          missingFacts: [],
+        };
+      }
+    } catch (err) {
+      console.warn(
+        "[dynamicEngine] admin issue engine failed; using legacy requirements:",
+        err,
+      );
+      missing = missingRequirements(facts, routes);
+    }
+  } else {
+    missing = missingRequirements(facts, routes);
+  }
 
   /*
-   * The real dead end: no route is in play at all.
-   *
-   * Checked BEFORE sufficiency, because "nothing left to ask" and
-   * "nothing to argue" are not the same thing. Every source has been
-   * consulted — the allegation, the facts, the evidence, the customer's
-   * description — and none opened a ground, so generating would produce
-   * an unsupported appeal.
+   * Legacy dead-end: no route is in play at all.
+   * @deprecated — admin engine path above handles this when enabled.
    */
   if (
+    !isAdminIssueEngineEnabled() &&
     routes.length === 0 &&
     (missing.length === 0 || askedFacts.includes("scenarios"))
   ) {
@@ -299,6 +365,23 @@ export async function nextDynamicQuestion(
   });
   const ordered = ranked.map((r) => r.requirement);
 
+  let catalog: { modules: KbModule[]; sources: LegalSource[] };
+  try {
+    const loaded = await loadKbCatalog();
+    catalog = { modules: loaded.modules, sources: loaded.sources };
+  } catch (err) {
+    if (err instanceof KbCatalogError) {
+      return {
+        status: "MANUAL_REVIEW",
+        reason: "KB_CATALOG_UNAVAILABLE",
+        detail: err.message,
+        eligibleRoutes: routes,
+        missingFacts: missing.map((m) => m.fact),
+      };
+    }
+    throw err;
+  }
+
   const provider =
     input.provider !== undefined ? input.provider : getQuestionProvider();
   const rejections: string[] = [];
@@ -315,7 +398,7 @@ export async function nextDynamicQuestion(
         buildContext(
           input.caseId ?? null,
           facts, input.confirmed, mergedAnswers, evidenceTypes, routes,
-          ordered, askedLabels, askedFacts, pofa, feedback,
+          ordered, askedLabels, askedFacts, pofa, catalog, feedback,
         ),
       );
 

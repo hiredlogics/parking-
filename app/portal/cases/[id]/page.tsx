@@ -169,7 +169,9 @@ export default function PortalCaseDetailPage() {
   const inReview =
     appealCase.outOfScope !== null ||
     appealCase.status === "MANUAL_REVIEW" ||
-    appeal?.needsReview === true;
+    appealCase.status === "AWAITING_ADMIN_APPROVAL" ||
+    appeal?.needsReview === true ||
+    appeal?.status === "UNDER_REVIEW";
 
   return (
     <AdminPage title={appealCase.publicId} breadcrumb={crumb}>
@@ -291,11 +293,11 @@ export default function PortalCaseDetailPage() {
       {/* ---------- The appeal itself ---------- */}
       {inReview ? (
         <AdminCard className="mt-4">
-          <AdminCardHeader title="With our team" />
+          <AdminCardHeader title="Under review" />
           <p className="p-4 text-[14px] leading-relaxed text-brand-mute sm:p-5">
             {appealCase.outOfScope?.detail ??
               appeal?.reviewDetail ??
-              "This case needs a person to review it before we release an appeal. We would rather do that than send you something we are not confident in."}
+              "We're reviewing your appeal."}
           </p>
         </AdminCard>
       ) : paid && appeal?.status === "READY" ? (
@@ -312,15 +314,6 @@ export default function PortalCaseDetailPage() {
                   data-testid="portal-download-pdf"
                 >
                   {downloading === "pdf" ? "Preparing…" : "Download PDF"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => doDownload("docx")}
-                  disabled={downloading !== null}
-                  className="btn-brand-outline"
-                  data-testid="portal-download-docx"
-                >
-                  {downloading === "docx" ? "Preparing…" : "Word"}
                 </button>
               </div>
             }

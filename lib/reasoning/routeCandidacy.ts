@@ -11,6 +11,12 @@ import { routesFromEvidence, type DerivedFact } from "./evidenceFacts";
 /**
  * Route candidacy.
  *
+ * @deprecated Phase 5 — superseded by `lib/engine/issueEngine` for
+ * determining active issues and missing facts when
+ * USE_ADMIN_ISSUE_ENGINE is on (default). Still used for provider
+ * labels / PoFA context and as a feature-flag fallback. Do not extend;
+ * remove in Phase 6–7 after parity tests.
+ *
  * Replaces tag-only route opening. Scenario tags still contribute, but
  * they are no longer the sole mechanism — which was the defect that
  * made the journey feel like a questionnaire: nothing the PCN said or

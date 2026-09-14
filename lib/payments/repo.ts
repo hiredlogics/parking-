@@ -95,6 +95,43 @@ export async function listPaymentsForCustomer(
   }));
 }
 
+/**
+ * Every payment across every customer — the admin Finance view.
+ *
+ * Joined to the case and client so admin can see who a payment belongs
+ * to without a query per row.
+ */
+export async function listAllPayments(
+  limit = 500,
+): Promise<
+  Array<
+    CasePayment & {
+      casePublicId: string;
+      customerId: string | null;
+      customerName: string | null;
+      customerEmail: string | null;
+    }
+  >
+> {
+  const rows = await q(
+    `SELECT p.*, ac.public_id AS case_public_id, ac.customer_id AS customer_id,
+            c.name AS customer_name, c.email AS customer_email
+       FROM case_payments p
+       JOIN appeal_cases ac ON ac.id = p.case_id
+       LEFT JOIN clients c ON c.id = ac.customer_id
+      ORDER BY p.created_at DESC
+      LIMIT $1`,
+    [limit],
+  );
+  return rows.map((r) => ({
+    ...rowToPayment(r),
+    casePublicId: r.case_public_id as string,
+    customerId: (r.customer_id as string | null) ?? null,
+    customerName: (r.customer_name as string | null) ?? null,
+    customerEmail: (r.customer_email as string | null) ?? null,
+  }));
+}
+
 export async function findPaymentBySession(
   providerSessionId: string,
 ): Promise<CasePayment | null> {

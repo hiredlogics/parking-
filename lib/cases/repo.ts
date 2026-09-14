@@ -200,6 +200,18 @@ export async function setCaseStatus(
   );
 }
 
+export async function setAwaitingAdminApproval(
+  id: string,
+  awaiting: boolean,
+): Promise<void> {
+  await q(
+    `UPDATE appeal_cases
+     SET awaiting_admin_approval = $2, updated_at = $3
+     WHERE id = $1`,
+    [id, awaiting, new Date().toISOString()],
+  );
+}
+
 /**
  * How long after submission it becomes reasonable to ask the customer
  * whether an outcome arrived. Operators are generally expected to reply
@@ -487,10 +499,9 @@ export async function saveReadiness(
             missing_facts = $6,
             code_version_id = $7,
             pofa_route = $8,
-            out_of_scope_detail = COALESCE($9, out_of_scope_detail),
+            out_of_scope_detail = $9,
             readiness_checked_at = $10,
             status = CASE
-              WHEN $9 IS NOT NULL THEN 'MANUAL_REVIEW'
               WHEN $11 THEN $12
               ELSE status END,
             updated_at = $10
@@ -738,15 +749,44 @@ export async function addCaseEvent(input: {
   );
 }
 
+/**
+ * Most recent events across every case — the admin dashboard's "recent
+ * activity" feed. Mirrors the customer-safe projection in
+ * `lib/portal/overview.ts` (label allowlist over `case_events`), but
+ * admin sees the fuller admin-facing set rather than the customer subset.
+ */
+export async function listRecentCaseEvents(
+  limit = 20,
+): Promise<
+  Array<{ id: string; caseId: string; casePublicId: string; eventType: string; createdAt: string }>
+> {
+  const rows = await q(
+    `SELECT ce.id, ce.case_id, ce.event_type, ce.created_at, ac.public_id
+       FROM case_events ce
+       JOIN appeal_cases ac ON ac.id = ce.case_id
+      ORDER BY ce.created_at DESC
+      LIMIT $1`,
+    [limit],
+  );
+  return rows.map((r) => ({
+    id: r.id as string,
+    caseId: r.case_id as string,
+    casePublicId: r.public_id as string,
+    eventType: r.event_type as string,
+    createdAt: r.created_at as string,
+  }));
+}
+
 export async function listCaseEvents(
   caseId: string,
-): Promise<Array<{ eventType: string; payload: unknown; createdAt: string }>> {
+): Promise<Array<{ id: string; eventType: string; payload: unknown; createdAt: string }>> {
   const rows = await q(
-    `SELECT event_type, payload, created_at FROM case_events
+    `SELECT id, event_type, payload, created_at FROM case_events
       WHERE case_id = $1 ORDER BY created_at`,
     [caseId],
   );
   return rows.map((r) => ({
+    id: r.id as string,
     eventType: r.event_type as string,
     payload: r.payload,
     createdAt: r.created_at as string,

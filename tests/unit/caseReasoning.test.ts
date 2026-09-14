@@ -1,6 +1,8 @@
 /**
  * @vitest-environment node
  */
+process.env.USE_ADMIN_ISSUE_ENGINE = "0";
+
 import { describe, expect, it } from "vitest";
 import type { ConfirmedPcn } from "@/types";
 import { FACT, deriveKnownFacts } from "@/lib/questions/facts";

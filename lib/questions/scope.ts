@@ -27,8 +27,9 @@ export function detectOutOfScope(f: KnownFacts): ScopeDecision | null {
     return {
       action: "MANUAL_REVIEW",
       reason: "JURISDICTION_SCOTLAND",
+      // Customer-safe — no statute / engine wording.
       detail:
-        "The Protection of Freedoms Act 2012 Schedule 4 keeper-liability route does not apply in Scotland. Separate jurisdiction logic is required, so this case needs manual review.",
+        "We're reviewing your appeal. Cases outside England and Wales are handled by our team rather than the automated flow.",
     };
   }
   if (jurisdiction === "NORTHERN_IRELAND") {
@@ -36,7 +37,7 @@ export function detectOutOfScope(f: KnownFacts): ScopeDecision | null {
       action: "MANUAL_REVIEW",
       reason: "JURISDICTION_NORTHERN_IRELAND",
       detail:
-        "This build covers England and Wales. A Northern Ireland case requires manual review.",
+        "We're reviewing your appeal. Cases outside England and Wales are handled by our team rather than the automated flow.",
     };
   }
 
@@ -46,7 +47,7 @@ export function detectOutOfScope(f: KnownFacts): ScopeDecision | null {
       action: "MANUAL_REVIEW",
       reason: "HIRE_OR_COMPANY_VEHICLE",
       detail:
-        "Hire, lease and company vehicles follow a different statutory route which is not automated. This case needs manual review.",
+        "We're reviewing your appeal. Hire, lease and company vehicles need a person to look at them.",
     };
   }
 
@@ -57,7 +58,7 @@ export function detectOutOfScope(f: KnownFacts): ScopeDecision | null {
       action: "MANUAL_REVIEW",
       reason: "NOT_REGISTERED_KEEPER",
       detail:
-        "This build generates registered-keeper appeals. An appeal from someone who is not the registered keeper needs manual review.",
+        "We're reviewing your appeal. This automated flow is for the registered keeper.",
     };
   }
 

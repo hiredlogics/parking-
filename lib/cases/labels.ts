@@ -65,11 +65,12 @@ const STATUS_LABELS: Record<AppealCaseStatus, string> = {
   GENERATING: "Preparing your appeal",
   READY_PREVIEW: "Ready to continue",
   AWAITING_PAYMENT: "Ready — payment needed",
-  PAID: "Preparing your appeal",
+  PAID: "Being prepared",
   UNLOCKED: "Appeal ready",
-  MANUAL_REVIEW: "With our team",
-  OUT_OF_SCOPE: "With our team",
-  FAILED: "Needs attention",
+  AWAITING_ADMIN_APPROVAL: "Under review",
+  MANUAL_REVIEW: "Under review",
+  OUT_OF_SCOPE: "Under review",
+  FAILED: "Under review",
 };
 
 export function caseStatusLabel(status: AppealCaseStatus): string {
@@ -79,13 +80,14 @@ export function caseStatusLabel(status: AppealCaseStatus): string {
 /** Plain-language wording for the derived case status. */
 const LIFECYCLE_LABELS: Record<CaseLifecycleStatus, string> = {
   IN_PROGRESS: "In progress",
-  READY_FOR_PAYMENT: "Ready — payment needed",
-  PAID: "Paid",
-  GENERATING: "Preparing your appeal",
+  READY_FOR_PAYMENT: "Waiting for payment",
+  PAID: "Being prepared",
+  GENERATING: "Being prepared",
+  UNDER_REVIEW: "Under review",
   GENERATED: "Appeal ready",
-  SUBMITTED: "Appeal sent",
+  SUBMITTED: "Submitted",
   COMPLETED: "Completed",
-  MANUAL_REVIEW: "With our team",
+  MANUAL_REVIEW: "Under review",
 };
 
 export function lifecycleLabel(status: CaseLifecycleStatus): string {
@@ -98,7 +100,16 @@ export function caseNextStep(
   paymentStatus: CasePaymentStatus,
 ): { label: string; href: (caseId: string) => string } | null {
   if (paymentStatus === "PAID") {
-    return { label: "View appeal", href: (id) => `/portal/cases/${id}` };
+    if (status === "AWAITING_ADMIN_APPROVAL" || status === "MANUAL_REVIEW") {
+      return {
+        label: "We're reviewing your appeal",
+        href: (id) => `/portal/cases/${id}`,
+      };
+    }
+    if (status === "UNLOCKED") {
+      return { label: "View appeal", href: (id) => `/portal/cases/${id}` };
+    }
+    return { label: "View case", href: (id) => `/portal/cases/${id}` };
   }
   switch (status) {
     case "DRAFT":
@@ -111,9 +122,13 @@ export function caseNextStep(
     case "AWAITING_PAYMENT":
     case "READY_PREVIEW":
       return { label: "Continue to checkout", href: (id) => `/checkout/${id}` };
+    case "AWAITING_ADMIN_APPROVAL":
     case "MANUAL_REVIEW":
     case "OUT_OF_SCOPE":
-      return null;
+      return {
+        label: "We're reviewing your appeal",
+        href: (id) => `/portal/cases/${id}`,
+      };
     default:
       return { label: "Continue", href: () => "/appeal/review" };
   }

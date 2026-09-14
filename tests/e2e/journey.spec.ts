@@ -1,0 +1,214 @@
+import { createHash } from "node:crypto";
+import { expect, test, type Page } from "@playwright/test";
+import {
+  answerAllQuestions,
+  createAccount,
+  portalDocumentUrls,
+  uploadPcn,
+  uniqueEmail,
+} from "./journeyHelpers";
+
+/**
+ * The continuous customer journey, end to end, in a real browser.
+ *
+ * One test walks the whole thing in order rather than several tests
+ * each re-creating state, because the thing most worth protecting is
+ * that the steps connect: a case created at upload is the same case
+ * that gets paid for, drafted, and whose PDF appears in the portal.
+ *
+ * Every external dependency is pinned to a deterministic provider in
+ * playwright.config.ts, so this makes no paid API calls.
+ */
+
+test.describe.configure({ mode: "serial" });
+
+test.describe("Private parking appeal — continuous journey", () => {
+  let page: Page;
+  let email: string;
+  let caseUrl: string;
+
+  test.beforeAll(async ({ browser }) => {
+    page = await browser.newPage();
+    email = uniqueEmail("journey");
+  });
+
+  test.afterAll(async () => {
+    // May be undefined if the browser failed to launch at all.
+    await page?.close();
+  });
+
+  test("1. a customer can create an account", async () => {
+    await createAccount(page, email);
+    // Signup lands the customer inside the product, not back on marketing.
+    await expect(page).not.toHaveURL(/\/signup/);
+  });
+
+  test("2. uploading a notice creates a case and extracts it", async () => {
+    await uploadPcn(page);
+
+    // Extraction has run and the customer is asked to confirm it.
+    await page.waitForURL("**/appeal/confirm", { timeout: 60_000 });
+    await expect(page.getByTestId("confirm-continue")).toBeVisible();
+  });
+
+  test("3. confirming the notice moves on to questions", async () => {
+    await page.getByTestId("confirm-continue").click();
+    await page.waitForURL("**/appeal/questions", { timeout: 30_000 });
+  });
+
+  test("4. the adaptive questions can be answered to sufficiency", async () => {
+    const asked = await answerAllQuestions(page);
+
+    // The engine must actually ask something before declaring sufficiency.
+    expect(asked.length).toBeGreaterThan(0);
+
+    /*
+     * Keeper safety, asserted against what was ASKED rather than the
+     * whole page: the page legitimately carries the reassurance banner
+     * "We never ask who was driving", which would match a body scan.
+     */
+    for (const question of asked) {
+      const q = question.toLowerCase();
+      expect(q, question).not.toContain("who was driving");
+      expect(q, question).not.toContain("were you driving");
+      expect(q, question).not.toContain("who drove");
+      expect(q, question).not.toContain("name of the driver");
+    }
+
+    await expect(page.getByTestId("questions-complete-continue")).toBeVisible({
+      timeout: 30_000,
+    });
+    await page.getByTestId("questions-complete-continue").click();
+    await page.waitForURL("**/appeal/evidence", { timeout: 30_000 });
+  });
+
+  test("5. evidence can be skipped and review reached", async () => {
+    await page.getByTestId("evidence-continue").click();
+    await page.waitForURL("**/appeal/review", { timeout: 30_000 });
+  });
+
+  test("6. review leads to checkout, not to a free appeal", async () => {
+    await page.getByTestId("review-continue").click();
+    // The payment gate sits between review and any generated document.
+    await page.waitForURL(/\/checkout\//, { timeout: 30_000 });
+    caseUrl = page.url();
+    expect(caseUrl).toMatch(/\/checkout\/case_/);
+  });
+
+  test("7. paying unlocks generation and produces a document", async () => {
+    await page.getByTestId("complete-demo-payment").click();
+
+    // Generation and validation run server-side after payment.
+    await page.waitForURL(/\/checkout\/.*\/success/, { timeout: 90_000 });
+    await expect(page.getByTestId("download-pdf")).toBeVisible({
+      timeout: 90_000,
+    });
+  });
+
+  test("8. the PDF downloads from the success page", async () => {
+    const download = await Promise.all([
+      page.waitForEvent("download", { timeout: 60_000 }),
+      page.getByTestId("download-pdf").click(),
+    ]).then(([d]) => d);
+
+    expect(download.suggestedFilename()).toMatch(/\.pdf$/i);
+    const stream = await download.createReadStream();
+    const chunks: Buffer[] = [];
+    for await (const c of stream) chunks.push(c as Buffer);
+    const bytes = Buffer.concat(chunks);
+
+    // A real PDF, not an error page rendered as a download.
+    expect(bytes.subarray(0, 5).toString()).toBe("%PDF-");
+    expect(bytes.byteLength).toBeGreaterThan(1000);
+  });
+
+  test("9. the case appears in the portal", async () => {
+    await page.goto("/portal");
+    await expect(page.locator("body")).toContainText(/appeal/i);
+  });
+
+  test("10. My Cases lists the case", async () => {
+    await page.goto("/portal/cases");
+    await expect(page.locator("body")).toContainText(/CASE-/, {
+      timeout: 30_000,
+    });
+  });
+
+  test("11. My Appeals lists the appeal", async () => {
+    await page.goto("/portal/appeals");
+    await expect(page.locator("body")).not.toContainText(/no appeals yet/i);
+  });
+
+  test("12. My Documents lists the generated PDF", async () => {
+    await page.goto("/portal/documents");
+    await expect(page.locator("body")).not.toContainText(/no documents/i, {
+      timeout: 30_000,
+    });
+  });
+
+  test("13. the PDF can be viewed and downloaded from the case page", async () => {
+    await page.goto("/portal/cases");
+    await page.locator("a[href*='/portal/cases/case_']").first().click();
+    await page.waitForURL(/\/portal\/cases\/case_/, { timeout: 30_000 });
+
+    const pdf = page.getByTestId("portal-download-pdf");
+    await expect(pdf).toBeVisible({ timeout: 30_000 });
+
+    const download = await Promise.all([
+      page.waitForEvent("download", { timeout: 60_000 }),
+      pdf.click(),
+    ]).then(([d]) => d);
+    expect(download.suggestedFilename()).toMatch(/\.pdf$/i);
+  });
+
+  test("14. an invoice is available for the payment", async () => {
+    await page.goto("/portal/invoices");
+    await expect(page.locator("body")).not.toContainText(/no invoices/i, {
+      timeout: 30_000,
+    });
+  });
+
+  test("15. re-downloading the PDF does not regenerate it", async () => {
+    /*
+     * The releasable appeal is generated once from the validated draft
+     * and persisted. Re-reading it must be a storage read, never a
+     * regeneration — otherwise every download costs money and, worse,
+     * could hand the customer different wording than they were shown.
+     *
+     * A regeneration would write a new row in case_documents_meta, so
+     * the document's identity is the evidence: if it is byte-identical
+     * and still the same record after repeated downloads, nothing was
+     * produced again.
+     */
+    const before = await portalDocumentUrls(page);
+    expect(before.length, "no documents listed").toBeGreaterThan(0);
+
+    await page.goto("/portal/cases");
+    await page.locator("a[href*='/portal/cases/case_']").first().click();
+    await page.waitForURL(/\/portal\/cases\/case_/);
+
+    const hashes = new Set<string>();
+    for (let i = 0; i < 3; i++) {
+      const d = await Promise.all([
+        page.waitForEvent("download", { timeout: 60_000 }),
+        page.getByTestId("portal-download-pdf").click(),
+      ]).then(([x]) => x);
+      expect(d.suggestedFilename()).toMatch(/\.pdf$/i);
+
+      const stream = await d.createReadStream();
+      const chunks: Buffer[] = [];
+      for await (const c of stream) chunks.push(c as Buffer);
+      hashes.add(createHash("sha256").update(Buffer.concat(chunks)).digest("hex"));
+    }
+
+    // Every download returned exactly the same bytes.
+    expect(hashes.size).toBe(1);
+
+    /*
+     * And the document set is unchanged. A regeneration would persist a
+     * new document row against the case, so a stable list of the same
+     * URLs means nothing was produced again.
+     */
+    expect(await portalDocumentUrls(page)).toEqual(before);
+  });
+});

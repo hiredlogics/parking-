@@ -8,6 +8,7 @@ import {
   generateAppealForCase,
   type GenerationFailure,
 } from "@/lib/generation/caseGeneration";
+import { findCurrentAppeal } from "@/lib/appeals/repo";
 import * as repo from "./repo";
 import { requireCaseAccess, type AccessFailure } from "./service";
 import { requireStepEntitlement } from "./service";
@@ -58,6 +59,22 @@ export async function ensureFinalAppealDocument(
   caseId: string,
   session: SessionData,
 ): Promise<{ ok: true; final: FinalDocument } | FinalDocumentFailure> {
+  /*
+   * Admin APPROVE is the release gate. Do not create a customer PDF
+   * from a draft that is still awaiting approval — even if the draft
+   * status is READY after validation.
+   */
+  const appeal = await findCurrentAppeal(caseId);
+  if (!appeal || appeal.status !== "APPROVED") {
+    return {
+      ok: false,
+      status: 409,
+      code: "APPEAL_NOT_RELEASED",
+      message:
+        "This appeal is with our team for review and is not available to download yet.",
+    };
+  }
+
   // Entitlement lives in generateAppealForCase — no unpaid case reaches
   // a draft, so none reaches a PDF either.
   const generated = await generateAppealForCase(caseId, session);
@@ -75,7 +92,11 @@ export async function ensureFinalAppealDocument(
   }
 
   // Already rendered for this exact validated draft — reuse it.
-  const existing = await repo.findGeneratedDocumentForDraft(caseId, draft.id);
+  // Prefer any GENERATED document produced by admin approval.
+  const existing =
+    (await repo.findGeneratedDocumentForDraft(caseId, draft.id)) ??
+    (await repo.listCaseDocuments(caseId, "GENERATED")).at(-1) ??
+    null;
   if (existing) {
     return { ok: true, final: { document: existing, draft, created: false } };
   }
@@ -212,6 +233,16 @@ export async function getCaseDocumentDelivery(
   if (doc.documentType === "GENERATED") {
     const entitled = await requireStepEntitlement(caseId, session, "PDF");
     if (!entitled.ok) return entitled;
+    const appeal = await findCurrentAppeal(caseId);
+    if (!appeal || appeal.status !== "APPROVED") {
+      return {
+        ok: false,
+        status: 409,
+        code: "APPEAL_NOT_RELEASED",
+        message:
+          "This appeal is with our team for review and is not available to download yet.",
+      };
+    }
   }
 
   const storage = getStorageProvider();

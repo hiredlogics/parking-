@@ -9,7 +9,12 @@ import {
   sanitiseSegment,
   SIGNED_URL_TTL_SECONDS,
 } from "@/services/storage/types";
-import { missingR2Vars, readR2Config } from "@/services/storage/r2Storage";
+import {
+  isSpacesEndpoint,
+  missingR2Vars,
+  readR2Config,
+  regionForEndpoint,
+} from "@/services/storage/r2Storage";
 import {
   getStorageProvider,
   isDurableStorage,
@@ -205,5 +210,52 @@ describe("Provider factory", () => {
   it("rejects an unknown provider rather than guessing", () => {
     process.env.STORAGE_PROVIDER = "dropbox";
     expect(() => getStorageProvider()).toThrow(/Unknown STORAGE_PROVIDER/);
+  });
+});
+
+/**
+ * DigitalOcean Spaces compatibility.
+ *
+ * The provider was written against Cloudflare R2, where the region is
+ * ignored and the SDK's additional-checksum header is accepted. Spaces
+ * differs on both counts, and both differences fail the upload rather
+ * than degrading, so they are pinned here.
+ */
+describe("DigitalOcean Spaces endpoints", () => {
+  it("derives the signing region from the Spaces endpoint", () => {
+    // Signing with "auto" against Spaces fails AuthorizationHeaderMalformed.
+    expect(regionForEndpoint("https://lon1.digitaloceanspaces.com")).toBe("lon1");
+    expect(regionForEndpoint("https://ams3.digitaloceanspaces.com")).toBe("ams3");
+    expect(regionForEndpoint("https://nyc3.digitaloceanspaces.com")).toBe("nyc3");
+  });
+
+  it("keeps 'auto' for R2 endpoints, which ignore the region", () => {
+    expect(regionForEndpoint("https://acct.r2.cloudflarestorage.com")).toBe("auto");
+  });
+
+  it("recognises a Spaces endpoint", () => {
+    expect(isSpacesEndpoint("https://lon1.digitaloceanspaces.com")).toBe(true);
+    expect(isSpacesEndpoint("https://acct.r2.cloudflarestorage.com")).toBe(false);
+  });
+
+  it("uses the derived region when R2_REGION is not set", () => {
+    const config = readR2Config({
+      R2_BUCKET: "appeals",
+      R2_ACCESS_KEY_ID: "key",
+      R2_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://lon1.digitaloceanspaces.com",
+    });
+    expect(config?.region).toBe("lon1");
+  });
+
+  it("lets an explicit R2_REGION win", () => {
+    const config = readR2Config({
+      R2_BUCKET: "appeals",
+      R2_ACCESS_KEY_ID: "key",
+      R2_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "https://lon1.digitaloceanspaces.com",
+      R2_REGION: "fra1",
+    });
+    expect(config?.region).toBe("fra1");
   });
 });

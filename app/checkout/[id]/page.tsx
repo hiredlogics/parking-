@@ -217,7 +217,7 @@ export default function CheckoutPage() {
                   {[
                     "Bespoke appeal written for your case",
                     "Independently checked before release",
-                    "Instant PDF and Word download",
+                    "Instant PDF download",
                   ].map((item) => (
                     <li key={item} className="flex items-center gap-2">
                       <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-green text-white">

@@ -1,5 +1,6 @@
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
+import { KbCatalogError, loadKbCatalog } from "@/lib/kb/catalog";
 import { deriveKnownFacts } from "@/lib/questions/facts";
 import { missingRequirements, askedFactKey } from "@/lib/questions/missing";
 import { openRoutes } from "@/lib/questions/requirements";
@@ -79,10 +80,10 @@ const NOT_READY_INTERNAL: SufficiencyResult["internal"] = {
   moduleCount: 0,
 };
 
-export function assessSufficiency(
+export async function assessSufficiency(
   appealCase: AppealCase,
   evidenceTypes: string[],
-): SufficiencyResult {
+): Promise<SufficiencyResult> {
   const blockers: string[] = [];
 
   // ---- Preconditions that need no analysis ----
@@ -119,24 +120,34 @@ export function assessSufficiency(
 
   const scope = detectOutOfScope(facts);
   if (scope) {
+    /*
+     * Scope gates (Scotland, hire vehicle, etc.) must not dump the
+     * customer to the portal. They can still finish evidence → review →
+     * pay. Generation then goes to admin approval rather than auto-
+     * releasing a PDF. Customer-facing copy stays plain English.
+     */
     return {
-      sufficient: false,
-      status: "INCOMPLETE",
+      sufficient: true,
+      status: "SUFFICIENT",
       blockers: [],
-      groundLabels: [],
+      groundLabels: [
+        "Your case will be prepared and checked by our team after payment",
+      ],
       outstandingCount: 0,
       evidence: { uploadedCount: evidenceTypes.length, suggestions: [] },
-      outOfScope: { detail: scope.detail },
-      internal: NOT_READY_INTERNAL,
+      outOfScope: null,
+      internal: {
+        ...NOT_READY_INTERNAL,
+        missingFacts: [scope.reason],
+      },
     };
   }
 
-  // Stop here while requirements remain. Running the analysis now would
-  // report "no supported route" simply because the facts have not been
-  // gathered yet, which is not a manual-review case — it just means we
-  // need more answers.
+  // Stop here while requirements remain — unless questioning was already
+  // completed (e.g. admin/manual path). Customers who finished Questions
+  // must be able to reach checkout.
   const outstanding = missingRequirements(facts, openRoutes(facts));
-  if (outstanding.length > 0) {
+  if (outstanding.length > 0 && !appealCase.questioningComplete) {
     blockers.push("Answer the remaining questions about what happened.");
     return {
       sufficient: false,
@@ -156,43 +167,98 @@ export function assessSufficiency(
   const analysis = analyseCase(analysisInput);
 
   if (analysis.manualReview) {
+    /*
+     * Same as scope gates: do not block checkout. Admin approval is the
+     * release gate after payment.
+     */
     return {
-      sufficient: false,
-      status: "INCOMPLETE",
+      sufficient: true,
+      status: "SUFFICIENT",
       blockers: [],
-      groundLabels: [],
-      outstandingCount: analysis.missingFacts.length,
+      groundLabels: [
+        "Your case will be prepared and checked by our team after payment",
+      ],
+      outstandingCount: 0,
       evidence: { uploadedCount: evidenceTypes.length, suggestions: [] },
-      // The internal reason is written for an engineer. Translate it
-      // before it reaches a customer.
-      outOfScope: { detail: customerReviewMessage(analysis.manualReview.reason) },
-      internal: NOT_READY_INTERNAL,
+      outOfScope: null,
+      internal: {
+        ...NOT_READY_INTERNAL,
+        missingFacts: analysis.missingFacts,
+      },
     };
   }
 
   // ---- Is any ground actually supported? ----
+  let catalog;
+  try {
+    catalog = await loadKbCatalog();
+  } catch (err) {
+    if (err instanceof KbCatalogError) {
+      // Still allow checkout — admin reviews after payment.
+      return {
+        sufficient: true,
+        status: "SUFFICIENT",
+        blockers: [],
+        groundLabels: [
+          "Your case will be prepared and checked by our team after payment",
+        ],
+        outstandingCount: 0,
+        evidence: { uploadedCount: evidenceTypes.length, suggestions: [] },
+        outOfScope: null,
+        internal: NOT_READY_INTERNAL,
+      };
+    }
+    throw err;
+  }
+
   const retrieval = retrieveKnowledge({
     analysis,
     facts: factsForCase(analysisInput),
     parkingEventDate: appealCase.confirmed.parking_event_date ?? null,
     evidenceTypes,
+    modules: catalog.modules,
+    sources: catalog.sources,
+    blocks: catalog.blocks,
   });
 
+  // No supportable modules yet → still allow pay; admin release gate.
   if (retrieval.modules.length === 0) {
-    blockers.push(
-      "We could not identify a supportable ground from the information provided.",
-    );
+    return {
+      sufficient: true,
+      status: "SUFFICIENT",
+      blockers: [],
+      groundLabels: [
+        "Your case will be prepared and checked by our team after payment",
+      ],
+      outstandingCount: analysis.missingFacts.length,
+      evidence: {
+        uploadedCount: evidenceTypes.length,
+        suggestions: collectEvidenceSuggestions(retrieval),
+      },
+      outOfScope: null,
+      internal: {
+        candidateRoutes: [
+          ...(analysis.primaryRoute ? [analysis.primaryRoute] : []),
+          ...analysis.secondaryRoutes,
+        ],
+        primaryRoute: analysis.primaryRoute,
+        secondaryRoutes: analysis.secondaryRoutes,
+        missingFacts: analysis.missingFacts,
+        codeVersionId: analysis.codeVersionId,
+        pofaRoute: analysis.pofa.route,
+        driverStatus: analysis.driverStatus,
+        moduleCount: 0,
+      },
+    };
   }
 
   // Evidence that would unlock a module we had to set aside.
   const suggestions = collectEvidenceSuggestions(retrieval);
 
-  const sufficient = blockers.length === 0;
-
   return {
-    sufficient,
-    status: sufficient ? "SUFFICIENT" : "INCOMPLETE",
-    blockers,
+    sufficient: true,
+    status: "SUFFICIENT",
+    blockers: [],
     groundLabels: routeLabels([
       ...(analysis.primaryRoute ? [analysis.primaryRoute] : []),
       ...analysis.secondaryRoutes,
@@ -217,24 +283,6 @@ export function assessSufficiency(
       moduleCount: retrieval.modules.length,
     },
   };
-}
-
-/**
- * Customer-facing wording for a manual-review outcome.
- *
- * "No appeal route is supported by the confirmed facts" is an accurate
- * internal description and a useless thing to show someone who has just
- * paid attention to a form for five minutes.
- */
-function customerReviewMessage(reason: string): string {
-  switch (reason) {
-    case "NO_SUPPORTED_ROUTE":
-      return "From what you have told us so far we could not identify a ground we are confident appealing on. A member of our team will review this rather than us preparing something unsupported — you may be asked for a little more detail.";
-    case "CODE_VERSION_UNRESOLVED":
-      return "We could not work out which industry code applied on the date of the parking event, so a member of our team will check this case.";
-    default:
-      return "This case needs a person to review it before we prepare an appeal. Nothing you have entered is lost.";
-  }
 }
 
 /**

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
+import { KbCatalogError, loadKbCatalog } from "@/lib/kb/catalog";
 import type { AnswerMap } from "@/lib/questions/types";
 import type { ConfirmedPcn } from "@/types";
 
@@ -63,6 +64,24 @@ export async function POST(request: Request) {
       evidenceTypes: body.evidenceTypes ?? [],
       evidenceRefs: body.evidenceRefs ?? [],
     });
+    let catalog;
+    try {
+      catalog = await loadKbCatalog();
+    } catch (err) {
+      if (err instanceof KbCatalogError) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              code: "KB_CATALOG_UNAVAILABLE",
+              message: err.message,
+            },
+          },
+          { status: 503 },
+        );
+      }
+      throw err;
+    }
     const retrieval = retrieveKnowledge({
       analysis,
       facts: factsForCase({
@@ -72,6 +91,9 @@ export async function POST(request: Request) {
       }),
       parkingEventDate: body.confirmed.parking_event_date ?? null,
       evidenceTypes: body.evidenceTypes ?? [],
+      modules: catalog.modules,
+      sources: catalog.sources,
+      blocks: catalog.blocks,
     });
 
     const isAdmin = session.kind === "ADMIN";

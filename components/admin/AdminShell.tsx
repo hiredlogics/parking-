@@ -1,54 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { Sidebar } from "./Sidebar";
-import { useCrm } from "@/lib/crm/store";
-
-const POLL_INTERVAL_MS = 5_000;
 
 /**
  * Admin shell — fixed sidebar on desktop, hamburger drawer on tablet/mobile.
  *
- * On mount we call `refreshFromServer()` which fetches the authoritative
- * CRM state from `/api/crm/state` and replaces the local Zustand store.
- * We then poll every 5 seconds so new customer registrations and
- * appeals appear in the admin dashboard without needing to reload.
- * Polling is paused while the tab is hidden to save the DB.
+ * Each admin page fetches its own real data from its own `/api/admin/*`
+ * route, so there is no shared global state to hydrate or poll here.
  */
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const [drawer, setDrawer] = useState(false);
-  const refreshFromServer = useCrm((s) => s.refreshFromServer);
-  const inFlight = useRef(false);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const tick = async () => {
-      if (document.hidden || inFlight.current) return;
-      inFlight.current = true;
-      try {
-        await refreshFromServer();
-      } finally {
-        inFlight.current = false;
-      }
-    };
-
-    void tick();
-    const interval = window.setInterval(() => {
-      if (!cancelled) void tick();
-    }, POLL_INTERVAL_MS);
-    const onVisibility = () => {
-      if (!document.hidden) void tick();
-    };
-    document.addEventListener("visibilitychange", onVisibility);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [refreshFromServer]);
 
   return (
     <div className="flex min-h-dvh bg-brand-canvas text-brand-text">

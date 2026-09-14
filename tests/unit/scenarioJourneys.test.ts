@@ -1,6 +1,12 @@
 /**
  * @vitest-environment node
+ *
+ * Legacy-path journey assertions. Admin-engine parity lives in
+ * issueEngineParity.test.ts. Force legacy here so offline CI does not
+ * hang on a live DATABASE_URL.
  */
+process.env.USE_ADMIN_ISSUE_ENGINE = "0";
+
 import { describe, expect, it } from "vitest";
 import type { ConfirmedPcn } from "@/types";
 import { FACT, SCENARIO_TAGS } from "@/lib/questions/facts";

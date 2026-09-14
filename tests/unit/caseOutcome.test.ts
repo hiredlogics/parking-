@@ -103,17 +103,17 @@ describe("Workflow and outcome are independent", () => {
     expect(c.outcomeStatus).toBe("PENDING");
   });
 
-  it("maps every review state to MANUAL_REVIEW", () => {
+  it("maps every review state to UNDER_REVIEW", () => {
     for (const s of [
       "MANUAL_REVIEW", "OUT_OF_SCOPE", "FAILED",
     ] as AppealCaseStatus[]) {
-      expect(lifecycleStatusFor(s), s).toBe("MANUAL_REVIEW");
+      expect(lifecycleStatusFor(s), s).toBe("UNDER_REVIEW");
     }
   });
 
   it("does not let an outcome pull a case out of review", () => {
     const c = makeCase({ status: "MANUAL_REVIEW", outcomeStatus: "REJECTED" });
-    expect(c.lifecycleStatus).toBe("MANUAL_REVIEW");
+    expect(c.lifecycleStatus).toBe("UNDER_REVIEW");
   });
 });
 

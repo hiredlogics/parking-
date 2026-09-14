@@ -1,5 +1,5 @@
 import type { ExtractionResult, ExtractedPcn } from "@/types";
-import { DEMO_SCENARIOS, findDemoScenarioByHint } from "@/lib/demoScenarios";
+import { DEMO_SCENARIOS, findDemoScenarioByHint } from "@/tests/fixtures/demoScenarios";
 import type { DocumentExtractionProvider } from "./types";
 
 /**

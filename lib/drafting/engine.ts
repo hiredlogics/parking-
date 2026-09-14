@@ -31,6 +31,15 @@ export const DRAFTING_ENGINE_VERSION = "drafting-v1";
  */
 
 export interface DraftAppealInput {
+  /**
+   * Attributes the provider call to a case for cost reporting.
+   *
+   * Without it the drafting spend — the largest single component of an
+   * appeal — is written to `ai_usage` with a null case and never
+   * appears in `getCaseAIUsage`, so per-appeal cost silently excludes
+   * it.
+   */
+  caseId?: string | null;
   confirmed: ConfirmedPcn;
   answers: AnswerMap;
   evidenceTypes?: string[];
@@ -39,6 +48,10 @@ export interface DraftAppealInput {
   analysis?: IssueAnalysis;
   /** Validator feedback from a rejected attempt, for regeneration. */
   feedback?: string;
+  /** Canonical catalog from loadKbCatalog() — required in production. */
+  modules?: import("@/lib/kb/types").KbModule[];
+  sources?: import("@/lib/kb/types").LegalSource[];
+  blocks?: import("@/lib/kb/types").DraftingBlock[];
 }
 
 export interface DraftAppealResult {
@@ -123,6 +136,9 @@ export async function draftAppeal(
     }),
     parkingEventDate: input.confirmed.parking_event_date ?? null,
     evidenceTypes: input.evidenceTypes ?? [],
+    modules: input.modules,
+    sources: input.sources,
+    blocks: input.blocks,
   });
 
   if (retrieval.modules.length === 0) {
@@ -144,6 +160,7 @@ export async function draftAppeal(
   }
 
   const context: DraftingContext = {
+    caseId: input.caseId ?? null,
     analysis,
     modules: retrieval.modules,
     blocks: retrieval.blocks,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { loginCustomer } from "@/lib/auth/service";
 import { getSession, stampKindCookie } from "@/lib/auth/session";
 import { hasDb } from "@/lib/db/pool";
+import { enforceRateLimit } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,8 +21,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Invalid request body." }, { status: 400 });
   }
   const b = body as Partial<{ email: string; password: string }>;
+  const email = String(b.email ?? "").trim().toLowerCase();
+  const limited = await enforceRateLimit(email || "anonymous", "AUTH");
+  if (limited) return limited;
+
   const result = await loginCustomer({
-    email: String(b.email ?? ""),
+    email,
     password: String(b.password ?? ""),
   });
   if (!result.ok || !result.user) {

@@ -27,6 +27,13 @@ export async function POST(
   const session = await getSession();
   const { id } = await ctx.params;
 
+  if (session.userId) {
+    const limited = await (
+      await import("@/lib/rateLimit")
+    ).enforceRateLimit(session.userId, "QUESTION");
+    if (limited) return limited;
+  }
+
   const result = await nextQuestionForCase(id, session);
   if (!result.ok) return failFromAccess(result);
 
