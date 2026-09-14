@@ -57,6 +57,15 @@ interface Detail {
   documents: Array<{ id: string; fileName: string; documentType: string; evidenceType: string | null }>;
   events: Array<{ eventType: string; createdAt: string }>;
   payment: { status: string; amount: number; provider: string; paidAt: string | null } | null;
+  currentAppeal: {
+    id: string;
+    status: string;
+    version: number;
+    body: string | null;
+    paragraphs: Array<{ id: string; text: string }>;
+    moduleIds: string[];
+    approvedAt: string | null;
+  } | null;
 }
 
 const ORIGIN_LABEL: Record<string, string> = {
@@ -118,9 +127,26 @@ export default function AdminAppealDetailPage() {
   }
 
   const c = data.case;
+  const pending =
+    data.currentAppeal &&
+    (data.currentAppeal.status === "AWAITING_ADMIN_APPROVAL" ||
+      data.currentAppeal.status === "HELD");
 
   return (
-    <AdminPage title={c.publicId} breadcrumb={crumb}>
+    <AdminPage
+      title={c.publicId}
+      breadcrumb={crumb}
+      actions={
+        pending ? (
+          <Link
+            href={`/admin/review/${data.currentAppeal!.id}`}
+            className="btn-brand-primary"
+          >
+            Review &amp; Approve
+          </Link>
+        ) : undefined
+      }
+    >
       {/* Case summary */}
       <AdminCard>
         <AdminCardHeader title="Case" right={<span>{c.status}</span>} />
@@ -142,6 +168,30 @@ export default function AdminAppealDetailPage() {
         {c.outOfScopeDetail && (
           <p className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-[12.5px] text-amber-900 sm:px-5">
             {c.outOfScopeDetail}
+          </p>
+        )}
+        {pending && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-brand-pink/20 bg-brand-pinkPale/40 px-4 py-3 sm:px-5">
+            <p className="text-[13px] text-brand-text">
+              Appeal v{data.currentAppeal!.version} is waiting for approval.
+              Approve releases the PDF, emails the customer, and unlocks portal
+              download.
+            </p>
+            <Link
+              href={`/admin/review/${data.currentAppeal!.id}`}
+              className="btn-brand-primary whitespace-nowrap"
+            >
+              Open Approve
+            </Link>
+          </div>
+        )}
+        {data.currentAppeal?.status === "APPROVED" && (
+          <p className="border-t border-emerald-200 bg-emerald-50 px-4 py-3 text-[12.5px] text-emerald-900 sm:px-5">
+            Approved
+            {data.currentAppeal.approvedAt
+              ? ` · ${new Date(data.currentAppeal.approvedAt).toLocaleString("en-GB")}`
+              : ""}
+            . Customer can download from the portal.
           </p>
         )}
       </AdminCard>

@@ -44,60 +44,92 @@ interface DashboardData {
 export default function AdminDashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let cancelled = false;
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 25_000);
+
     (async () => {
-      const res = await fetch("/api/admin/dashboard", { credentials: "same-origin", cache: "no-store" });
-      const json = await res.json().catch(() => null);
-      if (cancelled) return;
-      if (!res.ok || !json?.success) {
-        setError(json?.error?.message ?? `Could not load the dashboard (${res.status}).`);
-        return;
+      try {
+        const res = await fetch("/api/admin/dashboard", {
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.success) {
+          throw new Error(
+            json?.error?.message ?? `Could not load the dashboard (${res.status}).`,
+          );
+        }
+        setData(json.data as DashboardData);
+        setError(null);
+      } catch (e) {
+        if ((e as Error)?.name === "AbortError") {
+          setError("Timed out loading the dashboard. Please try again.");
+        } else {
+          setError(e instanceof Error ? e.message : "Could not load the dashboard.");
+        }
+      } finally {
+        clearTimeout(timer);
+        setLoading(false);
       }
-      setData(json.data as DashboardData);
     })();
+
     return () => {
-      cancelled = true;
+      clearTimeout(timer);
+      ac.abort();
     };
   }, []);
 
-  const kpis = data?.kpis ?? { total: 0, inProgress: 0, readyForPayment: 0, underReview: 0, completed: 0 };
+  const kpis = data?.kpis ?? {
+    total: 0,
+    inProgress: 0,
+    readyForPayment: 0,
+    underReview: 0,
+    completed: 0,
+  };
 
   return (
-    <AdminPage
-      title="Dashboard"
-      breadcrumb={<span>Overview</span>}
-    >
+    <AdminPage title="Dashboard" breadcrumb={<span>Overview</span>}>
       {error && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-          {error}
+        <div className="mb-4 space-y-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+          <p>{error}</p>
+          <button
+            type="button"
+            className="btn-brand-outline"
+            onClick={() => window.location.reload()}
+          >
+            Retry
+          </button>
         </div>
+      )}
+
+      {loading && !data && (
+        <p className="mb-4 text-sm text-brand-mute">Loading dashboard…</p>
       )}
 
       {/* KPI row */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <KpiCard tone="pink" label="Total Cases" value={kpis.total} href="/admin/appeals" icon={<Ic><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6z" /><path d="M15 3v4h4" /></Ic>} />
-        <KpiCard tone="blue" label="In Progress" value={kpis.inProgress} href="/admin/appeals" icon={<Ic><path d="M4 12h16M14 6l6 6-6 6" /></Ic>} />
-        <KpiCard tone="amber" label="Awaiting Payment" value={kpis.readyForPayment} href="/admin/appeals" icon={<Ic><path d="M12 8v4l3 2" /><circle cx="12" cy="12" r="9" /></Ic>} />
-        <KpiCard tone="violet" label="Under Review" value={kpis.underReview} href="/admin/review" icon={<Ic><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></Ic>} />
-        <KpiCard tone="emerald" label="Completed" value={kpis.completed} href="/admin/appeals" icon={<Ic><path d="M20 6L9 17l-5-5" /></Ic>} />
+        <KpiCard tone="pink" label="Total Cases" value={loading && !data ? "…" : kpis.total} href="/admin/appeals" icon={<Ic><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6z" /><path d="M15 3v4h4" /></Ic>} />
+        <KpiCard tone="blue" label="In Progress" value={loading && !data ? "…" : kpis.inProgress} href="/admin/appeals" icon={<Ic><path d="M4 12h16M14 6l6 6-6 6" /></Ic>} />
+        <KpiCard tone="amber" label="Awaiting Payment" value={loading && !data ? "…" : kpis.readyForPayment} href="/admin/appeals" icon={<Ic><path d="M12 8v4l3 2" /><circle cx="12" cy="12" r="9" /></Ic>} />
+        <KpiCard tone="violet" label="Under Review" value={loading && !data ? "…" : kpis.underReview} href="/admin/review" icon={<Ic><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></Ic>} />
+        <KpiCard tone="emerald" label="Completed" value={loading && !data ? "…" : kpis.completed} href="/admin/appeals" icon={<Ic><path d="M20 6L9 17l-5-5" /></Ic>} />
       </div>
 
-      {/* Two column dashboard */}
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <div className="space-y-6">
-          {/* Today's Overview */}
           <AdminCard>
             <AdminCardHeader title="Today's Overview" />
             <ul className="divide-y divide-brand-borderSoft text-[13px]">
-              <OverviewRow label="Cases Created Today" value={data?.createdToday ?? 0} />
-              <OverviewRow label="Revenue Today" value={formatCurrency(data?.revenueToday ?? 0)} />
-              <OverviewRow label="Total Open Cases" value={data?.openCases ?? 0} bold />
+              <OverviewRow label="Cases Created Today" value={loading && !data ? "…" : (data?.createdToday ?? 0)} />
+              <OverviewRow label="Revenue Today" value={loading && !data ? "…" : formatCurrency(data?.revenueToday ?? 0)} />
+              <OverviewRow label="Total Open Cases" value={loading && !data ? "…" : (data?.openCases ?? 0)} bold />
             </ul>
           </AdminCard>
 
-          {/* Quick Case Access */}
           <AdminCard>
             <AdminCardHeader title="Quick Case Access" right={<Link href="/admin/appeals">All cases</Link>} />
             <ul className="divide-y divide-brand-borderSoft">
@@ -119,12 +151,30 @@ export default function AdminDashboardPage() {
               {data && data.recentCases.length === 0 && (
                 <li className="px-4 py-8 text-center text-[13px] text-brand-mute">No cases yet.</li>
               )}
+              {loading && !data && (
+                <li className="px-4 py-8 text-center text-[13px] text-brand-mute">Loading cases…</li>
+              )}
             </ul>
           </AdminCard>
         </div>
 
         <div className="space-y-6">
-          {/* Recent Activity */}
+          <AdminCard>
+            <AdminCardHeader
+              title="Appeals awaiting approval"
+              right={<Link href="/admin/review">Open queue</Link>}
+            />
+            <div className="space-y-2 p-4 text-[13px] text-brand-mute">
+              <p>
+                Paid appeals wait here until you Approve. Approving creates the
+                PDF, emails the customer, and unlocks portal download.
+              </p>
+              <Link href="/admin/review" className="btn-brand-primary inline-flex">
+                Go to Approve queue
+              </Link>
+            </div>
+          </AdminCard>
+
           <AdminCard>
             <AdminCardHeader title="Recent Activity" />
             <ul className="divide-y divide-brand-borderSoft">
@@ -143,6 +193,9 @@ export default function AdminDashboardPage() {
               ))}
               {data && data.recentActivity.length === 0 && (
                 <li className="px-4 py-8 text-center text-[13px] text-brand-mute">No activity yet.</li>
+              )}
+              {loading && !data && (
+                <li className="px-4 py-8 text-center text-[13px] text-brand-mute">Loading activity…</li>
               )}
             </ul>
           </AdminCard>

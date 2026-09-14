@@ -23,20 +23,39 @@ export default function AdminClientsPage() {
   const [q, setQ] = useState("");
 
   useEffect(() => {
-    let cancelled = false;
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 25_000);
+
     (async () => {
-      const res = await fetch("/api/admin/clients", { credentials: "same-origin", cache: "no-store" });
-      const json = await res.json().catch(() => null);
-      if (cancelled) return;
-      if (!res.ok || !json?.success) {
-        setError(json?.error?.message ?? `Could not load clients (${res.status}).`);
+      try {
+        const res = await fetch("/api/admin/clients", {
+          credentials: "same-origin",
+          cache: "no-store",
+          signal: ac.signal,
+        });
+        const json = await res.json().catch(() => null);
+        if (!res.ok || !json?.success) {
+          throw new Error(
+            json?.error?.message ?? `Could not load clients (${res.status}).`,
+          );
+        }
+        setClients(json.data.clients as ClientRow[]);
+        setError(null);
+      } catch (e) {
+        if ((e as Error)?.name === "AbortError") {
+          setError("Timed out loading clients. Please try again.");
+        } else {
+          setError(e instanceof Error ? e.message : "Could not load clients.");
+        }
         setClients([]);
-        return;
+      } finally {
+        clearTimeout(timer);
       }
-      setClients(json.data.clients as ClientRow[]);
     })();
+
     return () => {
-      cancelled = true;
+      clearTimeout(timer);
+      ac.abort();
     };
   }, []);
 
@@ -44,13 +63,19 @@ export default function AdminClientsPage() {
     if (!clients) return [];
     if (!q.trim()) return clients;
     const s = q.trim().toLowerCase();
-    return clients.filter((r) => `${r.name} ${r.email} ${r.phone ?? ""}`.toLowerCase().includes(s));
+    return clients.filter((r) =>
+      `${r.name} ${r.email} ${r.phone ?? ""}`.toLowerCase().includes(s),
+    );
   }, [clients, q]);
 
   return (
     <AdminPage
       title="Clients"
-      breadcrumb={<Link href="/admin" className="hover:text-brand-pink">Dashboard</Link>}
+      breadcrumb={
+        <Link href="/admin" className="hover:text-brand-pink">
+          Dashboard
+        </Link>
+      }
       actions={
         <input
           className="app-input h-10 w-full sm:w-80"
@@ -69,8 +94,15 @@ export default function AdminClientsPage() {
           }
         />
         {error && (
-          <div className="m-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-            {error}
+          <div className="m-4 space-y-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+            <p>{error}</p>
+            <button
+              type="button"
+              className="btn-brand-outline"
+              onClick={() => window.location.reload()}
+            >
+              Retry
+            </button>
           </div>
         )}
         <div className="overflow-x-auto">
@@ -90,20 +122,33 @@ export default function AdminClientsPage() {
               {filtered.map((c) => (
                 <tr key={c.id} className="hover:bg-brand-pinkPale/50">
                   <td className="px-4 py-3">
-                    <Link href={`/admin/clients/${c.id}`} className="flex items-center gap-2 font-semibold text-brand-text hover:text-brand-pink">
+                    <Link
+                      href={`/admin/clients/${c.id}`}
+                      className="flex items-center gap-2 font-semibold text-brand-text hover:text-brand-pink"
+                    >
                       <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-brand-pinkLight text-[11px] font-bold text-brand-pink">
-                        {c.name.split(" ").map((s) => s[0]).join("").slice(0, 2)}
+                        {c.name
+                          .split(" ")
+                          .map((s) => s[0])
+                          .join("")
+                          .slice(0, 2)}
                       </span>
                       {c.name}
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-brand-text/80">{c.email}</td>
                   <td className="px-4 py-3 text-brand-text/80">{c.phone ?? "—"}</td>
-                  <td className="px-4 py-3 text-center font-bold text-brand-text">{c.activeCases}</td>
-                  <td className="px-4 py-3 text-center text-brand-text/80">{c.totalCases}</td>
+                  <td className="px-4 py-3 text-center font-bold text-brand-text">
+                    {c.activeCases}
+                  </td>
+                  <td className="px-4 py-3 text-center text-brand-text/80">
+                    {c.totalCases}
+                  </td>
                   <td className="px-4 py-3 text-brand-mute">
                     {formatDate(c.lastActivityAt)}
-                    <span className="ml-1 text-[10.5px]">({timeAgo(c.lastActivityAt)})</span>
+                    <span className="ml-1 text-[10.5px]">
+                      ({timeAgo(c.lastActivityAt)})
+                    </span>
                   </td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10.5px] font-semibold text-emerald-700">
@@ -112,7 +157,7 @@ export default function AdminClientsPage() {
                   </td>
                 </tr>
               ))}
-              {clients !== null && filtered.length === 0 && (
+              {clients !== null && filtered.length === 0 && !error && (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-brand-mute">
                     No clients match your search.
@@ -121,8 +166,8 @@ export default function AdminClientsPage() {
               )}
               {clients === null && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8">
-                    <div className="h-16 animate-pulse rounded-xl bg-brand-canvas" />
+                  <td colSpan={7} className="px-4 py-8 text-center text-brand-mute">
+                    Loading all clients…
                   </td>
                 </tr>
               )}

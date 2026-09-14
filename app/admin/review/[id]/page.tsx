@@ -16,6 +16,7 @@ export default function ReviewAppealDetailPage() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [bodyText, setBodyText] = useState("");
 
   const load = useCallback(() => {
     if (!id) return;
@@ -24,6 +25,18 @@ export default function ReviewAppealDetailPage() {
       .then((d) => {
         if (!d.success) throw new Error(d.error?.message ?? "Failed");
         setData(d.data);
+        const paragraphs = Array.isArray(d.data?.appeal?.paragraphs)
+          ? (d.data.appeal.paragraphs as Array<{ text?: string }>)
+          : [];
+        const fromParas = paragraphs
+          .map((p) => p.text ?? "")
+          .filter(Boolean)
+          .join("\n\n");
+        setBodyText(
+          fromParas ||
+            (typeof d.data?.appeal?.body === "string" ? d.data.appeal.body : "") ||
+            "",
+        );
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed"));
   }, [id]);
@@ -39,7 +52,11 @@ export default function ReviewAppealDetailPage() {
       const res = await fetch(`/api/admin/review/${id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, reason: reason ?? action }),
+        body: JSON.stringify({
+          action,
+          reason: reason ?? action,
+          bodyText: action === "APPROVE" ? bodyText : undefined,
+        }),
       });
       const d = await res.json();
       if (!res.ok || !d.success) {
@@ -65,13 +82,8 @@ export default function ReviewAppealDetailPage() {
     vrm?: string;
     parkingLocation?: string;
     parkingEventDate?: string;
-    confirmed?: Record<string, unknown>;
     customerId?: string;
   } | null;
-
-  const paragraphs = Array.isArray(appeal?.paragraphs)
-    ? (appeal!.paragraphs as Array<{ id: string; text: string }>)
-    : [];
 
   return (
     <AdminPage
@@ -105,9 +117,6 @@ export default function ReviewAppealDetailPage() {
             <div className="space-y-2 p-4 text-[13px]">
               <p>
                 <strong>Reference:</strong> {c?.publicId ?? "—"}
-              </p>
-              <p>
-                <strong>Customer:</strong> {c?.customerId ?? "—"}
               </p>
               <p>
                 <strong>Operator:</strong> {c?.operatorName ?? "—"}
@@ -150,45 +159,38 @@ export default function ReviewAppealDetailPage() {
               <p>
                 <strong>Evidence files:</strong> {data.evidence?.length ?? 0}
               </p>
-              <details className="mt-2">
-                <summary className="cursor-pointer font-semibold">
-                  Facts snapshot
-                </summary>
-                <pre className="mt-2 max-h-48 overflow-auto rounded bg-brand-canvas p-2 text-[11px]">
-                  {JSON.stringify(appeal?.factsSnapshot ?? {}, null, 2)}
-                </pre>
-              </details>
-              <details className="mt-2">
-                <summary className="cursor-pointer font-semibold">
-                  Validation
-                </summary>
-                <pre className="mt-2 max-h-48 overflow-auto rounded bg-brand-canvas p-2 text-[11px]">
-                  {JSON.stringify(appeal?.validationJson ?? {}, null, 2)}
-                </pre>
-              </details>
+              <p className="text-[12px] text-brand-mute">
+                Rules come from Configuration (issues, knowledge links,
+                prompts). Regenerate rebuilds from those rules; or edit the
+                letter below and Approve to release that PDF.
+              </p>
             </div>
           </AdminCard>
 
           <AdminCard className="lg:col-span-2">
-            <AdminCardHeader title="Generated appeal" />
-            <article className="space-y-3 p-4 text-[14px] leading-relaxed">
-              {paragraphs.length === 0 && (
-                <p className="text-brand-mute">No body text on this appeal.</p>
-              )}
-              {paragraphs.map((p) => (
-                <p key={p.id}>{p.text}</p>
-              ))}
-            </article>
+            <AdminCardHeader title="Appeal letter (edit before approve)" />
+            <div className="p-4">
+              <textarea
+                className="app-input min-h-[280px] w-full font-serif text-[14px] leading-relaxed"
+                value={bodyText}
+                onChange={(e) => setBodyText(e.target.value)}
+                placeholder="Paste or edit the full appeal letter text here…"
+              />
+              <p className="mt-2 text-[12px] text-brand-mute">
+                Approve freezes this text into the customer PDF, queues the
+                ready email, and unlocks portal download.
+              </p>
+            </div>
           </AdminCard>
 
           <div className="flex flex-wrap gap-3 lg:col-span-2">
             <button
               type="button"
               className="btn-brand-primary"
-              disabled={!!busy}
+              disabled={!!busy || !bodyText.trim()}
               onClick={() => act("APPROVE")}
             >
-              {busy === "APPROVE" ? "Approving…" : "Approve"}
+              {busy === "APPROVE" ? "Approving…" : "Approve & release PDF"}
             </button>
             <button
               type="button"
@@ -196,7 +198,7 @@ export default function ReviewAppealDetailPage() {
               disabled={!!busy}
               onClick={() => act("REGENERATE", "Admin requested regeneration")}
             >
-              {busy === "REGENERATE" ? "Regenerating…" : "Regenerate"}
+              {busy === "REGENERATE" ? "Regenerating…" : "Regenerate from rules"}
             </button>
             <button
               type="button"

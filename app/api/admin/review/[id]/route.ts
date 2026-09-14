@@ -75,7 +75,7 @@ export async function POST(
   }
 
   const { id } = await ctx.params;
-  let body: { action?: string; reason?: string; notes?: string };
+  let body: { action?: string; reason?: string; notes?: string; bodyText?: string };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -90,7 +90,9 @@ export async function POST(
   const notes = body.notes ? String(body.notes) : undefined;
 
   if (action === "APPROVE") {
-    const result = await approveAppeal(id, session);
+    const result = await approveAppeal(id, session, {
+      bodyText: body.bodyText ? String(body.bodyText) : undefined,
+    });
     if (!result.ok) {
       return NextResponse.json(
         { success: false, error: { code: result.code, message: result.message } },

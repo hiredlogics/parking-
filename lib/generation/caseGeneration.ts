@@ -59,22 +59,33 @@ export interface CustomerAppealView {
  */
 export function toCustomerView(
   draft: AppealDraftRow,
-  opts: { approved?: boolean } = {},
+  opts: {
+    approved?: boolean;
+    approvedParagraphs?: Array<{ id: string; text: string }>;
+  } = {},
 ): CustomerAppealView {
   const routes = [
     draft.primaryRoute,
     ...(Array.isArray(draft.secondaryRoutes) ? draft.secondaryRoutes : []),
   ].filter(Boolean) as RouteFamily[];
 
-  if (opts.approved && draft.status === "READY") {
-    return {
-      status: "READY",
-      paragraphs: Array.isArray(draft.paragraphs) ? draft.paragraphs : [],
-      groundLabels: routeLabels(routes),
-      needsReview: false,
-      reviewDetail: null,
-      generatedAt: draft.createdAt,
-    };
+  if (opts.approved) {
+    const paragraphs =
+      opts.approvedParagraphs && opts.approvedParagraphs.length > 0
+        ? opts.approvedParagraphs
+        : Array.isArray(draft.paragraphs)
+          ? draft.paragraphs
+          : [];
+    if (paragraphs.length > 0) {
+      return {
+        status: "READY",
+        paragraphs,
+        groundLabels: routeLabels(routes),
+        needsReview: false,
+        reviewDetail: null,
+        generatedAt: draft.createdAt,
+      };
+    }
   }
 
   // Awaiting admin — never leak engine details.
@@ -224,6 +235,8 @@ export async function getAppealForCase(
 
   const appeal = await findCurrentAppeal(caseId);
   const approved = appeal?.status === "APPROVED";
+  const approvedParagraphs =
+    appeal?.approvedParagraphs ?? appeal?.paragraphs ?? undefined;
 
   // Only after approval: ensure PDF exists (from approved text path).
   // Customer getAppeal must NOT trigger PDF creation for awaiting cases.
@@ -240,7 +253,10 @@ export async function getAppealForCase(
 
   return {
     ok: true,
-    appeal: toCustomerView(generated.draft, { approved }),
+    appeal: toCustomerView(generated.draft, {
+      approved,
+      approvedParagraphs,
+    }),
   };
 }
 

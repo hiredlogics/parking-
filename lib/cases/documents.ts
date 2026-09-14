@@ -1,22 +1,19 @@
 import type { SessionData } from "@/lib/auth/session";
 import type { EvidenceItem } from "@/types";
 import { renderAppealPdf } from "@/services/documents/pdf";
-import { generateAppealForCase, type GenerationFailure } from "@/lib/generation/caseGeneration";
+import { type GenerationFailure } from "@/lib/generation/caseGeneration";
 import { findCurrentAppeal } from "@/lib/appeals/repo";
 import { getStorageProvider } from "@/services/storage";
-import { ensureFinalAppealDocument } from "./finalDocument";
+import { requireCaseAccess, type AccessFailure } from "./service";
 import * as repo from "./repo";
 
 /**
  * Case document rendering.
  *
- * The bytes are produced from the STORED draft — the same text that
- * passed validation — never from a fresh assembly at download time.
- * That means a re-download is byte-stable and cannot smuggle in wording
- * no validator ever saw.
- *
- * The entitlement check lives in `generateAppealForCase`, so there is no
- * path here that renders a document for an unpaid case.
+ * After admin APPROVE, the PDF of record is the stored GENERATED file
+ * (or a re-render from frozen approved paragraphs). Download never
+ * depends on the draft still being READY — MANUAL_REVIEW cases can be
+ * approved with admin/manual text and still download.
  */
 
 export type DocumentFormat = "pdf" | "docx";
@@ -39,8 +36,24 @@ export async function renderCaseDocument(
 ): Promise<
   | { ok: true; document: RenderedDocument }
   | GenerationFailure
+  | AccessFailure
   | { ok: false; status: 409; code: string; message: string }
 > {
+  const access = await requireCaseAccess(caseId, session);
+  if (!access.ok) return access;
+
+  const paid =
+    access.appealCase.paymentStatus === "PAID" ||
+    access.appealCase.paymentStatus === "NOT_REQUIRED";
+  if (!paid) {
+    return {
+      ok: false,
+      status: 402,
+      code: "PAYMENT_REQUIRED",
+      message: "Payment is required before the appeal can be downloaded.",
+    };
+  }
+
   const appeal = await findCurrentAppeal(caseId);
   if (!appeal || appeal.status !== "APPROVED") {
     return {
@@ -52,11 +65,12 @@ export async function renderCaseDocument(
     };
   }
 
-  const generated = await generateAppealForCase(caseId, session);
-  if (!generated.ok) return generated;
-  const draft = generated.draft;
+  const paragraphs =
+    (appeal.approvedParagraphs && appeal.approvedParagraphs.length > 0
+      ? appeal.approvedParagraphs
+      : appeal.paragraphs) ?? [];
 
-  if (draft.status !== "READY" || draft.paragraphs.length === 0) {
+  if (paragraphs.length === 0) {
     return {
       ok: false,
       status: 409,
@@ -66,8 +80,8 @@ export async function renderCaseDocument(
     };
   }
 
-  const appealCase = await repo.findCase(caseId);
-  if (!appealCase?.confirmed) {
+  const appealCase = access.appealCase;
+  if (!appealCase.confirmed) {
     return {
       ok: false,
       status: 409,
@@ -76,19 +90,6 @@ export async function renderCaseDocument(
     };
   }
 
-  /*
-   * Serve the persisted appeal, not a fresh render.
-   *
-   * The releasable PDF is produced once from the validated draft and
-   * stored. Re-rendering on every download was measurably returning
-   * different bytes each time — PDF output embeds a creation timestamp
-   * — so a customer could download "their" appeal twice and get two
-   * different files, neither matching the stored artefact of record.
-   *
-   * DOCX is deferred until a persisted artefact exists (see
-   * docs/operations/DOCX_DEFERRED.md). On-demand regeneration of
-   * released appeal content is not allowed in production.
-   */
   if (format === "docx") {
     return {
       ok: false,
@@ -99,22 +100,26 @@ export async function renderCaseDocument(
     };
   }
 
-  if (format === "pdf") {
-    const final = await ensureFinalAppealDocument(caseId, session);
-    if (final.ok) {
-      const doc = final.final.document;
-      const object = await getStorageProvider().get(doc.storageKey);
-      if (object) {
-        return {
-          ok: true,
-          document: {
-            bytes: new Uint8Array(object.bytes),
-            filename: doc.fileName,
-            contentType: doc.mimeType || CONTENT_TYPES.pdf,
-          },
-        };
-      }
-      // Object lost: fall through and re-render from the same draft.
+  // Prefer the immutable PDF written at approve time.
+  const generatedDocs = await repo.listCaseDocuments(caseId, "GENERATED");
+  const preferred =
+    (appeal.sourceDraftId
+      ? [...generatedDocs]
+          .reverse()
+          .find((d) => d.sourceDraftId === appeal.sourceDraftId)
+      : null) ?? generatedDocs[generatedDocs.length - 1];
+
+  if (preferred) {
+    const object = await getStorageProvider().get(preferred.storageKey);
+    if (object) {
+      return {
+        ok: true,
+        document: {
+          bytes: new Uint8Array(object.bytes),
+          filename: preferred.fileName,
+          contentType: preferred.mimeType || CONTENT_TYPES.pdf,
+        },
+      };
     }
   }
 
@@ -130,13 +135,11 @@ export async function renderCaseDocument(
     description: d.description ?? undefined,
   }));
 
-  const input = {
+  const bytes = await renderAppealPdf({
     pcn: appealCase.confirmed,
     evidence,
-    appeal: { paragraphs: draft.paragraphs },
-  };
-
-  const bytes = await renderAppealPdf(input);
+    appeal: { paragraphs },
+  });
 
   return {
     ok: true,

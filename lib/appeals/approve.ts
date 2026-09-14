@@ -40,9 +40,18 @@ function requireAdmin(session: SessionData): ApprovalFailure | null {
   return null;
 }
 
+function paragraphsFromBody(body: string): Array<{ id: string; text: string }> {
+  return body
+    .split(/\n\s*\n/)
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .map((text, i) => ({ id: `p_manual_${i + 1}`, text }));
+}
+
 export async function approveAppeal(
   appealId: string,
   session: SessionData,
+  opts: { bodyText?: string | null } = {},
 ): Promise<{ ok: true; appeal: CaseAppeal; emailId: string | null } | ApprovalFailure> {
   const denied = requireAdmin(session);
   if (denied) return denied;
@@ -51,18 +60,27 @@ export async function approveAppeal(
   if (!before) {
     return { ok: false, status: 404, code: "NOT_FOUND", message: "Appeal not found." };
   }
-  if (!before.body || before.paragraphs.length === 0) {
+
+  const override = opts.bodyText?.trim() || null;
+  const hasExisting =
+    Boolean(before.body?.trim()) && before.paragraphs.length > 0;
+  if (!override && !hasExisting) {
     return {
       ok: false,
       status: 409,
       code: "NO_BODY",
-      message: "This appeal has no text to approve.",
+      message:
+        "This appeal has no text to approve. Paste the letter text, then Approve.",
     };
   }
+
+  const overrideParagraphs = override ? paragraphsFromBody(override) : null;
 
   const appeal = await markAppealApproved({
     appealId,
     approvedBy: session.userId!,
+    body: override,
+    paragraphs: overrideParagraphs,
   });
 
   const appealCase = await caseRepo.findCase(appeal.caseId);

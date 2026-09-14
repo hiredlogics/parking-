@@ -209,6 +209,9 @@ export async function saveAwaitingApprovalAppeal(input: {
 export async function markAppealApproved(input: {
   appealId: string;
   approvedBy: string;
+  /** Optional admin override — becomes the frozen PDF text. */
+  body?: string | null;
+  paragraphs?: Array<{ id: string; text: string }> | null;
 }): Promise<CaseAppeal> {
   const now = new Date().toISOString();
   const current = await findAppealById(input.appealId);
@@ -216,17 +219,32 @@ export async function markAppealApproved(input: {
   if (current.status !== "AWAITING_ADMIN_APPROVAL" && current.status !== "HELD") {
     throw new Error(`Cannot approve appeal in status ${current.status}`);
   }
+
+  const body = input.body?.trim() ? input.body.trim() : current.body;
+  const paragraphs =
+    input.paragraphs && input.paragraphs.length > 0
+      ? input.paragraphs
+      : current.paragraphs;
+
   await q(
     `UPDATE case_appeals SET
        status = 'APPROVED',
        approved_by = $2,
        approved_at = $3,
-       approved_body = body,
-       approved_paragraphs = paragraphs,
+       body = COALESCE($4, body),
+       paragraphs = COALESCE($5::jsonb, paragraphs),
+       approved_body = COALESCE($4, body),
+       approved_paragraphs = COALESCE($5::jsonb, paragraphs),
        approved_version = version,
        updated_at = $3
      WHERE id = $1`,
-    [input.appealId, input.approvedBy, now],
+    [
+      input.appealId,
+      input.approvedBy,
+      now,
+      body,
+      paragraphs.length > 0 ? JSON.stringify(paragraphs) : null,
+    ],
   );
   const row = await findAppealById(input.appealId);
   if (!row) throw new Error("markAppealApproved failed");
