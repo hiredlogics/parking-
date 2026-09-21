@@ -3,7 +3,7 @@
 import { useRef, useState, type ReactElement } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AppHeader } from "@/components/app/AppHeader";
+import { JourneyHeader } from "@/components/app/JourneyHeader";
 import { ProgressSteps } from "@/components/ProgressSteps";
 import { useAppealStore } from "@/features/appeal/store";
 import { useCaseSession } from "@/features/appeal/useCaseSession";
@@ -132,21 +132,17 @@ export default function EvidencePage() {
   };
 
   return (
-    <div className="app-shell">
-      <AppHeader />
+    <div className="flex min-h-screen flex-col bg-white">
+      <JourneyHeader />
       <ProgressSteps current="evidence" />
-      <main className="container-page py-8 sm:py-10 lg:py-12">
+      <main className="mx-auto w-full max-w-lg px-4 py-6 sm:px-6 sm:py-8">
         <div className="mx-auto max-w-4xl">
-          <div className="mb-8">
-            <span className="app-badge">
-              <ShieldIcon className="h-3.5 w-3.5" /> Step 4 of 6
-            </span>
-            <h1 className="mt-3 text-[26px] font-black tracking-tight text-brand-text sm:text-[32px]">
-              Add Supporting Evidence
+          <div className="mb-6">
+            <h1 className="text-[22px] font-bold tracking-tight text-brand-text sm:text-[26px]">
+              Add supporting evidence
             </h1>
-            <p className="mt-2 max-w-2xl text-[14.5px] leading-relaxed text-brand-mute">
-              Upload any evidence that supports your appeal. Anything you add
-              here will be referenced in the final appeal.
+            <p className="mt-2 text-[14px] leading-relaxed text-brand-mute">
+              Upload any evidence that supports your appeal. You can skip this if you have nothing to add.
             </p>
           </div>
 

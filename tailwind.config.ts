@@ -14,7 +14,6 @@ const config: Config = {
         "md-plus": "430px",
       },
       colors: {
-        // Legacy tokens kept so internal (dark) pages remain intact.
         ink: {
           950: "#050509",
           900: "#0a0a12",
@@ -28,26 +27,43 @@ const config: Config = {
           fuchsia: "#c33bff",
           violet: "#7c3aed",
         },
-        // Brand tokens for the landing page — sampled from the client's
-        // reference screenshot.
         brand: {
-          pink: "#EC1573",       // Primary hot-pink CTAs / accents
-          pinkDark: "#C21469",   // Hover state
-          pinkLight: "#FDE8F1",  // Card / section tint
-          pinkPale: "#FDF3F7",   // Full-section wash
-          navy: "#0F0F1A",       // Header + bottom CTA
-          navyMute: "#1A1A2E",   // Slightly lighter navy
-          text: "#111827",       // Primary body text
-          mute: "#6B7280",       // Muted secondary text
-          border: "#E5E7EB",     // Card borders
-          borderSoft: "#F1F1F4", // Very soft dividers
-          canvas: "#F5F5F7",     // Light gray section backgrounds
-          yellow: "#FFE01B",     // Penalty-charge sticker
-          green: "#00B67A",      // Trustpilot green stars
+          pink: "#EC1573",
+          pinkDark: "#C21469",
+          pinkLight: "#FDE8F1",
+          pinkPale: "#FDF3F7",
+          navy: "#0F0F1A",
+          navyMute: "#1A1A2E",
+          text: "#111827",
+          mute: "#6B7280",
+          border: "#E5E7EB",
+          borderSoft: "#F1F1F4",
+          canvas: "#F5F5F7",
+          yellow: "#FFE01B",
+          green: "#00B67A",
+          blue: "#1B8FD6",
+          blueDark: "#1477B5",
+          bluePale: "#E8F5FC",
+          helpGreen: "#2EAA5A",
+          helpGreenDark: "#248A48",
+          helpGreenPale: "#EAF8EF",
         },
       },
       fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
+        sans: [
+          "var(--font-manrope)",
+          "Manrope",
+          "ui-sans-serif",
+          "system-ui",
+          "sans-serif",
+        ],
+        display: [
+          "var(--font-jakarta)",
+          "Plus Jakarta Sans",
+          "ui-sans-serif",
+          "system-ui",
+          "sans-serif",
+        ],
       },
       backgroundImage: {
         "hero-glow":
@@ -66,9 +82,14 @@ const config: Config = {
           "0%": { backgroundPosition: "-200% 0" },
           "100%": { backgroundPosition: "200% 0" },
         },
+        fadeUp: {
+          "0%": { opacity: "0", transform: "translateY(14px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
       },
       animation: {
         shimmer: "shimmer 6s linear infinite",
+        fadeUp: "fadeUp 0.6s ease-out both",
       },
     },
   },

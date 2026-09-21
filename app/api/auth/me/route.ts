@@ -24,7 +24,7 @@ export async function GET() {
       name: session.name,
       phone,
       role: session.role,
-      kind: session.kind ?? "ADMIN",
+      kind: session.kind ?? "CUSTOMER",
     },
   });
 }

@@ -166,12 +166,11 @@ export default function PortalCaseDetailPage() {
 
   const pcn = appealCase.confirmed;
   const paid = payment?.status === "PAID";
+  /** True exception path only — not normal automated release. */
   const inReview =
     appealCase.outOfScope !== null ||
     appealCase.status === "MANUAL_REVIEW" ||
-    appealCase.status === "AWAITING_ADMIN_APPROVAL" ||
-    appeal?.needsReview === true ||
-    appeal?.status === "UNDER_REVIEW";
+    (appeal?.needsReview === true && appeal?.status !== "READY");
 
   return (
     <AdminPage title={appealCase.publicId} breadcrumb={crumb}>
@@ -302,30 +301,38 @@ export default function PortalCaseDetailPage() {
         </AdminCard>
       ) : paid && appeal?.status === "READY" ? (
         <AdminCard className="mt-4">
-          <AdminCardHeader
-            title="Your appeal"
-            right={
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => doDownload("pdf")}
-                  disabled={downloading !== null}
-                  className="btn-brand-primary"
-                  data-testid="portal-download-pdf"
-                >
-                  {downloading === "pdf" ? "Preparing…" : "Download PDF"}
-                </button>
-              </div>
-            }
-          />
-          <article className="m-4 space-y-4 rounded-xl border border-brand-borderSoft bg-white p-5 text-[14px] leading-relaxed sm:m-5">
-            <p>Dear Sir or Madam,</p>
-            {appeal.paragraphs.map((p) => (
-              <p key={p.id}>{p.text}</p>
-            ))}
-            <p>Yours faithfully,</p>
-            <p>The registered keeper</p>
-          </article>
+          <AdminCardHeader title="Appeal ready" />
+          <div className="space-y-4 p-4 sm:p-5">
+            <p className="text-[14px] text-brand-text">
+              Your appeal has been prepared.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => doDownload("pdf")}
+                disabled={downloading !== null}
+                className="btn-brand-primary"
+                data-testid="portal-download-pdf"
+              >
+                {downloading === "pdf" ? "Preparing…" : "Download Appeal"}
+              </button>
+              <Link
+                href="/portal/documents"
+                className="btn-brand-outline"
+                data-testid="portal-instructions-link"
+              >
+                Download Instructions
+              </Link>
+            </div>
+            <article className="space-y-4 rounded-xl border border-brand-borderSoft bg-white p-5 text-[14px] leading-relaxed">
+              <p>Dear Sir or Madam,</p>
+              {appeal.paragraphs.map((p) => (
+                <p key={p.id}>{p.text}</p>
+              ))}
+              <p>Yours faithfully,</p>
+              <p>The registered keeper</p>
+            </article>
+          </div>
         </AdminCard>
       ) : (
         <AdminCard className="mt-4">

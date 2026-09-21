@@ -15,8 +15,47 @@ import {
 import { getDraftingProvider } from "@/services/ai/drafting";
 import type { AnswerMap } from "@/lib/questions/types";
 import type { IssueAnalysis } from "@/lib/analysis/types";
+import type { RouteFamily } from "@/types/caseState";
+import {
+  buildRulesBasedLetter,
+  isAppealBodyTooThin,
+} from "@/lib/appeals/rulesLetter";
 
 export const GENERATION_VERSION = "generation-v1";
+
+const RULE_ROUTE_TO_FAMILY: Record<string, RouteFamily> = {
+  KEEPER_ROUTE: "POFA",
+  PAYMENT_ROUTE: "PAYMENT",
+  KEYING_ROUTE: "KEYING",
+  CONSIDERATION_ROUTE: "CONSIDERATION",
+  GRACE_ROUTE: "GRACE",
+  ANPR_ROUTE: "ANPR",
+  AUTHORISATION_ROUTE: "AUTHORIZATION",
+  SIGNAGE_ROUTE: "SIGNAGE",
+  LANDOWNER_ROUTE: "LANDOWNER",
+};
+
+function withRulesRoutes(
+  analysis: IssueAnalysis,
+  activeRoutes: string[],
+): IssueAnalysis {
+  const mapped = activeRoutes
+    .map((r) => RULE_ROUTE_TO_FAMILY[r])
+    .filter((r): r is RouteFamily => Boolean(r));
+  if (mapped.length === 0) return analysis;
+  const primary = analysis.primaryRoute ?? mapped[0] ?? null;
+  const secondary = [
+    ...new Set([
+      ...(analysis.secondaryRoutes ?? []),
+      ...mapped.filter((r) => r !== primary),
+    ]),
+  ];
+  return {
+    ...analysis,
+    primaryRoute: primary,
+    secondaryRoutes: secondary,
+  };
+}
 
 /**
  * Generation orchestrator.
@@ -111,12 +150,38 @@ export async function generateValidatedAppeal(
     generationVersion: GENERATION_VERSION,
   };
 
+  // Prefer Master Pack rules assembly as the letter body. AI drafting
+  // may still run for enrichment, but an empty/thin result must never
+  // ship — fall back to PP-* paragraphs selected by the rules engine.
+  const rulesLetter = await buildRulesBasedLetter({
+    confirmed: input.confirmed,
+    answers: input.answers,
+    evidenceTypes,
+  });
+  warnings.push(...rulesLetter.warnings.map((w) => `[rules] ${w}`));
+
   // Manual review decided before drafting (scope, unresolved Code, etc.).
+  // Still attach a rules-based starter letter so admin/PDF are not blank.
   if (analysis.manualReview) {
+    if (!isAppealBodyTooThin(rulesLetter.body)) {
+      return {
+        ...base,
+        analysis: withRulesRoutes(analysis, rulesLetter.activeRoutes),
+        status: "READY",
+        body: rulesLetter.body,
+        moduleIds: [],
+        reason: null,
+        detail: null,
+        warnings: [
+          ...warnings,
+          `Rules letter used despite analysis flag ${analysis.manualReview.reason}.`,
+        ],
+      };
+    }
     return {
       ...base,
       status: "MANUAL_REVIEW",
-      body: null,
+      body: rulesLetter.body || null,
       reason: analysis.manualReview.reason,
       detail: analysis.manualReview.detail,
     };
@@ -127,10 +192,22 @@ export async function generateValidatedAppeal(
     catalog = await loadKbCatalog();
   } catch (err) {
     if (err instanceof KbCatalogError) {
+      if (!isAppealBodyTooThin(rulesLetter.body)) {
+        return {
+          ...base,
+          analysis: withRulesRoutes(analysis, rulesLetter.activeRoutes),
+          status: "READY",
+          body: rulesLetter.body,
+          moduleIds: [],
+          reason: null,
+          detail: null,
+          warnings: [...warnings, `[kb] ${err.message}; used rules letter.`],
+        };
+      }
       return {
         ...base,
         status: "MANUAL_REVIEW",
-        body: null,
+        body: rulesLetter.body || null,
         reason: "KB_CATALOG_UNAVAILABLE",
         detail: err.message,
       };
@@ -149,13 +226,55 @@ export async function generateValidatedAppeal(
   });
 
   if (retrieval.modules.length === 0) {
+    warnings.push(
+      "No KB modules matched; AI will use Master Pack rules basis (with rules-engine fallback).",
+    );
+  }
+
+  // AI-first when RULES_LETTER_PRIMARY is not forced on.
+  // Default is AI with Master Pack rules in the prompt; rules-engine
+  // letter is the fallback when AI is thin / blocked / fails.
+  // Set RULES_LETTER_PRIMARY=1 to skip AI and ship pack paragraphs only.
+  const preferRules =
+    (process.env.RULES_LETTER_PRIMARY ?? "0").toLowerCase() === "1";
+
+  if (preferRules) {
+    const body = (rulesLetter.body ?? "").trim();
+    if (body.length > 0) {
+      return {
+        ...base,
+        analysis: withRulesRoutes(analysis, rulesLetter.activeRoutes),
+        status: "READY",
+        body: rulesLetter.body,
+        moduleIds: retrieval.modules.map((m) => m.moduleId),
+        provider: {
+          providerId: "rules-engine",
+          promptVersion: "pack-v1",
+          model: null,
+          bespoke: false,
+        },
+        reason: null,
+        detail: null,
+        warnings: [
+          ...warnings,
+          `Rules letter: ${rulesLetter.matchedParagraphIds.length} paragraphs (${rulesLetter.activeRoutes.join(", ") || "no routes"}).`,
+          ...(isAppealBodyTooThin(rulesLetter.body)
+            ? ["Rules letter is short; AI drafting skipped because RULES_LETTER_PRIMARY=1."]
+            : []),
+        ],
+      };
+    }
+  }
+
+  // Even with zero KB modules, try AI when the rules basis has content.
+  if (retrieval.modules.length === 0 && isAppealBodyTooThin(rulesLetter.body)) {
     return {
       ...base,
       status: "MANUAL_REVIEW",
-      body: null,
+      body: rulesLetter.body || null,
       reason: "NO_APPROVED_MODULES",
       detail:
-        "No approved knowledge module supports this case on the confirmed facts. A person should review it rather than the system generating an unsupported appeal.",
+        "No approved knowledge module or rules letter supports this case on the confirmed facts.",
     };
   }
 
@@ -202,6 +321,29 @@ export async function generateValidatedAppeal(
         continue;
       }
 
+      if (!isAppealBodyTooThin(rulesLetter.body)) {
+        return {
+          ...base,
+          analysis: withRulesRoutes(analysis, rulesLetter.activeRoutes),
+          status: "READY",
+          body: rulesLetter.body,
+          moduleIds: retrieval.modules.map((m) => m.moduleId),
+          provider: {
+            providerId: "rules-engine",
+            promptVersion: "pack-v1",
+            model: null,
+            bespoke: false,
+          },
+          reason: null,
+          detail: null,
+          warnings: [
+            ...warnings,
+            ...draft.warnings,
+            `Drafting failed (${draft.blockedReason}); used rules letter.`,
+          ],
+        };
+      }
+
       /*
        * ANY remaining unreleasable outcome is MANUAL_REVIEW, not FAILED.
        * The customer has paid — an unusable draft must land with a person.
@@ -209,7 +351,7 @@ export async function generateValidatedAppeal(
       return {
         ...base,
         status: "MANUAL_REVIEW",
-        body: null,
+        body: rulesLetter.body || null,
         moduleIds: draft.draft?.moduleIds ?? [],
         provider: draft.draft
           ? {
@@ -247,29 +389,44 @@ export async function generateValidatedAppeal(
     attempts.push({ attempt, validation, checklist, accepted });
 
     if (accepted) {
+      // If AI body is thin / unhelpful, fall back to Master Pack rules letter.
+      const usedRulesFallback =
+        isAppealBodyTooThin(draft.body) && !isAppealBodyTooThin(rulesLetter.body);
+      const body = usedRulesFallback ? rulesLetter.body : draft.body;
       return {
         ...base,
+        analysis: withRulesRoutes(analysis, rulesLetter.activeRoutes),
         status: "READY",
-        body: draft.body,
+        body,
         moduleIds: draft.draft?.moduleIds ?? [],
-        provider: draft.draft
+        provider: usedRulesFallback
           ? {
-              providerId: draft.draft.providerId,
-              promptVersion: draft.draft.promptVersion,
-              model: draft.draft.model,
-              bespoke: draft.draft.bespoke,
-              usage: draft.draft.usage,
+              providerId: "rules-engine",
+              promptVersion: "pack-v1",
+              model: null,
+              bespoke: false,
             }
-          : null,
+          : draft.draft
+            ? {
+                providerId: draft.draft.providerId,
+                promptVersion: draft.draft.promptVersion,
+                model: draft.draft.model,
+                bespoke: draft.draft.bespoke,
+                usage: draft.draft.usage,
+              }
+            : null,
+        reason: null,
+        detail: null,
         warnings: [
           ...warnings,
           ...draft.warnings,
+          ...(usedRulesFallback
+            ? ["AI draft too thin; used Master Pack rules letter fallback."]
+            : []),
           ...validation.issues
             .filter((i) => i.severity === "WARNING")
             .map((i) => `[${i.code}] ${i.message}`),
         ],
-        reason: null,
-        detail: null,
       };
     }
 
@@ -279,6 +436,28 @@ export async function generateValidatedAppeal(
     warnings.push(
       `Attempt ${attempt} rejected by validation; regenerating (${validation.blockingCount} blocking issue(s)).`,
     );
+  }
+
+  if (!isAppealBodyTooThin(rulesLetter.body)) {
+    return {
+      ...base,
+      analysis: withRulesRoutes(analysis, rulesLetter.activeRoutes),
+      status: "READY",
+      body: rulesLetter.body,
+      moduleIds: retrieval.modules.map((m) => m.moduleId),
+      provider: {
+        providerId: "rules-engine",
+        promptVersion: "pack-v1",
+        model: null,
+        bespoke: false,
+      },
+      reason: null,
+      detail: null,
+      warnings: [
+        ...warnings,
+        "Validation failed on AI draft; used Master Pack rules letter.",
+      ],
+    };
   }
 
   const finalAttempt = attempts[attempts.length - 1];
@@ -296,7 +475,7 @@ export async function generateValidatedAppeal(
   return {
     ...base,
     status: "MANUAL_REVIEW",
-    body: null,
+    body: rulesLetter.body || null,
     moduleIds: lastDraft?.draft?.moduleIds ?? [],
     provider: lastDraft?.draft
       ? {

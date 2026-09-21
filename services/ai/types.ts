@@ -33,6 +33,18 @@ export interface DraftingContext {
    * the same failure.
    */
   feedback?: string;
+  /**
+   * Master Pack rules basis for this case — matched rule descriptions
+   * and approved paragraph wording. The model must treat this as the
+   * argumentative spine of the letter.
+   */
+  rulesBasis?: {
+    activeRoutes: string[];
+    matchedRuleIds: string[];
+    matchedRuleDescriptions: string[];
+    approvedParagraphTexts: string[];
+    assembledBody: string;
+  };
 }
 
 export interface DraftResult {

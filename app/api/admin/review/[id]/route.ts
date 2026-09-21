@@ -8,6 +8,7 @@ import {
   holdAppeal,
   rejectAppeal,
 } from "@/lib/appeals/approve";
+import { previewAppealPdf } from "@/lib/appeals/previewPdf";
 import { generateAppealForCase } from "@/lib/generation/caseGeneration";
 
 export const runtime = "nodejs";
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/admin/review/[id] — full review payload
- * POST — { action: APPROVE | HOLD | REJECT | REGENERATE, reason?, notes? }
+ * POST — { action: APPROVE | HOLD | REJECT | REGENERATE | PREVIEW_PDF, reason?, notes?, bodyText? }
  */
 export async function GET(
   _request: Request,
@@ -44,7 +45,21 @@ export async function GET(
     );
   }
   const appealCase = await caseRepo.findCase(appeal.caseId);
-  const evidence = await caseRepo.listCaseDocuments(appeal.caseId, "EVIDENCE");
+  const [evidence, pcnDocs] = await Promise.all([
+    caseRepo.listCaseDocuments(appeal.caseId, "EVIDENCE"),
+    caseRepo.listCaseDocuments(appeal.caseId, "PCN"),
+  ]);
+
+  const documents = [...pcnDocs, ...evidence].map((d) => ({
+    id: d.id,
+    fileName: d.fileName,
+    documentType: d.documentType,
+    evidenceType: d.evidenceType,
+    mimeType: d.mimeType,
+    sizeBytes: d.sizeBytes,
+    viewUrl: `/api/cases/${appeal.caseId}/documents/${d.id}?disposition=inline`,
+    downloadUrl: `/api/cases/${appeal.caseId}/documents/${d.id}?disposition=attachment`,
+  }));
 
   return NextResponse.json({
     success: true,
@@ -52,6 +67,7 @@ export async function GET(
       appeal,
       case: appealCase,
       evidence,
+      documents,
     },
   });
 }
@@ -88,6 +104,26 @@ export async function POST(
   const action = String(body.action ?? "").toUpperCase();
   const reason = String(body.reason ?? "Admin action");
   const notes = body.notes ? String(body.notes) : undefined;
+
+  if (action === "PREVIEW_PDF") {
+    const result = await previewAppealPdf(id, session, {
+      bodyText: body.bodyText ? String(body.bodyText) : undefined,
+    });
+    if (!result.ok) {
+      return NextResponse.json(
+        { success: false, error: { code: result.code, message: result.message } },
+        { status: result.status },
+      );
+    }
+    return new NextResponse(Buffer.from(result.bytes), {
+      status: 200,
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `inline; filename="${result.fileName.replace(/"/g, "")}"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
 
   if (action === "APPROVE") {
     const result = await approveAppeal(id, session, {

@@ -365,12 +365,64 @@ export async function nextDynamicQuestion(
   });
   const ordered = ranked.map((r) => r.requirement);
 
+  /*
+   * Prefer the controlled bank first — avoids an OpenAI round-trip on
+   * every answer when a packed question already covers the fact.
+   * Skipped when a provider is injected (tests) or QUESTION_PREFER_BANK=0.
+   */
+  const preferBank =
+    input.provider === undefined &&
+    (process.env.QUESTION_PREFER_BANK ?? "1").toLowerCase() !== "0" &&
+    (process.env.QUESTION_PREFER_BANK ?? "1").toLowerCase() !== "false";
+
+  if (preferBank) {
+    for (const requirement of ordered) {
+      const fb = fallbackQuestionFor(requirement, facts);
+      if (!fb) continue;
+      return {
+        status: "QUESTION_REQUIRED",
+        question: fb.question,
+        targetFact: requirement.fact,
+        requirement,
+        provenance: {
+          origin: "BANK_FALLBACK",
+          providerId: "bank",
+          model: null,
+          promptVersion: null,
+          rejections: [],
+        },
+        eligibleRoutes: routes,
+        missingFacts: missing.map((m) => m.fact),
+      };
+    }
+  }
+
   let catalog: { modules: KbModule[]; sources: LegalSource[] };
   try {
     const loaded = await loadKbCatalog();
     catalog = { modules: loaded.modules, sources: loaded.sources };
   } catch (err) {
     if (err instanceof KbCatalogError) {
+      // Bank may still cover something even if KB catalog failed.
+      for (const requirement of ordered) {
+        const fb = fallbackQuestionFor(requirement, facts);
+        if (!fb) continue;
+        return {
+          status: "QUESTION_REQUIRED",
+          question: fb.question,
+          targetFact: requirement.fact,
+          requirement,
+          provenance: {
+            origin: "BANK_FALLBACK",
+            providerId: "bank",
+            model: null,
+            promptVersion: null,
+            rejections: [`- [KB] ${err.message}`],
+          },
+          eligibleRoutes: routes,
+          missingFacts: missing.map((m) => m.fact),
+        };
+      }
       return {
         status: "MANUAL_REVIEW",
         reason: "KB_CATALOG_UNAVAILABLE",
@@ -446,11 +498,11 @@ export async function nextDynamicQuestion(
     }
   }
 
-  // ---- Controlled bank fallback ----
-  // Walk the outstanding list in priority order: the bank may not cover
-  // the top item but may cover the next.
+  // ---- Controlled bank fallback (when AI failed or preferBank was off) ----
   for (const requirement of ordered) {
-    const fb = fallbackQuestionFor(requirement, facts);
+    const fb =
+      fallbackQuestionFor(requirement, facts) ??
+      fallbackQuestionFor(requirement, facts, { ignoreGate: true });
     if (!fb) continue;
     return {
       status: "QUESTION_REQUIRED",
@@ -469,15 +521,39 @@ export async function nextDynamicQuestion(
     };
   }
 
-  // Outstanding facts the bank cannot cover and the AI could not
-  // produce. Explicitly NOT "sufficient".
+  // Prefer-bank path already tried gated bank; try ungated before giving up.
+  if (preferBank) {
+    for (const requirement of ordered) {
+      const fb = fallbackQuestionFor(requirement, facts, { ignoreGate: true });
+      if (!fb) continue;
+      return {
+        status: "QUESTION_REQUIRED",
+        question: fb.question,
+        targetFact: requirement.fact,
+        requirement,
+        provenance: {
+          origin: "BANK_FALLBACK",
+          providerId: "bank",
+          model: null,
+          promptVersion: null,
+          rejections: ["- [GATE] askWhen relaxed for remaining bank question"],
+        },
+        eligibleRoutes: routes,
+        missingFacts: missing.map((m) => m.fact),
+      };
+    }
+  }
+
+  /*
+   * Nothing left we can ask automatically. Continue the customer journey
+   * (evidence / pay) rather than trapping them on "Under review".
+   * Outstanding facts stay on the case for staff.
+   */
   return {
-    status: "MANUAL_REVIEW",
-    reason: provider ? "QUESTION_GENERATION_FAILED" : "NO_QUESTION_SOURCE",
-    detail:
-      "We could not put the remaining questions to you automatically, so a member of our team will review this case.",
+    status: "SUFFICIENT_INFORMATION",
     eligibleRoutes: routes,
-    missingFacts: missing.map((m) => m.fact),
+    missingFacts: [],
+    readyForNextStage: true,
   };
 }
 

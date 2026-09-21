@@ -17,8 +17,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Invalid request body." }, { status: 400 });
   }
   const b = body as Partial<{ email: string; password: string }>;
+  const email = String(b.email ?? "").trim().toLowerCase();
+  const limited = await (
+    await import("@/lib/rateLimit")
+  ).enforceRateLimit(email || "admin-login", "AUTH");
+  if (limited) return limited;
+
   const result = await loginAdmin({
-    email: String(b.email ?? ""),
+    email,
     password: String(b.password ?? ""),
   });
   if (!result.ok || !result.user) {

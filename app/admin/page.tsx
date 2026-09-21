@@ -161,16 +161,17 @@ export default function AdminDashboardPage() {
         <div className="space-y-6">
           <AdminCard>
             <AdminCardHeader
-              title="Appeals awaiting approval"
+              title="Exception review queue"
               right={<Link href="/admin/review">Open queue</Link>}
             />
             <div className="space-y-2 p-4 text-[13px] text-brand-mute">
               <p>
-                Paid appeals wait here until you Approve. Approving creates the
-                PDF, emails the customer, and unlocks portal download.
+                Normal appeals release automatically after validation. This
+                queue is only for genuine exceptions (safety failure, out of
+                scope, or unresolvable facts).
               </p>
               <Link href="/admin/review" className="btn-brand-primary inline-flex">
-                Go to Approve queue
+                Open exception queue
               </Link>
             </div>
           </AdminCard>

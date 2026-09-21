@@ -126,6 +126,7 @@ export async function ensureFinalAppealDocument(
         evidence,
         // The exact text that passed validation.
         appeal: { paragraphs: draft.paragraphs },
+        caseReference: appealCase.publicId,
       }),
     );
   } catch (err) {
@@ -230,7 +231,7 @@ export async function getCaseDocumentDelivery(
     return { ok: false, status: 404, code: "NOT_FOUND", message: "File not found." };
   }
 
-  if (doc.documentType === "GENERATED") {
+  if (doc.documentType === "GENERATED" || doc.documentType === "INSTRUCTIONS") {
     const entitled = await requireStepEntitlement(caseId, session, "PDF");
     if (!entitled.ok) return entitled;
     const appeal = await findCurrentAppeal(caseId);
@@ -240,7 +241,7 @@ export async function getCaseDocumentDelivery(
         status: 409,
         code: "APPEAL_NOT_RELEASED",
         message:
-          "This appeal is with our team for review and is not available to download yet.",
+          "Your appeal documents are not available to download yet.",
       };
     }
   }

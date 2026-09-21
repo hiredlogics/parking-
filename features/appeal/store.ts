@@ -82,7 +82,13 @@ interface AppealSessionActions {
     adaptiveAnswers: Record<string, unknown>;
     evidence: EvidenceItem[];
   }): void;
-  setFile(file: { name: string; mimeType: string; sizeBytes: number; base64: string }): void;
+  setFile(file: {
+    name: string;
+    mimeType: string;
+    sizeBytes: number;
+    /** Optional — never persist large blobs; the server already stores the notice. */
+    base64?: string;
+  }): void;
   setExtraction(result: ExtractionResult): void;
   setConfirmedPcn(pcn: ConfirmedPcn): void;
   updateExtractedField<K extends keyof ExtractedPcn>(key: K, value: ExtractedPcn[K]): void;
@@ -125,6 +131,7 @@ export const useAppealStore = create<AppealSessionState & AppealSessionActions>(
           fileName: file.name,
           fileMimeType: file.mimeType,
           fileSizeBytes: file.sizeBytes,
+          // Prefer not holding base64 in memory — it freezes mobile on large photos.
           fileBase64: file.base64,
         })),
       setExtraction: (result) => set(() => ({ extraction: result })),
@@ -189,7 +196,7 @@ export const useAppealStore = create<AppealSessionState & AppealSessionActions>(
         fileName: state.fileName,
         fileMimeType: state.fileMimeType,
         fileSizeBytes: state.fileSizeBytes,
-        fileBase64: state.fileBase64,
+        // Never persist fileBase64 — multi‑MB strings block the main thread on mobile.
         extraction: state.extraction,
         confirmed: state.confirmed,
         answers: state.answers,

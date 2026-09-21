@@ -27,10 +27,16 @@ interface Body {
  */
 export async function POST(request: Request) {
   const session = await getSession();
-  if (!session.userId) {
+  if (!session.userId || session.kind !== "ADMIN") {
     return NextResponse.json(
-      { success: false, error: { code: "UNAUTHENTICATED", message: "Please sign in to continue." } },
-      { status: 401 },
+      {
+        success: false,
+        error: {
+          code: "FORBIDDEN",
+          message: "Admin access required. Customer appeals use the paid case pipeline.",
+        },
+      },
+      { status: 403 },
     );
   }
 

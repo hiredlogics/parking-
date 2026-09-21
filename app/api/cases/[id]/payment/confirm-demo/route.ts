@@ -63,6 +63,13 @@ export async function POST(
     payload: { provider: "demo", status: confirmed.status },
   });
 
+  // Start generation immediately so /success does not wait ~2 minutes on first load.
+  void import("@/lib/generation/caseGeneration")
+    .then(({ getAppealForCase }) => getAppealForCase(id, session))
+    .catch((err) =>
+      console.error("[confirm-demo] background generation failed:", err),
+    );
+
   const state = await getPaymentState(id, session);
   if (!state.ok) return failFromAccess(state);
   return ok({ payment: state.state });

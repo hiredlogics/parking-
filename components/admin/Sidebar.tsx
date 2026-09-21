@@ -34,7 +34,6 @@ const NAV: NavItem[] = [
   { href: "/admin/appeals", label: "Appeal Cases", icon: <Icon><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" /><path d="M15 3v4h4" /><path d="M8 13h6M8 17h4" /></Icon> },
   { href: "/admin/config", label: "Configuration", icon: <Icon><circle cx="12" cy="12" r="3" /><path d="M4 12h2M18 12h2M12 4v2M12 18v2" /></Icon> },
   { href: "/admin/clients", label: "Clients", icon: <Icon><circle cx="9" cy="8" r="3.5" /><path d="M3 20c.9-3.5 3-5.5 6-5.5s5.1 2 6 5.5" /><circle cx="17" cy="9" r="2.5" /><path d="M15 20c.5-2 1.7-3.5 4-3.5" /></Icon> },
-  { href: "/admin/appeal-builder", label: "Appeal Builder™", icon: <Icon><path d="M6 3h9l4 4v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" /><path d="M15 3v4h4" /><path d="M9 13l2 2 4-4" /></Icon> },
   { href: "/admin/appeal-logic", label: "Appeal Logic", icon: <Icon><circle cx="6" cy="6" r="2.5" /><circle cx="18" cy="6" r="2.5" /><circle cx="12" cy="18" r="2.5" /><path d="M8 7.5L11 16M16 7.5L13 16M8.3 6h7.4" /></Icon> },
   { href: "/admin/community", label: "Community", icon: <Icon><path d="M4 20v-1a5 5 0 0 1 5-5" /><path d="M14 20v-1a5 5 0 0 1 5-5" /><circle cx="9" cy="8" r="3" /><circle cx="19" cy="9" r="2.5" /></Icon> },
   { href: "/admin/reports", label: "Reports", icon: <Icon><path d="M4 20V8" /><path d="M10 20V4" /><path d="M16 20v-8" /><path d="M22 20v-4" /><path d="M2 20h20" /></Icon> },

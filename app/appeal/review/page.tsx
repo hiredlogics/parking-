@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { AppHeader } from "@/components/app/AppHeader";
+import { JourneyHeader } from "@/components/app/JourneyHeader";
 import { ProgressSteps } from "@/components/ProgressSteps";
 import { useAppealStore } from "@/features/appeal/store";
 import { useCaseSession } from "@/features/appeal/useCaseSession";
@@ -12,26 +12,20 @@ import {
   startCheckout,
   type ReadinessView,
 } from "@/features/appeal/caseSync";
-import { EVIDENCE_TYPE_LABELS } from "@/types";
-import { ArrowRightIcon, CheckIcon, ShieldIcon } from "@/components/landing/Icons";
+import {
+  formatMoney,
+  formatSituationLabel,
+  formatUkDate,
+} from "@/lib/appeals/displayLabels";
 
 /**
- * Pre-payment summary — the sufficient-information gate.
- *
- * What the customer sees here is deliberately limited to:
- *   - the confirmed notice details,
- *   - the identified grounds in plain language,
- *   - evidence status,
- *   - whether we have enough information.
- *
- * No appeal wording exists at this point in the workflow: drafting sits
- * behind the payment gate. Nothing on this page exposes route
- * identifiers, knowledge-module IDs, legal reasoning, confidence scores
- * or validator information.
+ * Review your information — step 4 chrome (Payment).
+ * All fields are bound to the live case / store (nothing hardcoded).
  */
 export default function ReviewPage() {
   const router = useRouter();
-  const evidence = useAppealStore((s) => s.evidence);
+  const confirmed = useAppealStore((s) => s.confirmed);
+  const adaptiveAnswers = useAppealStore((s) => s.adaptiveAnswers);
   const setStep = useAppealStore((s) => s.setStep);
 
   const { caseId, status: sessionStatus } = useCaseSession();
@@ -63,11 +57,6 @@ export default function ReviewPage() {
     void run();
   }, [run, sessionStatus]);
 
-  /**
-   * Ask the server to open a checkout session and follow wherever the
-   * payment provider says to go. For the demo provider that is the local
-   * checkout page; for Stripe it is a hosted page on their domain.
-   */
   const onContinue = async () => {
     if (!caseId) return;
     setStartingCheckout(true);
@@ -94,8 +83,14 @@ export default function ReviewPage() {
   if (sessionStatus === "loading" || checking) {
     return (
       <Shell>
-        <div className="app-card">
-          <div className="h-40 animate-pulse rounded-xl bg-brand-canvas" />
+        <div className="rounded-2xl bg-[#F3F4F6] px-5 py-10 text-center">
+          <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-brand-pink border-t-transparent" />
+          <p className="mt-4 text-[15px] font-semibold text-brand-text">
+            Checking your case…
+          </p>
+          <p className="mt-2 text-[13px] text-brand-mute">
+            This can take up to a minute on first load. Please wait.
+          </p>
         </div>
       </Shell>
     );
@@ -104,224 +99,176 @@ export default function ReviewPage() {
   if (!caseId || (!readiness && !error)) {
     return (
       <Shell>
-        <div className="app-card">
-          <h1 className="text-2xl font-black tracking-tight">
-            Nothing to review yet
-          </h1>
-          <p className="mt-2 text-brand-mute">
-            Please complete the earlier steps first.
-          </p>
-          <Link href="/appeal/upload" className="btn-brand-primary mt-4">
-            Start upload
-          </Link>
-        </div>
+        <h1 className="text-[22px] font-bold text-brand-text">Nothing to review yet</h1>
+        <p className="mt-2 text-[14px] text-brand-mute">Please complete the earlier steps first.</p>
+        <Link
+          href="/appeal/upload"
+          className="mt-6 flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white"
+        >
+          Start upload
+        </Link>
       </Shell>
     );
   }
 
-  if (error) {
+  if (error && !readiness) {
     return (
       <Shell>
-        <div className="app-card">
-          <h1 className="text-2xl font-black tracking-tight">
-            We hit a problem
-          </h1>
-          <p className="mt-2 text-brand-mute">{error}</p>
-          <button type="button" onClick={run} className="btn-brand-primary mt-4">
-            Try again
-          </button>
-        </div>
+        <h1 className="text-[22px] font-bold text-brand-text">We hit a problem</h1>
+        <p className="mt-2 text-[14px] text-brand-mute">{error}</p>
+        <button
+          type="button"
+          onClick={run}
+          className="mt-6 flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white"
+        >
+          Try again
+        </button>
       </Shell>
     );
   }
 
   const r = readiness!;
+  const pcn = confirmed;
+  const d = r.caseDetails;
+
+  const keeperName = String(adaptiveAnswers.keeper_name ?? "").trim();
+  const keeperLines = [
+    keeperName,
+    String(adaptiveAnswers.keeper_address_line1 ?? "").trim(),
+    String(adaptiveAnswers.keeper_address_line2 ?? "").trim(),
+    [
+      String(adaptiveAnswers.keeper_town ?? "").trim(),
+      String(adaptiveAnswers.keeper_postcode ?? "").trim(),
+    ]
+      .filter(Boolean)
+      .join(", "),
+  ].filter(Boolean);
+
+  const situation = formatSituationLabel(
+    adaptiveAnswers.scenarios,
+    adaptiveAnswers.situation_other,
+  );
+
+  const rows: { label: string; value: ReactNode }[] = [
+    { label: "Parking company", value: d.operatorName ?? pcn?.operator_name ?? "—" },
+    { label: "PCN reference", value: d.pcnNumber ?? pcn?.pcn_number ?? "—" },
+    { label: "Vehicle registration", value: d.vrm ?? pcn?.vrm ?? "—" },
+    {
+      label: "Date of parking event",
+      value: formatUkDate(d.parkingEventDate ?? pcn?.parking_event_date),
+    },
+    { label: "Location", value: d.parkingLocation ?? pcn?.parking_location ?? "—" },
+    { label: "Amount", value: formatMoney(pcn?.charge_amount) },
+  ];
+
+  if (keeperLines.length > 0) {
+    rows.push({
+      label: "Registered keeper",
+      value: (
+        <span className="block whitespace-pre-line text-right">
+          {keeperLines.join("\n")}
+        </span>
+      ),
+    });
+  }
+
+  rows.push({ label: "Your situation", value: situation });
 
   return (
     <Shell>
-      <div className="mb-6">
-        <span className="app-badge">
-          <ShieldIcon className="h-3.5 w-3.5" />{" "}
-          {r.sufficient ? "Ready to prepare" : "A little more needed"}
-        </span>
-        <h1 className="mt-3 text-[24px] font-black tracking-tight sm:text-[30px]">
-          {r.sufficient
-            ? "We have enough information to prepare your appeal."
-            : "We need a little more information"}
-        </h1>
-        <p className="mt-2 max-w-2xl text-[14.5px] leading-relaxed text-brand-mute">
-          {r.sufficient
-            ? "Here is a summary of what we will base your appeal on. After checkout we prepare it for review, then you can view and download the PDF."
-            : "Please complete the outstanding items below and we will check again."}
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-[22px] font-bold tracking-tight text-brand-text sm:text-[26px]">
+            Review your information
+          </h1>
+          <p className="mt-2 text-[14px] leading-relaxed text-brand-mute">
+            Please check your details before proceeding to payment.
+          </p>
+        </div>
+        <Link
+          href="/appeal/confirm"
+          className="inline-flex shrink-0 items-center gap-1 pt-1 text-[13px] font-semibold text-brand-blue"
+        >
+          <PencilIcon />
+          Edit
+        </Link>
       </div>
 
-      {/* Confirmed notice details */}
-      <section className="app-card">
-        <p className="app-section-title">Your notice</p>
-        <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Detail label="Reference" value={r.caseDetails.publicId} mono />
-          <Detail label="Operator" value={r.caseDetails.operatorName} />
-          <Detail label="PCN number" value={r.caseDetails.pcnNumber} mono />
-          <Detail label="Vehicle" value={r.caseDetails.vrm} mono />
-          <Detail label="Location" value={r.caseDetails.parkingLocation} />
-          <Detail label="Date of event" value={r.caseDetails.parkingEventDate} />
-        </dl>
-      </section>
-
-      {/* Identified grounds, plain language only */}
-      {r.groundLabels.length > 0 && (
-        <section className="app-card mt-4">
-          <p className="app-section-title">
-            What we will argue on your behalf
-          </p>
-          <ul className="mt-4 space-y-2">
-            {r.groundLabels.map((label) => (
-              <li
-                key={label}
-                className="flex items-start gap-3 rounded-xl border border-brand-green/30 bg-white px-4 py-3 text-[14px]"
-              >
-                <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-green text-white">
-                  <CheckIcon className="h-3 w-3" />
-                </span>
-                {label}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {/* Evidence status */}
-      <section className="app-card mt-4">
-        <p className="app-section-title">Supporting evidence</p>
-        {evidence.length === 0 ? (
-          <p className="mt-3 text-[14px] text-brand-mute">
-            No evidence uploaded. Your appeal can still be prepared, and we
-            will only refer to evidence you actually provide.
-          </p>
-        ) : (
-          <ul className="mt-3 space-y-1.5">
-            {evidence.map((e) => (
-              <li key={e.id} className="text-[14px] text-brand-text">
-                {(EVIDENCE_TYPE_LABELS as Record<string, string>)[e.type] ??
-                  "Supporting evidence"}
-                <span className="text-brand-mute"> — {e.fileName}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-
-        {r.evidence.suggestions.length > 0 && (
-          <div className="mt-4 rounded-xl border border-brand-borderSoft bg-brand-canvas p-4">
-            <p className="text-[13px] font-semibold text-brand-text">
-              These would strengthen your appeal
-            </p>
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-[13px] text-brand-mute">
-              {r.evidence.suggestions.map((s) => (
-                <li key={s.label}>{s.label}</li>
-              ))}
-            </ul>
-            <Link href="/appeal/evidence" className="btn-brand-ghost mt-3">
-              Add evidence
-            </Link>
+      <div className="mt-6 overflow-hidden rounded-2xl bg-[#F3F4F6]">
+        {rows.map((row, i) => (
+          <div
+            key={row.label}
+            className={[
+              "flex items-start justify-between gap-4 px-4 py-3.5 sm:px-5",
+              i < rows.length - 1 ? "border-b border-white" : "",
+            ].join(" ")}
+          >
+            <span className="shrink-0 text-[13px] font-medium text-brand-mute">
+              {row.label}
+            </span>
+            <span className="max-w-[58%] text-right text-[14px] font-semibold text-brand-text">
+              {row.value}
+            </span>
           </div>
-        )}
-      </section>
+        ))}
+      </div>
 
-      {/* Outstanding items */}
       {!r.sufficient && (
-        <section className="app-card mt-4 border-amber-200 bg-amber-50">
-          <p className="text-[13px] font-semibold text-amber-900">
-            Before we can prepare your appeal
-          </p>
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-[13.5px] text-amber-900">
+          <p className="font-semibold">A little more is needed</p>
           {r.blockers.length > 0 ? (
-            <ul className="mt-2 list-disc space-y-1 pl-5 text-[13.5px] text-amber-900">
+            <ul className="mt-2 list-disc space-y-1 pl-5">
               {r.blockers.map((b) => (
                 <li key={b}>{b}</li>
               ))}
             </ul>
-          ) : (
-            <p className="mt-2 text-[13.5px] text-amber-900">
-              Please finish any remaining questions, then check again.
-            </p>
-          )}
-          <div className="mt-4 flex flex-wrap gap-3">
-            <Link href="/appeal/questions" className="btn-brand-primary">
-              Continue questions
-            </Link>
-            <button type="button" onClick={run} className="btn-brand-ghost">
-              Check again
-            </button>
-          </div>
-        </section>
+          ) : null}
+          <Link href="/appeal/questions" className="mt-3 inline-block font-semibold text-brand-pink">
+            Continue questions
+          </Link>
+        </div>
       )}
 
-      {/* Checkout gate */}
-      <div className="mt-6 flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Link href="/appeal/evidence" className="btn-brand-ghost">
-          Back
-        </Link>
+      {error && (
+        <p role="alert" className="mt-3 text-[13px] font-medium text-red-700">
+          {error}
+        </p>
+      )}
+
+      <div className="mt-auto pt-8">
         {r.sufficient && (
           <button
             type="button"
-            onClick={onContinue}
-            disabled={startingCheckout}
-            className="btn-brand-primary"
             data-testid="review-continue"
+            disabled={startingCheckout}
+            onClick={() => void onContinue()}
+            className="flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white shadow-sm transition hover:bg-brand-pinkDark disabled:opacity-50"
           >
-            {startingCheckout
-              ? "Starting checkout…"
-              : r.paymentRequired && r.price
-                ? `Continue to checkout · £${r.price.amount.toFixed(2)}`
-                : "Continue"}{" "}
-            <ArrowRightIcon className="h-3.5 w-3.5" />
+            {startingCheckout ? "Starting checkout…" : "Continue to payment"}
           </button>
         )}
       </div>
-
-      {r.sufficient && r.paymentRequired && (
-        <p className="mt-3 text-center text-[12px] text-brand-mute">
-          After payment we prepare your appeal for review. You can view and
-          download the PDF once it is ready in your portal.
-        </p>
-      )}
     </Shell>
+  );
+}
+
+function PencilIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path d="M12 20h9" strokeLinecap="round" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" strokeLinejoin="round" />
+    </svg>
   );
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="app-shell">
-      <AppHeader />
+    <div className="flex min-h-screen flex-col bg-white">
+      <JourneyHeader />
       <ProgressSteps current="review" />
-      <main className="container-page py-8 sm:py-10 lg:py-12">
-        <div className="mx-auto max-w-3xl">{children}</div>
+      <main className="mx-auto flex w-full max-w-lg flex-1 flex-col px-4 pb-8 pt-6 sm:px-6 sm:pt-8">
+        {children}
       </main>
-    </div>
-  );
-}
-
-function Detail({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string | null | undefined;
-  mono?: boolean;
-}) {
-  return (
-    <div>
-      <dt className="text-[11px] font-semibold uppercase tracking-wide text-brand-mute">
-        {label}
-      </dt>
-      <dd
-        className={`mt-0.5 text-[14px] font-medium text-brand-text ${
-          mono ? "font-mono" : ""
-        }`}
-      >
-        {value == null || value === "" ? "—" : value}
-      </dd>
     </div>
   );
 }

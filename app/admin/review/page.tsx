@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AdminPage, AdminCard, AdminCardHeader } from "@/components/admin/ui";
 
 interface QueueItem {
@@ -23,6 +24,22 @@ interface QueueItem {
 }
 
 export default function AppealsForReviewPage() {
+  return (
+    <Suspense
+      fallback={
+        <AdminPage title="Appeals for Review" breadcrumb={<span>Dashboard</span>}>
+          <p className="text-sm text-brand-mute">Loading…</p>
+        </AdminPage>
+      }
+    >
+      <AppealsForReviewInner />
+    </Suspense>
+  );
+}
+
+function AppealsForReviewInner() {
+  const search = useSearchParams();
+  const released = search.get("released") === "1";
   const [items, setItems] = useState<QueueItem[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,15 +89,26 @@ export default function AppealsForReviewPage() {
         </Link>
       }
     >
+      {released && (
+        <div className="mb-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-[13px] text-green-900">
+          Appeal released. Branded PDF saved and the customer has been notified
+          by email and in their portal.
+        </div>
+      )}
+
       <AdminCard>
         <AdminCardHeader
-          title="Awaiting approval"
+          title="Exception cases"
           right={
             <span className="text-[12px] text-brand-mute">
               {loading ? "…" : `${items.length} in queue`}
             </span>
           }
         />
+        <p className="border-b border-brand-borderSoft px-4 py-3 text-[12px] text-brand-mute">
+          Exception cases only — appeals that could not auto-release after
+          validation. Successful appeals go straight to the customer.
+        </p>
         {loading && (
           <p className="p-4 text-sm text-brand-mute">Loading queue…</p>
         )}
@@ -98,8 +126,8 @@ export default function AppealsForReviewPage() {
         )}
         {!loading && !error && items.length === 0 && (
           <p className="p-4 text-sm text-brand-mute">
-            No appeals waiting for review. After a customer pays, generated
-            appeals appear here for approval.
+            No exception cases. Validated appeals release automatically — no
+            admin Approve needed.
           </p>
         )}
         {!loading && !error && items.length > 0 && (
@@ -111,16 +139,16 @@ export default function AppealsForReviewPage() {
               >
                 <div>
                   <p className="text-[14px] font-semibold text-brand-text">
-                    {item.case?.pcnNumber ??
-                      item.case?.publicId ??
+                    {item.case?.publicId ??
+                      item.case?.pcnNumber ??
                       item.appeal.caseId}
                   </p>
                   <p className="text-[12px] text-brand-mute">
-                    {item.case?.operatorName ?? "—"} · {item.case?.vrm ?? "—"} ·{" "}
-                    {item.appeal.status}
+                    {item.case?.operatorName ?? "—"} · PCN{" "}
+                    {item.case?.pcnNumber ?? "—"} · {item.case?.vrm ?? "—"}
                   </p>
                   <p className="mt-1 text-[12px] text-brand-mute">
-                    Issues:{" "}
+                    AI draft ready · Issues:{" "}
                     {(item.appeal.issuesJson ?? [])
                       .map((i) => i.label ?? i.code)
                       .filter(Boolean)
@@ -131,7 +159,7 @@ export default function AppealsForReviewPage() {
                   href={`/admin/review/${item.appeal.id}`}
                   className="btn-brand-primary text-[12px]"
                 >
-                  Review
+                  Edit &amp; approve
                 </Link>
               </li>
             ))}

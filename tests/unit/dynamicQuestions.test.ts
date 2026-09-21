@@ -656,10 +656,7 @@ describe("Regeneration and fallback", () => {
     expect(out.status).toBe("SUFFICIENT_INFORMATION");
   });
 
-  it("routes to manual review when nothing can serve the last requirement", async () => {
-    // vrm_error opens PAYMENT without implying payment_made, and the
-    // bank has no question for that fact — so with no AI it is
-    // unservable. It must NOT be silently treated as answered.
+  it("asks payment status when keying opens payment without a paid tag", async () => {
     const out = await nextDynamicQuestion({
       confirmed: CONFIRMED,
       answers: {
@@ -672,10 +669,9 @@ describe("Regeneration and fallback", () => {
       },
       provider: null,
     });
-    expect(out.status).toBe("MANUAL_REVIEW");
-    if (out.status === "MANUAL_REVIEW") {
-      expect(out.reason).toBe("NO_QUESTION_SOURCE");
-      expect(out.missingFacts).toContain(FACT.PAYMENT_MADE);
+    expect(out.status).toBe("QUESTION_REQUIRED");
+    if (out.status === "QUESTION_REQUIRED") {
+      expect(out.targetFact).toBe(FACT.PAYMENT_MADE);
     }
   });
 

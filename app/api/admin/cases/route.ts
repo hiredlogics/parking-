@@ -1,5 +1,4 @@
-import { getSession } from "@/lib/auth/session";
-import { hasDb } from "@/lib/db/pool";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import { fail, ok } from "@/lib/api/envelope";
 import { listAllCases } from "@/lib/cases/repo";
 
@@ -14,14 +13,8 @@ export const dynamic = "force-dynamic";
  * CRM needs to triage.
  */
 export async function GET() {
-  if (!hasDb()) return fail("DB_NOT_CONFIGURED", "Database is not configured.", 503);
-  const session = await getSession();
-  if (!session.userId) {
-    return fail("UNAUTHENTICATED", "Please sign in to continue.", 401);
-  }
-  if (session.kind === "CUSTOMER") {
-    return fail("FORBIDDEN", "Admin access required.", 403);
-  }
+  const auth = await requireAdmin();
+  if (!auth.ok) return fail(auth.code, auth.error, auth.status);
 
   const cases = await listAllCases();
   return ok({

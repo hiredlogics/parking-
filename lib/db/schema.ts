@@ -8,6 +8,7 @@ import { QUESTION_STATEMENTS } from "./questionSchema";
 import { OUTCOME_STATEMENTS } from "./outcomeSchema";
 import { USAGE_STATEMENTS } from "./usageSchema";
 import { ADMIN_CONFIG_STATEMENTS } from "./adminConfigSchema";
+import { PASSWORD_RESET_STATEMENTS } from "./passwordResetSchema";
 
 /**
  * Idempotent DDL. Runs on demand from ensureSchema(); safe to call from
@@ -285,6 +286,7 @@ const STATEMENTS = [
   ...USAGE_STATEMENTS,
   /* Admin-driven config + first-class case_appeals + email outbox. */
   ...ADMIN_CONFIG_STATEMENTS,
+  ...PASSWORD_RESET_STATEMENTS,
 ];
 
 let ensured: Promise<void> | null = null;
@@ -335,7 +337,13 @@ export async function ensureSchema(): Promise<void> {
       [`public.${SENTINEL_TABLE}`, SENTINEL_COLUMN.table, SENTINEL_COLUMN.column],
     )) as unknown as { rows?: Array<{ present: boolean }> } | Array<{ present: boolean }>;
     const rows = Array.isArray(probe) ? probe : (probe.rows ?? []);
-    if (rows[0]?.present) return;
+    if (rows[0]?.present) {
+      // New tables added after the sentinel still need to land.
+      for (const stmt of PASSWORD_RESET_STATEMENTS) {
+        await sql.query(stmt);
+      }
+      return;
+    }
 
     for (const stmt of STATEMENTS) {
       await sql.query(stmt);

@@ -163,9 +163,9 @@ describe("R2 configuration", () => {
 
   it("names exactly what is missing", () => {
     const missing = missingR2Vars({ R2_BUCKET: "b" });
-    expect(missing).toContain("R2_ACCESS_KEY_ID");
-    expect(missing).toContain("R2_SECRET_ACCESS_KEY");
-    expect(missing).not.toContain("R2_BUCKET");
+    expect(missing.some((m) => m.includes("R2_ACCESS_KEY_ID"))).toBe(true);
+    expect(missing.some((m) => m.includes("R2_SECRET_ACCESS_KEY"))).toBe(true);
+    expect(missing.some((m) => m.includes("R2_BUCKET"))).toBe(false);
   });
 });
 
@@ -203,6 +203,16 @@ describe("Provider factory", () => {
     process.env.R2_ACCESS_KEY_ID = "k";
     process.env.R2_SECRET_ACCESS_KEY = "s";
     process.env.R2_ACCOUNT_ID = "acct";
+    expect(getStorageProvider().id).toBe("r2");
+    expect(isDurableStorage()).toBe(true);
+  });
+
+  it("accepts STORAGE_PROVIDER=spaces with SPACES_* vars", () => {
+    process.env.STORAGE_PROVIDER = "spaces";
+    process.env.SPACES_BUCKET = "appeals";
+    process.env.SPACES_KEY = "key";
+    process.env.SPACES_SECRET = "secret";
+    process.env.SPACES_ENDPOINT = "https://lon1.digitaloceanspaces.com";
     expect(getStorageProvider().id).toBe("r2");
     expect(isDurableStorage()).toBe(true);
   });
@@ -246,6 +256,18 @@ describe("DigitalOcean Spaces endpoints", () => {
       S3_ENDPOINT: "https://lon1.digitaloceanspaces.com",
     });
     expect(config?.region).toBe("lon1");
+  });
+
+  it("reads SPACES_* aliases for DigitalOcean", () => {
+    const config = readR2Config({
+      SPACES_BUCKET: "appeals",
+      SPACES_KEY: "key",
+      SPACES_SECRET: "secret",
+      SPACES_ENDPOINT: "https://ams3.digitaloceanspaces.com",
+    });
+    expect(config?.bucket).toBe("appeals");
+    expect(config?.endpoint).toBe("https://ams3.digitaloceanspaces.com");
+    expect(config?.region).toBe("ams3");
   });
 
   it("lets an explicit R2_REGION win", () => {

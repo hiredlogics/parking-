@@ -28,7 +28,7 @@ export type SufficiencyStatus = "INCOMPLETE" | "SUFFICIENT";
 export interface CaseDocument {
   id: string;
   caseId: string;
-  documentType: "PCN" | "EVIDENCE" | "GENERATED";
+  documentType: "PCN" | "EVIDENCE" | "GENERATED" | "INSTRUCTIONS";
   evidenceType: string | null;
   storageKey: string;
   storageProvider: string;

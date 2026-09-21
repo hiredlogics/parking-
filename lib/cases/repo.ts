@@ -523,6 +523,44 @@ export async function saveReadiness(
   );
 }
 
+/** Update routes / outstanding facts without changing case status. */
+export async function updateCaseRoutes(
+  id: string,
+  input: {
+    primaryRoute: RouteFamily | null;
+    secondaryRoutes: RouteFamily[];
+    missingFacts: string[];
+    pofaRoute?: string | null;
+  },
+): Promise<void> {
+  const now = new Date().toISOString();
+  await q(
+    `UPDATE appeal_cases
+        SET primary_route = $2,
+            secondary_routes = $3,
+            candidate_routes = $4,
+            missing_facts = $5,
+            pofa_route = COALESCE($6, pofa_route),
+            out_of_scope_detail = NULL,
+            updated_at = $7
+      WHERE id = $1`,
+    [
+      id,
+      input.primaryRoute,
+      JSON.stringify(input.secondaryRoutes),
+      JSON.stringify(
+        [
+          ...(input.primaryRoute ? [input.primaryRoute] : []),
+          ...input.secondaryRoutes,
+        ],
+      ),
+      JSON.stringify(input.missingFacts),
+      input.pofaRoute ?? null,
+      now,
+    ],
+  );
+}
+
 /* ----------------------------- Case facts ----------------------------- */
 
 /**

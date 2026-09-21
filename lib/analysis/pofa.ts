@@ -108,10 +108,13 @@ export function analysePofa(input: PofaInput): PofaAnalysis {
   }
 
   // ---- Vehicle type gate ----
+  // True hire/rental uses a separate Sch 4 transfer path.
+  // Lease / company vehicles still run the normal keeper/PoFA analysis
+  // so payment and other grounds can assemble in the rules letter.
   const hire = factStr(f, FACT.VEHICLE_HIRE_STATUS);
-  if (hire === "HIRE" || hire === "LEASE" || hire === "COMPANY") {
+  if (hire === "HIRE") {
     return NOT_APPLICABLE([
-      "Hire, lease and company vehicles follow a separate Schedule 4 route which is not automated.",
+      "Hire vehicles follow a separate Schedule 4 transfer route which is not automated.",
     ]);
   }
 

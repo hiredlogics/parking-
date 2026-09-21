@@ -1,10 +1,8 @@
 /**
  * @vitest-environment node
  *
- * These tests guard the extraction-provider factory behaviour.
- * The pack requires: real OpenAI extraction by default, never a silent
- * fallback to mock data. The mock is only reachable via the explicit
- * EXTRACTION_PROVIDER=mock opt-in used by this test suite.
+ * Extraction factory: AI by default (wrapped with rules fallback),
+ * mock only via EXTRACTION_PROVIDER=mock, rules-only via EXTRACTION_PROVIDER=rules.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -12,7 +10,7 @@ import {
   resetExtractionProvider,
 } from "@/services/extraction";
 import { MockDocumentExtractionProvider } from "@/services/extraction/mockProvider";
-import { OpenAIExtractionProvider } from "@/services/extraction/openaiProvider";
+import { ResilientExtractionProvider } from "@/services/extraction/resilientProvider";
 
 let savedProvider: string | undefined;
 let savedKey: string | undefined;
@@ -32,17 +30,20 @@ afterEach(() => {
 });
 
 describe("extraction provider factory", () => {
-  it("returns the OpenAI provider by default when OPENAI_API_KEY is set", () => {
+  it("returns a resilient OpenAI wrapper when OPENAI_API_KEY is set", () => {
     delete process.env.EXTRACTION_PROVIDER;
     process.env.OPENAI_API_KEY = "sk-test-key";
     const p = getExtractionProvider();
-    expect(p).toBeInstanceOf(OpenAIExtractionProvider);
+    expect(p).toBeInstanceOf(ResilientExtractionProvider);
+    expect(p.id).toMatch(/^resilient:openai:/);
   });
 
-  it("throws instead of silently falling back to the mock when no API key is set", () => {
+  it("falls back to rules OCR when no API key is set (does not use mock)", () => {
     delete process.env.EXTRACTION_PROVIDER;
     delete process.env.OPENAI_API_KEY;
-    expect(() => getExtractionProvider()).toThrow(/OPENAI_API_KEY/);
+    const p = getExtractionProvider();
+    expect(p).toBeInstanceOf(ResilientExtractionProvider);
+    expect(p).not.toBeInstanceOf(MockDocumentExtractionProvider);
   });
 
   it("returns the mock provider only when EXTRACTION_PROVIDER=mock is explicitly set", () => {
@@ -50,5 +51,12 @@ describe("extraction provider factory", () => {
     delete process.env.OPENAI_API_KEY;
     const p = getExtractionProvider();
     expect(p).toBeInstanceOf(MockDocumentExtractionProvider);
+  });
+
+  it("returns rules-only when EXTRACTION_PROVIDER=rules", () => {
+    process.env.EXTRACTION_PROVIDER = "rules";
+    delete process.env.OPENAI_API_KEY;
+    const p = getExtractionProvider();
+    expect(p.id).toBe("rules-ocr");
   });
 });

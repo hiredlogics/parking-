@@ -2,16 +2,13 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
- * Shared UI for the two customer entry points:
- *   - /signup  → mode="register"
- *   - /signin  → mode="signin"
+ * Shared UI for customer sign-in / register.
  *
- * On success we push the user to the `next` query param if it points to
- * /appeal or /portal; otherwise we default to /appeal/upload for
- * newly-registered customers and /portal for returning ones.
+ * If register finds an existing email, we send the user to sign-in
+ * with that email prefilled instead of creating another account.
  */
 export function CustomerAuthForm({ mode }: { mode: "register" | "signin" }) {
   const router = useRouter();
@@ -19,7 +16,9 @@ export function CustomerAuthForm({ mode }: { mode: "register" | "signin" }) {
   const rawNext = search?.get("next") ?? "";
   const defaultNext = mode === "register" ? "/appeal/upload" : "/portal";
   const nextPath =
-    rawNext.startsWith("/appeal") || rawNext.startsWith("/portal") || rawNext === "/start"
+    rawNext.startsWith("/appeal") ||
+    rawNext.startsWith("/portal") ||
+    rawNext === "/start"
       ? rawNext
       : defaultNext;
 
@@ -28,6 +27,18 @@ export function CustomerAuthForm({ mode }: { mode: "register" | "signin" }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    const prefill = search?.get("email");
+    if (prefill) setEmail(prefill);
+    const n = search?.get("notice");
+    if (n === "exists") {
+      setNotice("That email already has an account. Please sign in.");
+    } else if (n === "reset") {
+      setNotice("Password updated. You can sign in with your new password.");
+    }
+  }, [search]);
 
   const isRegister = mode === "register";
   const heading = isRegister ? "Create your account" : "Sign in to continue";
@@ -35,11 +46,14 @@ export function CustomerAuthForm({ mode }: { mode: "register" | "signin" }) {
     ? "Register with your email and a password so we can save your appeal, evidence and downloads."
     : "Sign in to see your saved appeals, evidence and messages.";
   const cta = isRegister ? "Create Account & Start Appeal" : "Sign In";
-  const endpoint = isRegister ? "/api/auth/customer/register" : "/api/auth/customer/login";
+  const endpoint = isRegister
+    ? "/api/auth/customer/register"
+    : "/api/auth/customer/login";
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setNotice(null);
     setBusy(true);
     try {
       const body = isRegister ? { name, email, password } : { email, password };
@@ -50,6 +64,15 @@ export function CustomerAuthForm({ mode }: { mode: "register" | "signin" }) {
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
+        if (data.code === "EMAIL_EXISTS" || res.status === 409) {
+          const q = new URLSearchParams({
+            email: email.trim().toLowerCase(),
+            notice: "exists",
+            next: nextPath,
+          });
+          router.push(`/signin?${q.toString()}`);
+          return;
+        }
         setError(data.error ?? "Something went wrong.");
         return;
       }
@@ -71,7 +94,9 @@ export function CustomerAuthForm({ mode }: { mode: "register" | "signin" }) {
               PA
             </span>
             <div className="leading-tight">
-              <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-white">Parking</p>
+              <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-white">
+                Parking
+              </p>
               <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-white">
                 Appeals <span className="text-brand-pink">Group</span>
               </p>
@@ -79,14 +104,20 @@ export function CustomerAuthForm({ mode }: { mode: "register" | "signin" }) {
           </Link>
 
           <div className="rounded-2xl border border-white/5 bg-white p-6 text-brand-text shadow-glow sm:p-7">
-            <span className="app-badge">{isRegister ? "New here" : "Welcome back"}</span>
-            <h1 className="mt-3 text-[22px] font-black tracking-tight">{heading}</h1>
+            <span className="app-badge">
+              {isRegister ? "New here" : "Welcome back"}
+            </span>
+            <h1 className="mt-3 text-[22px] font-black tracking-tight">
+              {heading}
+            </h1>
             <p className="mt-1 text-[13px] text-brand-mute">{subhead}</p>
 
             <form onSubmit={submit} className="mt-5 space-y-4">
               {isRegister && (
                 <div>
-                  <label className="app-label" htmlFor="name">Full name</label>
+                  <label className="app-label" htmlFor="name">
+                    Full name
+                  </label>
                   <input
                     id="name"
                     className="app-input"
@@ -98,7 +129,9 @@ export function CustomerAuthForm({ mode }: { mode: "register" | "signin" }) {
                 </div>
               )}
               <div>
-                <label className="app-label" htmlFor="email">Email</label>
+                <label className="app-label" htmlFor="email">
+                  Email
+                </label>
                 <input
                   id="email"
                   type="email"
@@ -110,7 +143,19 @@ export function CustomerAuthForm({ mode }: { mode: "register" | "signin" }) {
                 />
               </div>
               <div>
-                <label className="app-label" htmlFor="password">Password</label>
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <label className="app-label mb-0" htmlFor="password">
+                    Password
+                  </label>
+                  {!isRegister && (
+                    <Link
+                      href={`/forgot-password${email ? `?email=${encodeURIComponent(email)}` : ""}`}
+                      className="text-[12px] font-semibold text-brand-pink hover:underline"
+                    >
+                      Forgot password?
+                    </Link>
+                  )}
+                </div>
                 <input
                   id="password"
                   type="password"
@@ -121,12 +166,37 @@ export function CustomerAuthForm({ mode }: { mode: "register" | "signin" }) {
                   minLength={isRegister ? 8 : undefined}
                   required
                 />
-                {isRegister && <p className="app-hint">Minimum 8 characters.</p>}
+                {isRegister && (
+                  <p className="app-hint">Minimum 8 characters.</p>
+                )}
               </div>
 
+              {notice && (
+                <div
+                  role="status"
+                  className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[13px] text-emerald-900"
+                >
+                  {notice}
+                </div>
+              )}
+
               {error && (
-                <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800">
+                <div
+                  role="alert"
+                  className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800"
+                >
                   {error}
+                  {error.toLowerCase().includes("sign in") && (
+                    <>
+                      {" "}
+                      <Link
+                        href={`/signin?email=${encodeURIComponent(email)}&next=${encodeURIComponent(nextPath)}`}
+                        className="font-semibold text-brand-pink underline"
+                      >
+                        Go to sign in
+                      </Link>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -143,14 +213,20 @@ export function CustomerAuthForm({ mode }: { mode: "register" | "signin" }) {
               {isRegister ? (
                 <>
                   Already have an account?{" "}
-                  <Link href={`/signin?next=${encodeURIComponent(nextPath)}`} className="font-semibold text-brand-pink">
+                  <Link
+                    href={`/signin?next=${encodeURIComponent(nextPath)}`}
+                    className="font-semibold text-brand-pink"
+                  >
                     Sign in
                   </Link>
                 </>
               ) : (
                 <>
                   New here?{" "}
-                  <Link href={`/signup?next=${encodeURIComponent(nextPath)}`} className="font-semibold text-brand-pink">
+                  <Link
+                    href={`/signup?next=${encodeURIComponent(nextPath)}`}
+                    className="font-semibold text-brand-pink"
+                  >
                     Create an account
                   </Link>
                 </>
@@ -159,7 +235,9 @@ export function CustomerAuthForm({ mode }: { mode: "register" | "signin" }) {
           </div>
 
           <p className="mt-5 text-center text-[12px] text-white/60">
-            <Link href="/" className="hover:text-white">← Back to the site</Link>
+            <Link href="/" className="hover:text-white">
+              ← Back to the site
+            </Link>
           </p>
         </div>
       </div>

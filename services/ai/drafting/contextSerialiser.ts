@@ -115,6 +115,34 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
     }
   }
 
+  if (ctx.rulesBasis) {
+    const rb = ctx.rulesBasis;
+    lines.push("");
+    lines.push("=== MASTER PACK RULES BASIS (mandatory spine for this appeal) ===");
+    lines.push(
+      "These are the defined pack rules that apply to THIS case. Your letter MUST be grounded in them. Rewrite into one coherent keeper-safe letter — do not invent extra legal grounds.",
+    );
+    if (rb.activeRoutes.length > 0) {
+      lines.push(`Active routes: ${rb.activeRoutes.join(", ")}`);
+    }
+    if (rb.matchedRuleDescriptions.length > 0) {
+      lines.push("");
+      lines.push("--- Matched rule triggers ---");
+      for (const d of rb.matchedRuleDescriptions) {
+        lines.push(`• ${d}`);
+      }
+    }
+    if (rb.approvedParagraphTexts.length > 0) {
+      lines.push("");
+      lines.push("--- Approved paragraph wording (paraphrase into flowing prose; do not output IDs) ---");
+      rb.approvedParagraphTexts.forEach((text, i) => {
+        lines.push("");
+        lines.push(`[Ground ${i + 1}]`);
+        lines.push(text);
+      });
+    }
+  }
+
   lines.push("");
   lines.push("=== AVAILABLE EVIDENCE ===");
   lines.push(

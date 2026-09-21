@@ -55,6 +55,21 @@ function scenarioTags(facts: KnownFacts): Set<string> {
   return tags;
 }
 
+/**
+ * Prefer exact scenario-tag matches; allow short admin tokens like
+ * "anpr" to match "anpr_disputed".
+ */
+function tagsMatchTrigger(tags: Set<string>, trigger: string): boolean {
+  const tl = trigger.toLowerCase();
+  if (tags.has(tl)) return true;
+  if (tl.length < 4) return false;
+  for (const tag of tags) {
+    if (tag.includes(tl)) return true;
+    if (tag.length >= 4 && tl.includes(tag)) return true;
+  }
+  return false;
+}
+
 function factResolved(facts: KnownFacts, factKey: string): boolean {
   const v = facts.values[factKey];
   if (v === undefined || v === null || v === "") return false;
@@ -103,13 +118,7 @@ export async function evaluateIssues(input: {
       (!factResolved(input.facts, FACT.SCENARIOS) && isTriage);
 
     // Also activate payment/keying etc. when scenario tags match loosely
-    const tagHit = issue.triggerTags.some((t) => {
-      const tl = t.toLowerCase();
-      for (const tag of tags) {
-        if (tag.includes(tl) || tl.includes(tag)) return true;
-      }
-      return false;
-    });
+    const tagHit = issue.triggerTags.some((t) => tagsMatchTrigger(tags, t));
 
     if (!isTriage && !tagHit && tags.size > 0) continue;
     if (!isTriage && tags.size === 0) continue;

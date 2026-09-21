@@ -32,7 +32,8 @@ export async function POST(request: Request) {
     phone: b.phone ? String(b.phone) : undefined,
   });
   if (!result.ok || !result.user) {
-    return NextResponse.json(result, { status: 400 });
+    const status = result.code === "EMAIL_EXISTS" ? 409 : 400;
+    return NextResponse.json(result, { status });
   }
   const session = await getSession();
   session.userId = result.user.id;

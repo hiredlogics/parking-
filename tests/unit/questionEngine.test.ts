@@ -32,8 +32,8 @@ const confirmed: ConfirmedPcn = {
 } as ConfirmedPcn;
 
 describe("Bank integrity", () => {
-  it("still holds the 27 controlled questions", () => {
-    expect(QUESTION_BANK).toHaveLength(27);
+  it("still holds the 32 controlled questions", () => {
+    expect(QUESTION_BANK).toHaveLength(32);
   });
 
   it("has unique question ids", () => {

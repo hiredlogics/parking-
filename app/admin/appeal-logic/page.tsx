@@ -331,10 +331,139 @@ export default function AdminAppealLogicPage() {
       <p className="mb-4 max-w-3xl text-[13px] text-brand-mute">
         Rule conditions and paragraph wording come from the Master Developer Pack. You can switch
         any rule or paragraph on/off, and edit approved paragraph wording, without a developer.
-        Adding brand-new rule conditions still requires a code change.
+        Adding brand-new rule conditions still requires a code change. Upload a pack PDF below to
+        refresh AI prompt guidance and matching PP-* paragraph text for the rules engine.
       </p>
+      <PackUploadSection />
       <RulesSection />
       <ParagraphsSection />
     </AdminPage>
+  );
+}
+
+function PackUploadSection() {
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState<"preview" | "apply" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{
+    preview?: boolean;
+    extractedChars?: number;
+    warnings?: string[];
+    guidancePreview?: string;
+    paragraphUpdates?: Array<{
+      id: string;
+      title: string;
+      changed: boolean;
+      keeperSafe: boolean;
+      keeperSafeError?: string;
+    }>;
+    applied?: {
+      paragraphsUpdated: string[];
+      paragraphsSkipped: Array<{ id: string; reason: string }>;
+    };
+  } | null>(null);
+
+  const post = async (apply: boolean) => {
+    if (!file) {
+      setError("Choose a PDF first.");
+      return;
+    }
+    setBusy(apply ? "apply" : "preview");
+    setError(null);
+    try {
+      const fd = new FormData();
+      fd.set("file", file);
+      fd.set("updatePrompt", "1");
+      fd.set("updateParagraphs", "1");
+      if (apply) fd.set("apply", "1");
+      const res = await fetch("/api/admin/pack-upload", { method: "POST", body: fd });
+      const d = await res.json();
+      if (!d.ok) throw new Error(d.error ?? "Upload failed.");
+      setResult(d);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Upload failed.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <AdminCard>
+      <AdminCardHeader title="Upload rules / pack PDF" />
+      <div className="space-y-4 p-4 sm:p-5">
+        <p className="text-[13px] leading-relaxed text-brand-mute">
+          Upload a Master Pack or rules PDF. We extract text, update the{" "}
+          <strong className="font-semibold text-brand-text">AI drafting prompt</strong>{" "}
+          (pack guidance) and any matching{" "}
+          <strong className="font-semibold text-brand-text">PP-* paragraphs</strong> used by
+          the rules engine. Rule conditions (when a ground fires) stay in code.
+        </p>
+        <input
+          type="file"
+          accept="application/pdf,.pdf,text/plain"
+          onChange={(e) => {
+            setFile(e.target.files?.[0] ?? null);
+            setResult(null);
+            setError(null);
+          }}
+          className="block w-full text-[13px] text-brand-text file:mr-3 file:rounded-md file:border-0 file:bg-brand-pinkLight file:px-3 file:py-2 file:text-[12px] file:font-semibold file:text-brand-pink"
+        />
+        {error && <p className="text-[13px] text-red-600">{error}</p>}
+        <div className="flex flex-wrap gap-2">
+          <AdminOutline disabled={!!busy || !file} onClick={() => void post(false)}>
+            {busy === "preview" ? "Reading…" : "Preview extract"}
+          </AdminOutline>
+          <AdminPrimary disabled={!!busy || !file} onClick={() => void post(true)}>
+            {busy === "apply" ? "Applying…" : "Apply to prompt + paragraphs"}
+          </AdminPrimary>
+        </div>
+        {result && (
+          <div className="rounded-lg border border-brand-border bg-brand-canvas/40 p-4 text-[13px]">
+            <p className="font-semibold text-brand-text">
+              {result.preview ? "Preview" : "Applied"} · {result.extractedChars ?? 0} characters
+              extracted
+            </p>
+            {result.warnings && result.warnings.length > 0 && (
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-brand-mute">
+                {result.warnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
+            )}
+            {result.paragraphUpdates && result.paragraphUpdates.length > 0 && (
+              <div className="mt-3">
+                <p className="font-medium text-brand-text">
+                  Paragraph matches ({result.paragraphUpdates.length})
+                </p>
+                <ul className="mt-1 space-y-1 text-brand-mute">
+                  {result.paragraphUpdates.map((p) => (
+                    <li key={p.id}>
+                      <span className="font-mono text-brand-text">{p.id}</span> — {p.title}
+                      {!p.keeperSafe ? (
+                        <span className="text-red-600"> (blocked: {p.keeperSafeError})</span>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {result.applied && (
+              <p className="mt-3 text-brand-text">
+                Updated paragraphs:{" "}
+                {result.applied.paragraphsUpdated.length
+                  ? result.applied.paragraphsUpdated.join(", ")
+                  : "none"}
+                . Prompt pack guidance saved.
+              </p>
+            )}
+            {result.guidancePreview && (
+              <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap rounded-md bg-white p-3 text-[11.5px] text-brand-mute ring-1 ring-brand-border">
+                {result.guidancePreview}
+              </pre>
+            )}
+          </div>
+        )}
+      </div>
+    </AdminCard>
   );
 }

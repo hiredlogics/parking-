@@ -142,6 +142,23 @@ export async function draftAppeal(
   });
 
   if (retrieval.modules.length === 0) {
+    // AI can still draft from Master Pack rules basis alone.
+    warnings.push(
+      "No KB modules matched; drafting will rely on Master Pack rules basis.",
+    );
+  }
+
+  const { buildRulesPromptBasis } = await import("@/lib/appeals/rulesPromptBasis");
+  const rulesBasis = await buildRulesPromptBasis({
+    confirmed: input.confirmed,
+    answers: input.answers,
+    evidenceTypes: input.evidenceTypes ?? [],
+  });
+
+  if (
+    retrieval.modules.length === 0 &&
+    rulesBasis.approvedParagraphTexts.length === 0
+  ) {
     return {
       ok: false,
       body: null,
@@ -168,6 +185,7 @@ export async function draftAppeal(
     variables,
     availableEvidence: input.evidenceTypes ?? [],
     feedback: input.feedback,
+    rulesBasis,
   };
 
   const provider = getDraftingProvider();

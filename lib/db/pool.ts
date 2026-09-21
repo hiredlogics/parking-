@@ -1,21 +1,22 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import { Pool as PgPool } from "pg";
 import { hardenOutboundConnections } from "@/lib/net/bootstrap";
 
 /**
- * Neon serverless Postgres client.
+ * Postgres client.
  *
- * Reads the connection string from `POSTGRES_URL` (the env var Vercel's
- * Neon integration populates by default) or `DATABASE_URL` as a
- * fallback. When neither is set, `hasDb()` returns false and callers
- * should render an "unconfigured" state — the app must not crash.
+ * - Neon / remote URLs → `@neondatabase/serverless` (HTTP)
+ * - localhost / 127.0.0.1 → `pg` TCP pool (local PostgreSQL)
  *
- * Queries go through a small bounded retry. Neon's HTTP driver turns a
- * transient connect failure into a thrown `NeonDbError`, which
- * otherwise propagates all the way out of an API route as a 500 — a
- * single dropped connect was enough to fail case creation outright.
+ * Callers use `sql.query(text, params)` and accept either a row array
+ * or `{ rows }` — see `lib/db/repos.ts`.
  */
 
-let cachedSql: NeonQueryFunction<false, false> | null = null;
+export type SqlClient = {
+  query: (text: string, params?: unknown[]) => Promise<unknown>;
+};
+
+let cachedSql: SqlClient | null = null;
 
 function readUrl(): string | null {
   const raw = process.env.POSTGRES_URL ?? process.env.DATABASE_URL ?? "";
@@ -26,15 +27,29 @@ export function hasDb(): boolean {
   return readUrl() !== null;
 }
 
+function isLocalPostgres(url: string): boolean {
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return /@(localhost|127\.0\.0\.1)[:/]/i.test(url);
+  }
+}
+
 /** Connect-level failures worth one more attempt. */
 function isTransientDbError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err);
-  if (/fetch failed|Error connecting to database|ETIMEDOUT|ECONNRESET|socket hang up|terminating connection|Connection terminated/i.test(message)) {
+  if (
+    /fetch failed|Error connecting to database|ETIMEDOUT|ECONNRESET|socket hang up|terminating connection|Connection terminated/i.test(
+      message,
+    )
+  ) {
     return true;
   }
-  const code = (err as { sourceError?: { cause?: { code?: string } } })
-    ?.sourceError?.cause?.code
-    ?? (err as { cause?: { code?: string } })?.cause?.code;
+  const code =
+    (err as { sourceError?: { cause?: { code?: string } } })?.sourceError?.cause
+      ?.code ?? (err as { cause?: { code?: string } })?.cause?.code;
   return code === "ETIMEDOUT" || code === "ECONNRESET";
 }
 
@@ -45,21 +60,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/**
- * Wrap the driver so every `sql.query(...)` retries a transient
- * connect failure. Query errors (bad SQL, constraint violations) are
- * rethrown untouched on the first attempt.
- */
-function withRetry(
-  sql: NeonQueryFunction<false, false>,
-): NeonQueryFunction<false, false> {
-  const originalQuery = sql.query.bind(sql);
-
-  const retryingQuery = async (...args: unknown[]) => {
+function withRetry(queryFn: SqlClient["query"]): SqlClient["query"] {
+  return async (text: string, params?: unknown[]) => {
     let lastError: unknown;
     for (let attempt = 1; attempt <= RETRY_ATTEMPTS; attempt++) {
       try {
-        return await (originalQuery as (...a: unknown[]) => Promise<unknown>)(...args);
+        return await queryFn(text, params);
       } catch (err) {
         lastError = err;
         if (!isTransientDbError(err) || attempt === RETRY_ATTEMPTS) throw err;
@@ -68,21 +74,36 @@ function withRetry(
     }
     throw lastError;
   };
-
-  (sql as unknown as { query: unknown }).query = retryingQuery;
-  return sql;
 }
 
-export function getSql(): NeonQueryFunction<false, false> {
+function createLocalPgClient(url: string): SqlClient {
+  const pool = new PgPool({ connectionString: url });
+  const query: SqlClient["query"] = async (text, params) => {
+    const result = await pool.query(text, params as unknown[] | undefined);
+    return { rows: result.rows };
+  };
+  return { query: withRetry(query) };
+}
+
+function createNeonClient(url: string): SqlClient {
+  hardenOutboundConnections();
+  const sql = neon(url) as NeonQueryFunction<false, false>;
+  const query: SqlClient["query"] = async (text, params) => {
+    return sql.query(text, params as unknown[] | undefined);
+  };
+  return { query: withRetry(query) };
+}
+
+export function getSql(): SqlClient {
   if (cachedSql) return cachedSql;
   const url = readUrl();
   if (!url) {
     throw new Error(
-      "No Postgres connection string is set. Add the Neon (or another Postgres) integration on Vercel so POSTGRES_URL is populated, or set DATABASE_URL locally.",
+      "No Postgres connection string is set. Set POSTGRES_URL (local or Neon) or DATABASE_URL.",
     );
   }
-  // Must run before the first connect, not after it has already failed.
-  hardenOutboundConnections();
-  cachedSql = withRetry(neon(url));
+  cachedSql = isLocalPostgres(url)
+    ? createLocalPgClient(url)
+    : createNeonClient(url);
   return cachedSql;
 }

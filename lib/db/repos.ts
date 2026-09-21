@@ -207,6 +207,65 @@ export async function createCustomerAccount(input: {
   };
 }
 
+export async function updateClientPasswordHash(
+  clientId: string,
+  passwordHash: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+  await q(
+    `UPDATE clients
+        SET password_hash = $2, last_activity_at = $3
+      WHERE id = $1`,
+    [clientId, passwordHash, now],
+  );
+}
+
+export async function createPasswordResetToken(input: {
+  id: string;
+  clientId: string;
+  tokenHash: string;
+  expiresAt: string;
+}): Promise<void> {
+  const now = new Date().toISOString();
+  // Invalidate earlier unused tokens for this client.
+  await q(
+    `UPDATE password_reset_tokens
+        SET used_at = $2
+      WHERE client_id = $1 AND used_at IS NULL`,
+    [input.clientId, now],
+  );
+  await q(
+    `INSERT INTO password_reset_tokens (id, client_id, token_hash, expires_at, created_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [input.id, input.clientId, input.tokenHash, input.expiresAt, now],
+  );
+}
+
+export async function findValidPasswordResetToken(
+  tokenHash: string,
+): Promise<{ id: string; clientId: string } | null> {
+  const now = new Date().toISOString();
+  const rows = await q(
+    `SELECT id, client_id
+       FROM password_reset_tokens
+      WHERE token_hash = $1
+        AND used_at IS NULL
+        AND expires_at > $2
+      LIMIT 1`,
+    [tokenHash, now],
+  );
+  const r = rows[0];
+  if (!r) return null;
+  return { id: r.id as string, clientId: r.client_id as string };
+}
+
+export async function markPasswordResetTokenUsed(id: string): Promise<void> {
+  await q(
+    `UPDATE password_reset_tokens SET used_at = $2 WHERE id = $1`,
+    [id, new Date().toISOString()],
+  );
+}
+
 export async function findClientById(id: string): Promise<Client | null> {
   const rows = await q(
     `SELECT id, name, email, phone, address, status, joined_at, last_activity_at

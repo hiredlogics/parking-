@@ -66,11 +66,44 @@ const ISSUE_SEEDS: IssueSeed[] = [
     code: "ANPR",
     label: "ANPR / Double visit",
     sortOrder: 30,
-    triggerTags: ["anpr", "double_visit"],
+    triggerTags: [
+      "anpr_disputed",
+      "multiple_visits_same_day",
+      "anpr",
+      "double_visit",
+    ],
     facts: [
       { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 10 },
-      { factKey: FACT.VISIT_COUNT, reasonCode: "VISIT_COUNT_UNRESOLVED", priority: 20 },
-      { factKey: FACT.CONTINUOUS_PRESENCE, reasonCode: "ANPR_PRESENCE_UNRESOLVED", priority: 30 },
+      {
+        factKey: FACT.ANPR_IMAGES_ON_NOTICE,
+        reasonCode: "ANPR_IMAGES_UNRESOLVED",
+        priority: 15,
+      },
+      {
+        factKey: FACT.CONTINUOUS_PRESENCE,
+        reasonCode: "ANPR_PRESENCE_UNRESOLVED",
+        priority: 20,
+      },
+      {
+        factKey: FACT.VISIT_COUNT,
+        reasonCode: "VISIT_COUNT_UNRESOLVED",
+        priority: 25,
+      },
+      {
+        factKey: FACT.VEHICLE_LEFT_SITE_EVIDENCE,
+        reasonCode: "ANPR_EVIDENCE_UNRESOLVED",
+        priority: 30,
+      },
+      {
+        factKey: FACT.TIMESTAMP_DISCREPANCY,
+        reasonCode: "ANPR_TIMESTAMP_UNRESOLVED",
+        priority: 35,
+      },
+      {
+        factKey: FACT.ANPR_DISPUTE_DETAIL,
+        reasonCode: "ANPR_DETAIL_UNRESOLVED",
+        priority: 40,
+      },
     ],
     moduleIds: ["KB-ANPR-01", "KB-ANPR-02", "KB-ANPR-03"],
   },
@@ -213,6 +246,31 @@ export async function ensureAdminConfigSeeded(): Promise<void> {
       }
     }
 
+    // Force-refresh ANPR relation chain (seedOnly skips updates on existing DBs).
+    const anprSeed = ISSUE_SEEDS.find((s) => s.code === "ANPR");
+    if (anprSeed) {
+      const anpr = await upsertIssue({
+        serviceId: service.id,
+        code: anprSeed.code,
+        label: anprSeed.label,
+        sortOrder: anprSeed.sortOrder,
+        triggerTags: anprSeed.triggerTags,
+        status: "ACTIVE",
+        seedOnly: false,
+      });
+      for (const f of anprSeed.facts) {
+        await upsertIssueFact({
+          issueId: anpr.id,
+          factKey: f.factKey,
+          reasonCode: f.reasonCode,
+          priority: f.priority,
+          evidenceTypes: f.evidenceTypes ?? [],
+          status: "ACTIVE",
+          seedOnly: false,
+        });
+      }
+    }
+
     // Triage / scope facts as a synthetic issue for questioning completeness
     const triage = await upsertIssue({
       serviceId: service.id,
@@ -228,7 +286,9 @@ export async function ensureAdminConfigSeeded(): Promise<void> {
       { factKey: FACT.VEHICLE_HIRE_STATUS, reasonCode: "VEHICLE_STATUS_UNRESOLVED", priority: 2 },
       { factKey: FACT.REGISTERED_KEEPER, reasonCode: "KEEPER_STATUS_UNRESOLVED", priority: 3 },
       { factKey: FACT.DRIVER_IDENTIFIED, reasonCode: "DRIVER_NOTIFICATION_STATUS_UNRESOLVED", priority: 4 },
-      { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 5 },
+      // SCENARIOS intentionally omitted — allegation + issue engine open
+      // only material routes; asking every ground as multi-choice caused
+      // excessive customer options.
     ]) {
       await upsertIssueFact({
         issueId: triage.id,
@@ -243,11 +303,21 @@ export async function ensureAdminConfigSeeded(): Promise<void> {
     await upsertEmailTemplate({
       code: "APPEAL_READY",
       subject: "Your parking appeal is ready",
-      bodyText: `Your appeal has been reviewed and is now ready.
+      bodyText: `Hi {{customerName}},
 
-Sign in to your account to view and download your appeal.
+Your personalised parking appeal is ready.
 
-View My Appeal: {{viewUrl}}`,
+Attached:
+- Final Appeal letter (PDF)
+- Submission instructions (PDF)
+
+Next steps:
+1. Open the Final Appeal PDF and check your details.
+2. Follow the submission instructions to send it to the parking company.
+3. Keep a copy for your records.
+
+Parking Appeals Group`,
+      bodyHtml: `<!-- Managed by lib/email/templates/appealReady.ts — branded HTML is built at send time. -->`,
       status: "ACTIVE",
       seedOnly: true,
     });

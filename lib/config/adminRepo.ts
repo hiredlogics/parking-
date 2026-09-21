@@ -509,6 +509,23 @@ export async function loadServiceGraph(serviceCode: string): Promise<{
     }
   >;
 } | null> {
+  const cacheKey = `svcgraph:v1:${serviceCode}`;
+  try {
+    const { cacheGetJson } = await import("@/lib/cache/store");
+    const cached = await cacheGetJson<{
+      service: ServiceRow;
+      issues: Array<
+        IssueRow & {
+          facts: IssueFactRow[];
+          knowledge: IssueKnowledgeRow[];
+        }
+      >;
+    }>(cacheKey);
+    if (cached?.service) return cached;
+  } catch {
+    // Cache is optional.
+  }
+
   const service = await getServiceByCode(serviceCode);
   if (!service || service.status !== "ACTIVE") return null;
   const issues = await listIssues(service.id, true);
@@ -519,5 +536,26 @@ export async function loadServiceGraph(serviceCode: string): Promise<{
       knowledge: await listIssueKnowledge(issue.id, true),
     })),
   );
-  return { service, issues: enriched };
+  const graph = { service, issues: enriched };
+
+  try {
+    const { cacheSetJson } = await import("@/lib/cache/store");
+    await cacheSetJson(cacheKey, graph, 300);
+  } catch {
+    // ignore
+  }
+  return graph;
+}
+
+/** Drop cached service graphs after admin config edits. */
+export async function invalidateServiceGraphCache(
+  serviceCode?: string,
+): Promise<void> {
+  try {
+    const { cacheDel, cacheDelPrefix } = await import("@/lib/cache/store");
+    if (serviceCode) await cacheDel(`svcgraph:v1:${serviceCode}`);
+    else await cacheDelPrefix("svcgraph:v1:");
+  } catch {
+    // ignore
+  }
 }

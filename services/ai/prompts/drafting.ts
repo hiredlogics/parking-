@@ -67,6 +67,7 @@ Return ONLY the body of the letter as plain prose paragraphs separated by blank 
 - Where you rely on a fact, use the exact values supplied in VERIFIED FACTS. Do not round, reword or approximate dates, times, amounts or registrations.`;
 
 export const DRAFTING_PROMPT_V2_ID = "draft-v2";
+export const DRAFTING_PROMPT_V3_ID = "draft-v3";
 
 /**
  * Production prompt for real AI drafting (AI-7).
@@ -181,6 +182,31 @@ Return ONLY the body of the letter as plain prose paragraphs separated by blank 
 - Aim for 4 to 8 substantial paragraphs. Specific and businesslike; never emotional or apologetic.
 - Where you rely on a fact, use the exact values supplied in VERIFIED FACTS. Do not round, reword or approximate dates, times, amounts or registrations.`;
 
+/**
+ * v3 — AI-first with Master Pack rules basis in the user payload.
+ *
+ * The model must treat MASTER PACK RULES BASIS as the spine of the
+ * letter (matched triggers + approved paragraph wording), then rewrite
+ * into one coherent keeper-safe appeal. Free improvisation outside that
+ * basis is forbidden. If that material is thin, say less — do not invent.
+ */
+export const DRAFTING_SYSTEM_PROMPT_V3 = `${DRAFTING_SYSTEM_PROMPT_V2}
+
+=====================================================
+MASTER PACK RULES BASIS — highest priority for this run
+=====================================================
+The user message will include a section MASTER PACK RULES BASIS.
+
+That section is the defined rule set for THIS case (matched triggers and approved paragraph wording from the Master Developer Pack).
+
+You MUST:
+1. Use that basis as the argumentative spine of the letter.
+2. Paraphrase and weave the approved wording into one natural letter — do not paste blocks in mechanical order, and do not invent extra legal grounds.
+3. Prefer the MASTER PACK RULES BASIS over generic knowledge modules when they conflict.
+4. If the basis is short, write a short accurate letter. Never pad with invented grounds.
+
+You MUST NOT output rule IDs, paragraph IDs, route names or the words "Master Pack".`;
+
 export interface PromptVersion {
   id: string;
   operation: "drafting";
@@ -198,10 +224,15 @@ export const DRAFTING_PROMPTS: Record<string, PromptVersion> = {
     operation: "drafting",
     body: DRAFTING_SYSTEM_PROMPT_V2,
   },
+  [DRAFTING_PROMPT_V3_ID]: {
+    id: DRAFTING_PROMPT_V3_ID,
+    operation: "drafting",
+    body: DRAFTING_SYSTEM_PROMPT_V3,
+  },
 };
 
 export const ACTIVE_DRAFTING_PROMPT =
-  process.env.DRAFTING_PROMPT_VERSION ?? DRAFTING_PROMPT_V2_ID;
+  process.env.DRAFTING_PROMPT_VERSION ?? DRAFTING_PROMPT_V3_ID;
 
 export function getDraftingPrompt(id: string = ACTIVE_DRAFTING_PROMPT): PromptVersion {
   const p = DRAFTING_PROMPTS[id];

@@ -1,11 +1,11 @@
 import { Header } from "@/components/landing/Header";
 import { Hero } from "@/components/landing/Hero";
 import { AppealBuilderSection } from "@/components/landing/AppealBuilderSection";
+import { OrderForRecoverySection } from "@/components/landing/OrderForRecoverySection";
 import { ExpertHelpSection } from "@/components/landing/ExpertHelpSection";
 import { HowItWorksSection } from "@/components/landing/HowItWorksSection";
-import { TestimonialsSection } from "@/components/landing/TestimonialsSection";
 import { BottomCTA } from "@/components/landing/BottomCTA";
-import { TrustRow } from "@/components/landing/TrustRow";
+import { Footer } from "@/components/landing/Footer";
 
 export default function LandingPage() {
   return (
@@ -14,12 +14,12 @@ export default function LandingPage() {
       <main>
         <Hero />
         <AppealBuilderSection />
+        <OrderForRecoverySection />
         <ExpertHelpSection />
         <HowItWorksSection />
-        <TestimonialsSection />
         <BottomCTA />
-        <TrustRow />
       </main>
+      <Footer />
     </div>
   );
 }

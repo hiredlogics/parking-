@@ -31,8 +31,11 @@ const LEGACY_TAGS: LegacyScenarioTag[] = [
   "anpr_disputed",
   "multiple_visits_same_day",
   "authorised_or_permit",
+  "resident_parking_rights",
+  "breakdown_immobilised",
   "signage_issue",
   "landowner_authority_challenge",
+  "other_grounds",
   "no_ntk_received",
   "postal_ntk_timing_issue",
 ];
@@ -171,14 +174,29 @@ export function toLegacyAnswers(adaptive: AnswerMap): AllAnswers {
   /* ---------------- ANPR ---------------- */
   if (has("anpr_disputed") || has("multiple_visits_same_day")) {
     const visits = num(adaptive[FACT.VISIT_COUNT]);
+    const continuous = str(adaptive[FACT.CONTINUOUS_PRESENCE]);
+    const images = str(adaptive[FACT.ANPR_IMAGES_ON_NOTICE]);
+    const leftSite = str(adaptive[FACT.VEHICLE_LEFT_SITE_EVIDENCE]);
+    const timestamp = str(adaptive[FACT.TIMESTAMP_DISCREPANCY]);
     branch.anpr = {
-      evidence_type: "ANPR",
-      customer_disputes_duration: has("anpr_disputed") ? "YES" : undefined,
-      multiple_visits_same_day: has("multiple_visits_same_day")
-        ? "YES"
-        : undefined,
+      evidence_type: images === "OTHER" ? "OTHER" : "ANPR",
+      customer_disputes_duration:
+        has("anpr_disputed") || timestamp === "YES" || continuous === "NO"
+          ? "YES"
+          : undefined,
+      multiple_visits_same_day:
+        has("multiple_visits_same_day") ||
+        (visits !== null && visits > 1) ||
+        continuous === "NO"
+          ? "YES"
+          : undefined,
       incorrect_pairing_suspected:
-        visits !== null && visits > 1 ? "YES" : undefined,
+        (visits !== null && visits > 1) || continuous === "NO"
+          ? "YES"
+          : undefined,
+      evidence_vehicle_elsewhere: leftSite === "YES" ? "YES" : undefined,
+      timestamp_discrepancy_detected:
+        timestamp === "YES" ? "YES" : timestamp === "NO" ? "NO" : undefined,
     };
   }
 

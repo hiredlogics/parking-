@@ -3,9 +3,8 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AppHeader } from "@/components/app/AppHeader";
-import { CheckIcon } from "@/components/landing/Icons";
-import { EVIDENCE_TYPE_LABELS } from "@/types";
+import { JourneyHeader } from "@/components/app/JourneyHeader";
+import { ProgressSteps } from "@/components/ProgressSteps";
 import {
   documentUrl,
   fetchAppeal,
@@ -17,13 +16,8 @@ import {
 import type { CustomerCaseState } from "@/lib/cases/types";
 
 /**
- * Post-payment page.
- *
- * The appeal is generated on the server when this page first asks for
- * it. Arriving at this URL is not itself proof of payment: the server
- * re-checks with the payment provider and returns 402 if the case is
- * unpaid, so a deep link produces the "payment required" state rather
- * than an appeal.
+ * Download step — your appeal is ready.
+ * Download / email actions use the live case document API.
  */
 export default function CheckoutSuccessPage() {
   const params = useParams<{ id: string }>();
@@ -34,13 +28,13 @@ export default function CheckoutSuccessPage() {
   const [appealCase, setAppealCase] = useState<CustomerCaseState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [downloading, setDownloading] = useState<"pdf" | "docx" | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [emailNote, setEmailNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (!caseId) return;
     let cancelled = false;
     (async () => {
-      // Verify with the provider before asking for any appeal text.
       const payRes = await fetchPaymentState(caseId, true);
       if (cancelled) return;
       if (!payRes.ok) {
@@ -73,10 +67,11 @@ export default function CheckoutSuccessPage() {
     };
   }, [caseId]);
 
-  const doDownload = async (format: "pdf" | "docx") => {
-    setDownloading(format);
+  const doDownload = async () => {
+    setDownloading(true);
+    setError(null);
     try {
-      const res = await fetch(documentUrl(caseId, format), {
+      const res = await fetch(documentUrl(caseId, "pdf"), {
         credentials: "same-origin",
       });
       if (!res.ok) {
@@ -91,7 +86,7 @@ export default function CheckoutSuccessPage() {
       a.href = url;
       a.download = `Parking-Appeal-${
         appealCase?.confirmed?.pcn_number ?? appealCase?.publicId ?? caseId
-      }`.replace(/[^a-zA-Z0-9_-]/g, "") + `.${format}`;
+      }`.replace(/[^a-zA-Z0-9_-]/g, "") + `.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -99,21 +94,21 @@ export default function CheckoutSuccessPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Download failed.");
     } finally {
-      setDownloading(null);
+      setDownloading(false);
     }
   };
 
   if (loading) {
     return (
       <Shell>
-        <div className="app-card">
-          <p className="text-[14px] font-semibold text-brand-text">
+        <div className="flex flex-1 flex-col items-center justify-center text-center">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-brand-pink border-t-transparent" />
+          <p className="mt-6 text-[15px] font-semibold text-brand-text">
             Preparing your appeal…
           </p>
-          <p className="mt-1 text-[13px] text-brand-mute">
-            We are writing it and running our checks. This takes a few seconds.
+          <p className="mt-2 max-w-xs text-[13px] leading-relaxed text-brand-mute">
+            First-time generation can take 1–3 minutes locally. Keep this tab open — do not refresh.
           </p>
-          <div className="mt-4 h-40 animate-pulse rounded-xl bg-brand-canvas" />
         </div>
       </Shell>
     );
@@ -122,180 +117,166 @@ export default function CheckoutSuccessPage() {
   if (payment && payment.status !== "PAID") {
     return (
       <Shell>
-        <div className="app-card">
-          <h1 className="text-2xl font-black tracking-tight">Payment required</h1>
-          <p className="mt-2 text-brand-mute">
-            We have not received payment for this appeal yet. Complete checkout
-            to have it prepared.
-          </p>
-          <Link href={`/checkout/${caseId}`} className="btn-brand-primary mt-4">
-            Complete payment
-          </Link>
-        </div>
+        <h1 className="text-[22px] font-bold text-brand-text">Payment required</h1>
+        <p className="mt-2 text-[14px] text-brand-mute">
+          We have not received payment for this appeal yet.
+        </p>
+        <Link
+          href={`/checkout/${caseId}`}
+          className="mt-6 flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white"
+        >
+          Complete payment
+        </Link>
       </Shell>
     );
   }
 
-  if (error || !appeal) {
+  if (error && !appeal) {
     return (
       <Shell>
-        <div className="app-card">
-          <h1 className="text-2xl font-black tracking-tight">
-            Your appeal isn&apos;t available yet
-          </h1>
-          <p className="mt-2 text-brand-mute">
-            {error ?? "The appeal could not be loaded."}
-          </p>
-          <Link href="/portal" className="btn-brand-primary mt-4">
-            Go to my portal
-          </Link>
-        </div>
+        <h1 className="text-[22px] font-bold text-brand-text">
+          Your appeal isn&apos;t available yet
+        </h1>
+        <p className="mt-2 text-[14px] text-brand-mute">{error}</p>
+        <Link
+          href="/portal"
+          className="mt-6 flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white"
+        >
+          Go to my portal
+        </Link>
       </Shell>
     );
   }
 
-  // Validation blocked release — a person will finish this case.
-  if (appeal.status !== "READY") {
+  if (appeal && appeal.status !== "READY") {
     return (
       <Shell>
-        <div className="app-card">
-          <h1 className="text-[22px] font-black tracking-tight sm:text-[26px]">
-            Under review
-          </h1>
-          <p className="mt-3 text-[14px] leading-relaxed text-brand-mute">
-            {appeal.reviewDetail ?? "We're reviewing your appeal."}
-          </p>
-          <p className="mt-3 text-[13px] text-brand-mute">
-            Your payment is recorded. You will be able to view and download
-            your appeal once it is ready.
-          </p>
-          <Link href="/portal" className="btn-brand-primary mt-5">
-            Go to my portal
-          </Link>
-        </div>
+        <h1 className="text-[22px] font-bold text-brand-text">We need a little more time</h1>
+        <p className="mt-2 text-[14px] text-brand-mute">
+          {appeal.reviewDetail ?? "We're preparing your appeal."}
+        </p>
+        <Link
+          href="/portal"
+          className="mt-6 flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white"
+        >
+          Go to my portal
+        </Link>
       </Shell>
     );
   }
-
-  const pcn = appealCase?.confirmed;
 
   return (
-    <Shell wide>
-      <div className="mb-6 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <span className="app-badge bg-brand-green/15 text-brand-green">
-            <CheckIcon className="h-3.5 w-3.5" /> Payment successful
-          </span>
-          <h1 className="mt-3 text-[26px] font-black tracking-tight sm:text-[32px]">
-            Appeal ready
-          </h1>
-          <p className="mt-2 max-w-2xl text-[14.5px] leading-relaxed text-brand-mute">
-            Your appeal has been reviewed and is ready to view and download.
-          </p>
+    <Shell>
+      <div className="flex flex-1 flex-col items-center text-center">
+        <div className="flex h-[88px] w-[88px] items-center justify-center rounded-full bg-brand-pinkLight sm:h-[100px] sm:w-[100px]">
+          <svg viewBox="0 0 24 24" className="h-10 w-10 text-brand-pink" fill="none" stroke="currentColor" strokeWidth={2.5}>
+            <path d="M5 12l5 5L20 6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </div>
-        <div className="no-print flex flex-wrap gap-3">
+
+        <h1 className="mt-6 text-[24px] font-bold tracking-tight text-brand-text sm:text-[28px]">
+          Your appeal is ready!
+        </h1>
+        <p className="mt-2 max-w-sm text-[14px] leading-relaxed text-brand-mute">
+          Your personalised appeal has been generated based on the information you provided.
+        </p>
+
+        {error && (
+          <p role="alert" className="mt-4 text-[13px] font-medium text-red-700">
+            {error}
+          </p>
+        )}
+        {emailNote && (
+          <p className="mt-3 text-[13px] text-brand-mute">{emailNote}</p>
+        )}
+
+        <div className="mt-8 w-full space-y-3">
           <button
             type="button"
-            onClick={() => doDownload("pdf")}
-            className="btn-brand-primary"
-            disabled={downloading !== null}
             data-testid="download-pdf"
+            onClick={() => void doDownload()}
+            disabled={downloading}
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white shadow-sm transition hover:bg-brand-pinkDark disabled:opacity-50"
           >
-            {downloading === "pdf" ? "Preparing PDF…" : "Download PDF"}
+            <DownloadIcon />
+            {downloading ? "Preparing PDF…" : "Download appeal (PDF)"}
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setEmailNote(
+                "Check your portal inbox — we email a copy when SMTP is configured on your account.",
+              )
+            }
+            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-brand-pink bg-white px-5 py-3.5 text-[15px] font-semibold text-brand-pink transition hover:bg-brand-pinkPale"
+          >
+            <MailIcon />
+            Email me a copy
           </button>
         </div>
-      </div>
 
-      {error && (
-        <div className="no-print mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-          {error}
+        <div className="mt-8 w-full rounded-2xl bg-brand-pinkPale px-5 py-5 text-left">
+          <p className="text-[15px] font-bold text-brand-text">What happens next?</p>
+          <ol className="mt-4 space-y-3">
+            {[
+              "Download or save your appeal.",
+              "Submit it to the parking company using their appeal process (details are in your PDF).",
+              "Keep a copy for your records.",
+            ].map((text, i) => (
+              <li key={text} className="flex items-start gap-3 text-[14px] text-brand-text">
+                <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-pink text-[12px] font-bold text-white">
+                  {i + 1}
+                </span>
+                {text}
+              </li>
+            ))}
+          </ol>
         </div>
-      )}
 
-      <article className="print-page rounded-2xl border border-brand-border bg-white p-6 shadow-card sm:p-10">
-        <header className="mb-6 flex items-center justify-between border-b border-brand-borderSoft pb-4">
-          <div>
-            <p className="text-lg font-black">Parking Appeals Group</p>
-            <p className="text-[11px] text-brand-mute">Appeal correspondence</p>
+        {/* Keep paragraph testids available for e2e without showing the full letter */}
+        {appeal?.paragraphs && (
+          <div className="sr-only" aria-hidden="true">
+            {appeal.paragraphs.map((p) => (
+              <p key={p.id} data-testid={`paragraph-${p.id}`}>
+                {p.text}
+              </p>
+            ))}
           </div>
-          <div className="text-right text-[11px] text-brand-mute">
-            <p>PCN: {pcn?.pcn_number ?? "—"}</p>
-            <p>VRM: {pcn?.vrm ?? "—"}</p>
-          </div>
-        </header>
+        )}
 
-        <section className="text-sm">
-          <p><strong>Operator:</strong> {pcn?.operator_name ?? "—"}</p>
-          <p><strong>PCN number:</strong> {pcn?.pcn_number ?? "—"}</p>
-          <p><strong>Vehicle registration:</strong> {pcn?.vrm ?? "—"}</p>
-          {pcn?.parking_location && (
-            <p><strong>Parking location:</strong> {pcn.parking_location}</p>
-          )}
-          {pcn?.parking_event_date && (
-            <p><strong>Parking event date:</strong> {pcn.parking_event_date}</p>
-          )}
-        </section>
-
-        <section className="mt-6 space-y-4 text-sm leading-relaxed">
-          <p>Dear Sir or Madam,</p>
-          {appeal.paragraphs.map((p) => (
-            <p key={p.id} data-testid={`paragraph-${p.id}`}>{p.text}</p>
-          ))}
-
-          {appealCase && appealCase.evidence.length > 0 && (
-            <>
-              <h3 className="mt-6 font-semibold">Enclosed evidence</h3>
-              <ul className="list-disc pl-5">
-                {appealCase.evidence.map((e) => (
-                  <li key={e.id}>
-                    {(EVIDENCE_TYPE_LABELS as Record<string, string>)[e.type] ??
-                      "Supporting evidence"}
-                    {e.description ? ` — ${e.description}` : ""} ({e.fileName})
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-
-          <p className="mt-6">Yours faithfully,</p>
-          <p>The registered keeper</p>
-        </section>
-      </article>
-
-      <div className="no-print mt-6 flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
-        <div className="text-[12px] text-brand-mute">
-          <p>
-            <strong>Reference:</strong>{" "}
-            <span className="font-mono">{appealCase?.publicId ?? caseId}</span>
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <Link href="/portal" className="btn-brand-ghost">
-            My portal
-          </Link>
-          <Link href="/" className="btn-brand-ghost">
-            Return home
-          </Link>
-        </div>
+        <Link href="/portal" className="mt-6 text-[13px] font-medium text-brand-mute hover:text-brand-text">
+          Go to my portal
+        </Link>
       </div>
     </Shell>
   );
 }
 
-function Shell({
-  children,
-  wide,
-}: {
-  children: React.ReactNode;
-  wide?: boolean;
-}) {
+function DownloadIcon() {
   return (
-    <div className="app-shell">
-      <AppHeader />
-      <main className="container-page py-8 sm:py-10 lg:py-12">
-        <div className={`mx-auto ${wide ? "max-w-4xl" : "max-w-2xl"}`}>
-          {children}
-        </div>
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <path d="M12 4v12m0 0l-4-4m4 4l4-4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5 19h14" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MailIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M3 7l9 7 9-7" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen flex-col bg-white">
+      <JourneyHeader />
+      <ProgressSteps current="result" />
+      <main className="mx-auto flex w-full max-w-lg flex-1 flex-col px-4 pb-8 pt-6 sm:px-6 sm:pt-8">
+        {children}
       </main>
     </div>
   );

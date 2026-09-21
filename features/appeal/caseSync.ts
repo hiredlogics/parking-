@@ -181,6 +181,34 @@ export function submitAnswer(
   });
 }
 
+/** Fix a mistaken "not the registered keeper" answer and continue. */
+export function correctRegisteredKeeper(caseId: string) {
+  return call<QuestionStep>(`/api/cases/${caseId}/answers/correct-keeper`, {
+    method: "POST",
+  });
+}
+
+/** Save registered-keeper name + address (windscreen form) or other profile fields. */
+export function saveKeeperProfile(
+  caseId: string,
+  profile: {
+    keeper_name?: string;
+    keeper_address_line1?: string;
+    keeper_address_line2?: string;
+    keeper_town?: string;
+    keeper_postcode?: string;
+    situation_other?: string;
+  },
+) {
+  return call<{ adaptiveAnswers: Record<string, unknown> }>(
+    `/api/cases/${caseId}/keeper-profile`,
+    {
+      method: "POST",
+      body: JSON.stringify(profile),
+    },
+  );
+}
+
 export interface ReadinessView {
   sufficient: boolean;
   status: "INCOMPLETE" | "SUFFICIENT";

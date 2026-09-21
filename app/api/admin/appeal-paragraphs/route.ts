@@ -1,28 +1,17 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth/session";
-import { hasDb } from "@/lib/db/pool";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import { updateParagraphOverride } from "@/lib/db/repos";
-import { getEffectiveParagraphs } from "@/lib/appealLogic";
+import { getEffectiveParagraphs, invalidateAppealLogicCache } from "@/lib/appealLogic";
 import { validateKeeperSafe } from "@/lib/keeperSafe";
 import { PARAGRAPH_LIBRARY } from "@/paragraphs/library";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function requireAdmin() {
-  const session = await getSession();
-  if (!session.userId || session.kind === "CUSTOMER") {
-    return null;
-  }
-  return session;
-}
-
 export async function GET() {
-  if (!hasDb()) {
-    return NextResponse.json({ ok: false, error: "DB_NOT_CONFIGURED" }, { status: 503 });
-  }
-  if (!(await requireAdmin())) {
-    return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
+  const auth = await requireAdmin();
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   }
   const paragraphs = await getEffectiveParagraphs();
   return NextResponse.json({ ok: true, paragraphs });
@@ -37,12 +26,9 @@ export async function GET() {
  * never partially saved.
  */
 export async function PATCH(request: Request) {
-  if (!hasDb()) {
-    return NextResponse.json({ ok: false, error: "DB_NOT_CONFIGURED" }, { status: 503 });
-  }
-  const session = await requireAdmin();
-  if (!session) {
-    return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
+  const auth = await requireAdmin();
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   }
   let body: { id?: string; title?: string; text?: string; active?: boolean };
   try {
@@ -80,13 +66,14 @@ export async function PATCH(request: Request) {
     );
   }
 
-  await getEffectiveParagraphs(); // ensures the row exists (seeds on first use)
+  await getEffectiveParagraphs();
   await updateParagraphOverride({
     id: body.id,
     title: body.title,
     text: body.text,
     active: body.active,
-    updatedBy: session.email ?? session.userId ?? "unknown",
+    updatedBy: auth.session.email ?? auth.session.userId ?? "unknown",
   });
+  invalidateAppealLogicCache();
   return NextResponse.json({ ok: true });
 }

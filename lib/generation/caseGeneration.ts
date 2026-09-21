@@ -13,6 +13,7 @@ import { insertAuditEvent } from "@/lib/kb/audit";
 import { routeLabels } from "@/lib/cases/labels";
 import type { RouteFamily } from "@/types/caseState";
 import { saveAwaitingApprovalAppeal, findCurrentAppeal } from "@/lib/appeals/repo";
+import { releaseAppealToCustomer } from "@/lib/appeals/autoRelease";
 import { evaluateIssues } from "@/lib/engine/issueEngine";
 import { factsForCase } from "@/lib/analysis/engine";
 import { ensureAdminConfigSeeded } from "@/lib/config/seedAdminConfig";
@@ -21,9 +22,8 @@ import { getServiceByCode } from "@/lib/config/adminRepo";
 /**
  * Case-scoped generation.
  *
- * Phase 2 change: a successful generation does NOT release the PDF to
- * the customer. It creates a first-class APPEAL in
- * AWAITING_ADMIN_APPROVAL. Admin APPROVE is the release gate.
+ * Validation PASS → automatic release (PDF + Instructions + email).
+ * Validation FAIL / unsafe → MANUAL_REVIEW exception only (admin).
  */
 
 export type PaymentRequired = {
@@ -54,8 +54,7 @@ export interface CustomerAppealView {
 /**
  * Project appeal state for the customer.
  *
- * Before admin approval: UNDER_REVIEW with a plain message.
- * After approval: READY with paragraphs.
+ * READY only after auto-release or admin exception approval.
  */
 export function toCustomerView(
   draft: AppealDraftRow,
@@ -88,13 +87,12 @@ export function toCustomerView(
     }
   }
 
-  // Awaiting admin — never leak engine details.
   return {
     status: "UNDER_REVIEW",
     paragraphs: [],
     groundLabels: [],
     needsReview: true,
-    reviewDetail: "We're reviewing your appeal.",
+    reviewDetail: "We're preparing your appeal.",
     generatedAt: draft.createdAt,
   };
 }
@@ -108,15 +106,38 @@ export async function generateAppealForCase(
   if (!entitled.ok) return entitled;
   const c = entitled.appealCase;
 
-  // If already approved, return the released draft.
   if (!opts.force) {
     const appeal = await findCurrentAppeal(caseId);
     if (appeal?.status === "APPROVED") {
       const existing = await findReleasedDraft(caseId);
       if (existing) return { ok: true, draft: existing, reused: true };
     }
-    // If awaiting approval and not forcing regen, reuse current draft.
-    if (appeal?.status === "AWAITING_ADMIN_APPROVAL" || appeal?.status === "HELD") {
+    /*
+     * Stuck / pre-auto-release drafts: release them now instead of
+     * waiting for an admin Approve click (client: automated product).
+     * HELD remains a true human-exception hold.
+     */
+    if (appeal?.status === "AWAITING_ADMIN_APPROVAL") {
+      const hasBody =
+        Boolean(appeal.body?.trim()) && (appeal.paragraphs?.length ?? 0) > 0;
+      if (hasBody) {
+        const released = await releaseAppealToCustomer({
+          appealId: appeal.id,
+          approvedBy: "SYSTEM",
+          eventType: "APPEAL_READY",
+        });
+        if (released.ok) {
+          const existing =
+            (await findReleasedDraft(caseId)) ?? (await findCurrentDraft(caseId));
+          if (existing) return { ok: true, draft: existing, reused: true };
+        }
+      } else {
+        // Exception draft with no releasable letter — do not burn another AI call.
+        const existing = await findCurrentDraft(caseId);
+        if (existing) return { ok: true, draft: existing, reused: true };
+      }
+    }
+    if (appeal?.status === "HELD") {
       const existing = await findCurrentDraft(caseId);
       if (existing) return { ok: true, draft: existing, reused: true };
     }
@@ -146,6 +167,15 @@ export async function generateAppealForCase(
 
   const draft = await saveDraft(caseId, result);
 
+  if (result.status === "READY" && result.analysis.primaryRoute) {
+    await repo.updateCaseRoutes(caseId, {
+      primaryRoute: result.analysis.primaryRoute,
+      secondaryRoutes: result.analysis.secondaryRoutes ?? [],
+      missingFacts: [],
+      pofaRoute: result.analysis.pofa?.route ?? null,
+    });
+  }
+
   const facts = factsForCase({
     confirmed: c.confirmed,
     answers: c.adaptiveAnswers,
@@ -158,9 +188,7 @@ export async function generateAppealForCase(
   });
   const service = await getServiceByCode(c.serviceType);
 
-  // Even a validator-blocked draft goes to admin review — not auto-fail
-  // in front of the customer. Admin sees validation detail.
-  await saveAwaitingApprovalAppeal({
+  const appealRow = await saveAwaitingApprovalAppeal({
     caseId,
     serviceId: service?.id ?? null,
     body: draft.body,
@@ -181,50 +209,67 @@ export async function generateAppealForCase(
     sourceDraftId: draft.id,
   });
 
-  await repo.setCaseStatus(caseId, "AWAITING_ADMIN_APPROVAL");
-  await repo.setAwaitingAdminApproval(caseId, true);
+  const canAutoRelease =
+    result.status === "READY" &&
+    Boolean(draft.body?.trim()) &&
+    (draft.paragraphs?.length ?? 0) > 0;
 
-  await repo.addCaseEvent({
-    caseId,
-    eventType: "APPEAL_AWAITING_ADMIN_APPROVAL",
-    actorId: session.userId ?? null,
-    payload: {
-      draftStatus: result.status,
-      draftVersion: draft.version,
-      moduleCount: result.moduleIds.length,
-      issueCodes: issueEval.activeIssues.map((i) => i.code),
-    },
-  });
-
-  try {
-    await insertAuditEvent({
-      eventType: "APPEAL_AWAITING_ADMIN_APPROVAL",
+  if (canAutoRelease) {
+    const released = await releaseAppealToCustomer({
+      appealId: appealRow.id,
+      approvedBy: "SYSTEM",
+      eventType: "APPEAL_READY",
+    });
+    if (!released.ok) {
+      console.error("[caseGeneration] auto-release failed:", released);
+      await repo.setCaseStatus(caseId, "MANUAL_REVIEW");
+      await repo.setAwaitingAdminApproval(caseId, true);
+      await openManualReview({
+        caseId,
+        reason: released.code,
+        detail: released.message,
+      });
+    }
+  } else {
+    await repo.setCaseStatus(caseId, "MANUAL_REVIEW");
+    await repo.setAwaitingAdminApproval(caseId, true);
+    await repo.addCaseEvent({
       caseId,
+      eventType: "APPEAL_MANUAL_REVIEW",
       actorId: session.userId ?? null,
       payload: {
         draftStatus: result.status,
+        draftVersion: draft.version,
         reason: result.reason,
-        moduleIds: result.moduleIds,
-        draftId: draft.id,
       },
     });
-    if (result.status !== "READY") {
+    try {
+      await insertAuditEvent({
+        eventType: "APPEAL_MANUAL_REVIEW",
+        caseId,
+        actorId: session.userId ?? null,
+        payload: {
+          draftStatus: result.status,
+          reason: result.reason,
+          moduleIds: result.moduleIds,
+          draftId: draft.id,
+        },
+      });
       await openManualReview({
         caseId,
         reason: result.reason ?? "VALIDATION_FAILED",
         detail: result.detail,
       });
+    } catch (err) {
+      console.error("[caseGeneration] manual review bookkeeping failed:", err);
     }
-  } catch (err) {
-    console.error("[caseGeneration] audit/review bookkeeping failed:", err);
   }
 
   return { ok: true, draft, reused: false };
 }
 
 /**
- * Customer appeal view — generation may run, but PDF is not released
- * until admin approval.
+ * Customer appeal view — generates (and auto-releases on PASS) when paid.
  */
 export async function getAppealForCase(
   caseId: string,
@@ -238,8 +283,6 @@ export async function getAppealForCase(
   const approvedParagraphs =
     appeal?.approvedParagraphs ?? appeal?.paragraphs ?? undefined;
 
-  // Only after approval: ensure PDF exists (from approved text path).
-  // Customer getAppeal must NOT trigger PDF creation for awaiting cases.
   if (approved) {
     try {
       const { ensureFinalAppealDocument } = await import(

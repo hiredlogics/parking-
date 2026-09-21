@@ -11,19 +11,19 @@ export class StorageConfigurationError extends Error {}
  * Storage factory.
  *
  *   STORAGE_PROVIDER=memory  (default) local development
- *   STORAGE_PROVIDER=r2                production, Cloudflare R2 or any
- *                                      S3-compatible endpoint
+ *   STORAGE_PROVIDER=r2|s3|spaces   durable S3-compatible storage
+ *                                   (Cloudflare R2 or DigitalOcean Spaces)
  *
- * Selecting `r2` without complete credentials throws rather than
- * silently falling back — quietly writing customer evidence to a store
- * that vanishes on restart would be worse than failing loudly.
+ * Selecting a durable provider without complete credentials throws rather
+ * than silently falling back — quietly writing customer evidence to a
+ * store that vanishes on restart would be worse than failing loudly.
  */
 export function getStorageProvider(): StorageProvider {
   if (cached) return cached;
 
   const configured = (process.env.STORAGE_PROVIDER ?? "memory").toLowerCase();
 
-  if (configured === "r2" || configured === "s3") {
+  if (configured === "r2" || configured === "s3" || configured === "spaces") {
     const config = readR2Config();
     if (!config) {
       throw new StorageConfigurationError(
@@ -36,7 +36,7 @@ export function getStorageProvider(): StorageProvider {
 
   if (configured !== "memory") {
     throw new StorageConfigurationError(
-      `Unknown STORAGE_PROVIDER "${configured}". Use "memory" or "r2".`,
+      `Unknown STORAGE_PROVIDER "${configured}". Use "memory", "r2", "s3", or "spaces".`,
     );
   }
 

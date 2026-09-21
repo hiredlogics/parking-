@@ -1,20 +1,11 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/auth/session";
-import { hasDb } from "@/lib/db/pool";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import { setRuleActive } from "@/lib/db/repos";
-import { getEffectiveRules } from "@/lib/appealLogic";
+import { getEffectiveRules, invalidateAppealLogicCache } from "@/lib/appealLogic";
 import { RULES } from "@/rules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-async function requireAdmin() {
-  const session = await getSession();
-  if (!session.userId || session.kind === "CUSTOMER") {
-    return null;
-  }
-  return session;
-}
 
 /**
  * Rule *conditions* (the pack's Part 6 predicates) are code, not data —
@@ -23,11 +14,9 @@ async function requireAdmin() {
  * for staff to see which grounds are currently live.
  */
 export async function GET() {
-  if (!hasDb()) {
-    return NextResponse.json({ ok: false, error: "DB_NOT_CONFIGURED" }, { status: 503 });
-  }
-  if (!(await requireAdmin())) {
-    return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
+  const auth = await requireAdmin();
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   }
   const rules = await getEffectiveRules();
   return NextResponse.json({
@@ -43,12 +32,9 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
-  if (!hasDb()) {
-    return NextResponse.json({ ok: false, error: "DB_NOT_CONFIGURED" }, { status: 503 });
-  }
-  const session = await requireAdmin();
-  if (!session) {
-    return NextResponse.json({ ok: false, error: "UNAUTHENTICATED" }, { status: 401 });
+  const auth = await requireAdmin();
+  if (!auth.ok) {
+    return NextResponse.json({ ok: false, error: auth.error }, { status: auth.status });
   }
   let body: { id?: string; active?: boolean };
   try {
@@ -62,7 +48,12 @@ export async function PATCH(request: Request) {
   if (!RULES.some((r) => r.id === body.id)) {
     return NextResponse.json({ ok: false, error: "Unknown rule id" }, { status: 404 });
   }
-  await getEffectiveRules(); // ensures the row exists (seeds on first use)
-  await setRuleActive(body.id, body.active, session.email ?? session.userId ?? "unknown");
+  await getEffectiveRules();
+  await setRuleActive(
+    body.id,
+    body.active,
+    auth.session.email ?? auth.session.userId ?? "unknown",
+  );
+  invalidateAppealLogicCache();
   return NextResponse.json({ ok: true });
 }

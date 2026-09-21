@@ -1,13 +1,18 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import type { Client } from "@/lib/crm/types";
 import { refuseInProduction } from "@/lib/config/production";
 import {
   createCustomerAccount,
+  createPasswordResetToken,
   findClientAuthByEmail,
+  findValidPasswordResetToken,
+  markPasswordResetTokenUsed,
+  updateClientPasswordHash,
 } from "@/lib/db/repos";
 import { ensureSchema } from "@/lib/db/schema";
 import { ensureSeeded } from "@/lib/db/seed-server";
+import { sendEmail } from "@/lib/services/email";
 
 /**
  * Two-tier authentication:
@@ -55,6 +60,8 @@ export interface AdminAuthResult {
 export interface CustomerAuthResult {
   ok: boolean;
   error?: string;
+  /** Machine-readable reason for the UI (e.g. EMAIL_EXISTS). */
+  code?: string;
   user?: CustomerSessionUser;
   client?: Client;
 }
@@ -159,6 +166,7 @@ export async function registerCustomer(
   if (existing?.passwordHash) {
     return {
       ok: false,
+      code: "EMAIL_EXISTS",
       error: "An account with that email already exists. Please sign in instead.",
     };
   }
@@ -217,4 +225,124 @@ export async function loginCustomer(input: LoginInput): Promise<CustomerAuthResu
       kind: "CUSTOMER",
     },
   };
+}
+
+function appBaseUrl(): string {
+  const raw =
+    process.env.APP_URL?.trim() ||
+    process.env.NEXT_PUBLIC_APP_URL?.trim() ||
+    "http://localhost:3000";
+  return raw.replace(/\/$/, "");
+}
+
+function hashResetToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/**
+ * Start a password reset. Always returns ok so callers cannot probe
+ * which emails have accounts. Sends email when SMTP is configured;
+ * otherwise logs the link in development.
+ */
+export async function requestPasswordReset(emailRaw: string): Promise<{
+  ok: true;
+  message: string;
+}> {
+  const email = emailRaw.trim().toLowerCase();
+  const generic =
+    "If an account exists for that email, we have sent reset instructions.";
+
+  if (!EMAIL_RE.test(email)) {
+    return { ok: true, message: generic };
+  }
+
+  await ensureSchema();
+  await ensureSeeded();
+  const found = await findClientAuthByEmail(email);
+  if (!found?.passwordHash) {
+    return { ok: true, message: generic };
+  }
+
+  const token = randomBytes(32).toString("hex");
+  const tokenHash = hashResetToken(token);
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+  const id = `prt_${Date.now().toString(36)}${randomBytes(3).toString("hex")}`;
+
+  await createPasswordResetToken({
+    id,
+    clientId: found.client.id,
+    tokenHash,
+    expiresAt,
+  });
+
+  const resetUrl = `${appBaseUrl()}/reset-password?token=${encodeURIComponent(token)}`;
+  const subject = "Reset your Parking Appeals Group password";
+  const text = [
+    `Hi ${found.client.name || "there"},`,
+    "",
+    "We received a request to reset your password.",
+    "Open this link within the next hour to choose a new password:",
+    resetUrl,
+    "",
+    "If you did not ask for this, you can ignore this email.",
+    "",
+    "Parking Appeals Group",
+  ].join("\n");
+  const html = `
+    <p>Hi ${escapeHtml(found.client.name || "there")},</p>
+    <p>We received a request to reset your password.</p>
+    <p><a href="${escapeHtml(resetUrl)}">Choose a new password</a> (link expires in 1 hour).</p>
+    <p>If you did not ask for this, you can ignore this email.</p>
+    <p>Parking Appeals Group</p>
+  `;
+
+  const sent = await sendEmail({ to: email, subject, text, html });
+  if (!sent.ok) {
+    const { isProductionRuntime } = await import("@/lib/config/production");
+    if (isProductionRuntime()) {
+      console.info(
+        `[auth] Password reset email not sent (${sent.reason}) for a registered account.`,
+      );
+    } else {
+      console.info(
+        `[auth] Password reset email not sent (${sent.reason}). Dev reset link for ${email}: ${resetUrl}`,
+      );
+    }
+  }
+
+  return { ok: true, message: generic };
+}
+
+export async function resetPasswordWithToken(input: {
+  token: string;
+  password: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const token = input.token.trim();
+  const password = input.password;
+  if (!token) return { ok: false, error: "Reset link is missing or invalid." };
+  if (!password || password.length < 8) {
+    return { ok: false, error: "Password must be at least 8 characters." };
+  }
+
+  await ensureSchema();
+  const row = await findValidPasswordResetToken(hashResetToken(token));
+  if (!row) {
+    return {
+      ok: false,
+      error: "This reset link is invalid or has expired. Request a new one.",
+    };
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  await updateClientPasswordHash(row.clientId, passwordHash);
+  await markPasswordResetTokenUsed(row.id);
+  return { ok: true };
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }

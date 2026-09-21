@@ -1,25 +1,16 @@
 /**
- * Admin approval of a generated appeal.
- *
- * APPROVE is the release gate. PDF is rendered from frozen approved
- * text only — never from a fresh AI call.
+ * Admin exception path — HOLD / REJECT / APPROVE for cases that could
+ * not auto-release. Normal successful appeals never need this.
  */
 import type { SessionData } from "@/lib/auth/session";
 import * as caseRepo from "@/lib/cases/repo";
 import {
   findAppealById,
-  markAppealApproved,
   markAppealHeld,
   markAppealRejected,
   type CaseAppeal,
 } from "@/lib/appeals/repo";
-import { queueAppealReadyEmail, processOutboxItem } from "@/lib/email/outbox";
-import { insertAuditEvent } from "@/lib/kb/audit";
-import { getStorageProvider } from "@/services/storage";
-import { renderAppealPdf } from "@/services/documents/pdf";
-import { documentBasename } from "@/lib/cases/documents";
-import type { EvidenceItem } from "@/types";
-import { getSql } from "@/lib/db/pool";
+import { releaseAppealToCustomer } from "@/lib/appeals/autoRelease";
 
 export type ApprovalFailure = {
   ok: false;
@@ -74,116 +65,63 @@ export async function approveAppeal(
     };
   }
 
-  const overrideParagraphs = override ? paragraphsFromBody(override) : null;
+  const { isAppealBodyTooThin, buildRulesBasedLetter } = await import(
+    "@/lib/appeals/rulesLetter"
+  );
 
-  const appeal = await markAppealApproved({
+  let finalBody = override ?? before.body ?? "";
+  let finalParagraphs = override ? paragraphsFromBody(override) : null;
+
+  if (isAppealBodyTooThin(finalBody)) {
+    const appealCase = await caseRepo.findCase(before.caseId);
+    if (!appealCase?.confirmed) {
+      return {
+        ok: false,
+        status: 404,
+        code: "CASE_NOT_FOUND",
+        message: "Case not found.",
+      };
+    }
+    const docs = await caseRepo.listCaseDocuments(before.caseId, "EVIDENCE");
+    const rulesLetter = await buildRulesBasedLetter({
+      confirmed: appealCase.confirmed,
+      answers: appealCase.adaptiveAnswers,
+      evidenceTypes: docs.map((d) => d.evidenceType ?? "other"),
+    });
+    if (isAppealBodyTooThin(rulesLetter.body)) {
+      return {
+        ok: false,
+        status: 400,
+        code: "BODY_TOO_SHORT",
+        message:
+          "Appeal text is too short to approve and the rules engine could not assemble a letter. Paste a full formal appeal.",
+      };
+    }
+    finalBody = rulesLetter.body;
+    finalParagraphs =
+      rulesLetter.paragraphs.length > 0
+        ? rulesLetter.paragraphs
+        : paragraphsFromBody(rulesLetter.body);
+  }
+
+  const released = await releaseAppealToCustomer({
     appealId,
     approvedBy: session.userId!,
-    body: override,
-    paragraphs: overrideParagraphs,
+    bodyText: finalBody,
+    paragraphs: finalParagraphs,
+    eventType: "APPEAL_APPROVED",
   });
 
-  const appealCase = await caseRepo.findCase(appeal.caseId);
-  if (!appealCase?.confirmed) {
-    return { ok: false, status: 404, code: "CASE_NOT_FOUND", message: "Case not found." };
+  if (!released.ok) {
+    return {
+      ok: false,
+      status: released.status,
+      code: released.code,
+      message: released.message,
+    };
   }
 
-  const docs = await caseRepo.listCaseDocuments(appeal.caseId, "EVIDENCE");
-  const evidence: EvidenceItem[] = docs.map((d) => ({
-    id: d.id,
-    type: (d.evidenceType ?? "other") as EvidenceItem["type"],
-    fileName: d.fileName,
-    mimeType: d.mimeType,
-    sizeBytes: d.sizeBytes,
-    storageKey: d.storageKey,
-    uploadedAt: d.uploadedAt,
-    description: d.description ?? undefined,
-  }));
-
-  const paragraphs = appeal.approvedParagraphs ?? appeal.paragraphs;
-  const pdfBytes = await renderAppealPdf({
-    pcn: appealCase.confirmed,
-    evidence,
-    appeal: { paragraphs },
-  });
-
-  const fileName = `${documentBasename(
-    appealCase.pcnNumber,
-    appealCase.vrm,
-    appealCase.publicId,
-  )}.pdf`;
-
-  const storage = getStorageProvider();
-  const meta = await storage.put({
-    fileName,
-    mimeType: "application/pdf",
-    bytes: pdfBytes,
-    namespace: appeal.caseId,
-  });
-
-  await caseRepo.addCaseDocument({
-    caseId: appeal.caseId,
-    documentType: "GENERATED",
-    evidenceType: null,
-    storageKey: meta.storageKey,
-    storageProvider: storage.id,
-    fileName: meta.fileName,
-    mimeType: "application/pdf",
-    sizeBytes: meta.sizeBytes,
-    sha256: meta.sha256,
-    sourceDraftId: appeal.sourceDraftId,
-    description: "Approved appeal PDF",
-    uploadedBy: session.userId!,
-  });
-
-  await caseRepo.setCaseStatus(appeal.caseId, "UNLOCKED");
-  await caseRepo.setAwaitingAdminApproval(appeal.caseId, false);
-  await caseRepo.markSubmitted(appeal.caseId);
-
-  await caseRepo.addCaseEvent({
-    caseId: appeal.caseId,
-    eventType: "APPEAL_APPROVED",
-    actorId: session.userId!,
-    payload: {
-      appealId: appeal.id,
-      approvedVersion: appeal.approvedVersion,
-      sha256: meta.sha256,
-      storageKey: meta.storageKey,
-    },
-  });
-
-  await insertAuditEvent({
-    eventType: "APPEAL_APPROVED",
-    caseId: appeal.caseId,
-    actorId: session.userId!,
-    payload: {
-      appealId: appeal.id,
-      knowledgeSnapshot: appeal.knowledgeSnapshot,
-      moduleIds: appeal.moduleIds,
-      sha256: meta.sha256,
-    },
-  });
-
-  let emailId: string | null = null;
-  try {
-    const sql = getSql();
-    const res = (await sql.query(`SELECT email FROM clients WHERE id = $1`, [
-      appealCase.customerId,
-    ])) as { rows?: Array<{ email: string }> };
-    const recipient = res.rows?.[0]?.email ?? null;
-    if (recipient) {
-      emailId = await queueAppealReadyEmail({
-        caseId: appeal.caseId,
-        appealId: appeal.id,
-        recipient,
-      });
-      void processOutboxItem(emailId);
-    }
-  } catch (err) {
-    console.error("[approveAppeal] email queue failed (approval kept):", err);
-  }
-
-  return { ok: true, appeal, emailId };
+  return { ok: true, appeal: released.appeal, emailId: released.emailId };
 }
 
 export async function holdAppeal(

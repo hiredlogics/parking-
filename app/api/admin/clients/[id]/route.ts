@@ -1,5 +1,4 @@
-import { getSession } from "@/lib/auth/session";
-import { hasDb } from "@/lib/db/pool";
+import { requireAdmin } from "@/lib/auth/require-admin";
 import { fail, ok } from "@/lib/api/envelope";
 import { findClientById } from "@/lib/db/repos";
 import { findCasesForCustomer, listDocumentsForCustomer } from "@/lib/cases/repo";
@@ -16,14 +15,8 @@ export async function GET(
   _request: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
-  if (!hasDb()) return fail("DB_NOT_CONFIGURED", "Database is not configured.", 503);
-  const session = await getSession();
-  if (!session.userId) {
-    return fail("UNAUTHENTICATED", "Please sign in to continue.", 401);
-  }
-  if (session.kind === "CUSTOMER") {
-    return fail("FORBIDDEN", "Admin access required.", 403);
-  }
+  const auth = await requireAdmin();
+  if (!auth.ok) return fail(auth.code, auth.error, auth.status);
 
   const { id } = await ctx.params;
   const client = await findClientById(id);

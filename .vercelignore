@@ -16,7 +16,7 @@ coverage/
 # Local test artefacts.
 playwright-report/
 test-results/
-tests/fixtures/
+# Keep tests/fixtures — mock extraction provider imports them at build time.
 
 # Editor / OS junk.
 .DS_Store

@@ -168,13 +168,18 @@ export interface R2Config {
 export type StorageEnv = Record<string, string | undefined>;
 
 export function readR2Config(env: StorageEnv = process.env): R2Config | null {
-  const bucket = env.R2_BUCKET?.trim();
-  const accessKeyId = env.R2_ACCESS_KEY_ID?.trim();
-  const secretAccessKey = env.R2_SECRET_ACCESS_KEY?.trim();
+  // DigitalOcean Spaces aliases (SPACES_*) map onto the same S3 client.
+  const bucket =
+    env.R2_BUCKET?.trim() || env.SPACES_BUCKET?.trim() || "";
+  const accessKeyId =
+    env.R2_ACCESS_KEY_ID?.trim() || env.SPACES_KEY?.trim() || "";
+  const secretAccessKey =
+    env.R2_SECRET_ACCESS_KEY?.trim() || env.SPACES_SECRET?.trim() || "";
   const accountId = env.R2_ACCOUNT_ID?.trim();
   const endpoint =
     env.R2_ENDPOINT?.trim() ||
     env.S3_ENDPOINT?.trim() ||
+    env.SPACES_ENDPOINT?.trim() ||
     (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : "");
 
   if (!bucket || !accessKeyId || !secretAccessKey || !endpoint) return null;
@@ -192,7 +197,10 @@ export function readR2Config(env: StorageEnv = process.env): R2Config | null {
      * the Spaces endpoint, so derive it rather than making an explicit
      * R2_REGION the difference between working and not.
      */
-    region: env.R2_REGION?.trim() || regionForEndpoint(endpoint),
+    region:
+      env.R2_REGION?.trim() ||
+      env.SPACES_REGION?.trim() ||
+      regionForEndpoint(endpoint),
   };
 }
 
@@ -217,15 +225,22 @@ export function regionForEndpoint(endpoint: string): string {
 /** Which config values are missing, for a precise error message. */
 export function missingR2Vars(env: StorageEnv = process.env): string[] {
   const missing: string[] = [];
-  if (!env.R2_BUCKET?.trim()) missing.push("R2_BUCKET");
-  if (!env.R2_ACCESS_KEY_ID?.trim()) missing.push("R2_ACCESS_KEY_ID");
-  if (!env.R2_SECRET_ACCESS_KEY?.trim()) missing.push("R2_SECRET_ACCESS_KEY");
+  if (!env.R2_BUCKET?.trim() && !env.SPACES_BUCKET?.trim()) {
+    missing.push("R2_BUCKET (or SPACES_BUCKET)");
+  }
+  if (!env.R2_ACCESS_KEY_ID?.trim() && !env.SPACES_KEY?.trim()) {
+    missing.push("R2_ACCESS_KEY_ID (or SPACES_KEY)");
+  }
+  if (!env.R2_SECRET_ACCESS_KEY?.trim() && !env.SPACES_SECRET?.trim()) {
+    missing.push("R2_SECRET_ACCESS_KEY (or SPACES_SECRET)");
+  }
   if (
     !env.R2_ENDPOINT?.trim() &&
     !env.S3_ENDPOINT?.trim() &&
+    !env.SPACES_ENDPOINT?.trim() &&
     !env.R2_ACCOUNT_ID?.trim()
   ) {
-    missing.push("R2_ACCOUNT_ID (or R2_ENDPOINT)");
+    missing.push("R2_ACCOUNT_ID (or S3_ENDPOINT / SPACES_ENDPOINT)");
   }
   return missing;
 }

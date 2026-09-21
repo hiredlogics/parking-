@@ -43,23 +43,9 @@ export function detectOutOfScope(f: KnownFacts): ScopeDecision | null {
 
   const hire = factStr(f, FACT.VEHICLE_HIRE_STATUS);
   if (hire === "HIRE" || hire === "LEASE" || hire === "COMPANY") {
-    return {
-      action: "MANUAL_REVIEW",
-      reason: "HIRE_OR_COMPANY_VEHICLE",
-      detail:
-        "We're reviewing your appeal. Hire, lease and company vehicles need a person to look at them.",
-    };
-  }
-
-  // The registered keeper route is the only automated route in V1.
-  const keeper = factStr(f, FACT.REGISTERED_KEEPER);
-  if (keeper === "NO") {
-    return {
-      action: "MANUAL_REVIEW",
-      reason: "NOT_REGISTERED_KEEPER",
-      detail:
-        "We're reviewing your appeal. This automated flow is for the registered keeper.",
-    };
+    // Soft: do not block letter generation. Rules-based drafting still
+    // runs; staff can review hire/company cases after release.
+    return null;
   }
 
   return null;

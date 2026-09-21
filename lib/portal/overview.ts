@@ -139,8 +139,10 @@ const CUSTOMER_EVENT_LABELS: Record<string, string> = {
   EXTRACTION_CONFIRMED: "Parking notice details confirmed",
   DOCUMENT_UPLOADED: "Evidence uploaded",
   DOCUMENT_REMOVED: "Evidence removed",
-  APPEAL_AWAITING_ADMIN_APPROVAL: "Appeal submitted for review",
-  APPEAL_APPROVED: "Appeal approved — ready to view",
+  APPEAL_READY: "Your appeal is ready",
+  APPEAL_APPROVED: "Your appeal is ready",
+  APPEAL_AWAITING_ADMIN_APPROVAL: "We're preparing your appeal",
+  APPEAL_MANUAL_REVIEW: "We're reviewing your case",
   OUTCOME_RECORDED: "Outcome recorded",
 };
 
@@ -148,9 +150,16 @@ const CUSTOMER_EVENT_LABELS: Record<string, string> = {
 function documentCategory(
   documentType: string,
   evidenceType: string | null,
+  description?: string | null,
 ): string {
   if (documentType === "PCN") return "Parking notice";
-  if (documentType === "GENERATED") return "Final Appeal PDF";
+  if (documentType === "INSTRUCTIONS") return "Appeal Instructions";
+  if (documentType === "GENERATED") {
+    if (description?.toLowerCase().includes("instruction")) {
+      return "Appeal Instructions";
+    }
+    return "Final Appeal PDF";
+  }
   return (
     (EVIDENCE_TYPE_LABELS as Record<string, string>)[evidenceType ?? ""] ??
     "Supporting evidence"
@@ -244,10 +253,12 @@ export async function buildPortalOverview(
       createdAt: c.createdAt,
     }));
 
-  // GENERATED PDFs only appear after admin approval (case UNLOCKED).
+  // Final appeal + instructions only after the case is unlocked / submitted.
   const documentRows: PortalDocumentRow[] = documents
     .filter((d) => {
-      if (d.documentType !== "GENERATED") return true;
+      if (d.documentType !== "GENERATED" && d.documentType !== "INSTRUCTIONS") {
+        return true;
+      }
       const c = cases.find((x) => x.id === d.caseIdRef);
       return (
         c?.lifecycleStatus === "GENERATED" ||
@@ -260,12 +271,8 @@ export async function buildPortalOverview(
     caseId: d.caseIdRef,
     casePublicId: d.casePublicId,
     name: d.fileName,
-    category: documentCategory(d.documentType, d.evidenceType),
+    category: documentCategory(d.documentType, d.evidenceType, d.description),
     uploadedAt: d.uploadedAt,
-    // Evidence has an ownership-checked download route; the PCN and
-    // generated files are reached from the case itself.
-    // One ownership-checked route serves every document type. The
-    // storage key never reaches the browser.
     downloadUrl: `/api/cases/${d.caseIdRef}/documents/${d.id}?disposition=attachment`,
     viewUrl: `/api/cases/${d.caseIdRef}/documents/${d.id}?disposition=inline`,
     isFinalAppeal: d.documentType === "GENERATED",

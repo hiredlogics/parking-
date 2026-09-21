@@ -22,6 +22,7 @@ import {
   upsertValidationRule,
   upsertEmailTemplate,
   getServiceByCode,
+  invalidateServiceGraphCache,
 } from "@/lib/config/adminRepo";
 
 export const runtime = "nodejs";
@@ -104,6 +105,11 @@ export async function POST(request: Request) {
           triggerTags,
           status,
         });
+        await invalidateServiceGraphCache(
+          "code" in service && typeof service.code === "string"
+            ? service.code
+            : (serviceCode ?? undefined),
+        );
         return ok({ issue: row });
       }
       case "UPSERT_FACT": {
@@ -121,6 +127,7 @@ export async function POST(request: Request) {
           evidenceTypes,
           status,
         });
+        await invalidateServiceGraphCache();
         return ok({ ok: true });
       }
       case "LINK_KNOWLEDGE": {
@@ -128,6 +135,7 @@ export async function POST(request: Request) {
         const moduleId = required(str(body, "moduleId"));
         const status = required(enumOf(body, "status", STATUS_VALUES, "ACTIVE"));
         await linkIssueKnowledge(issueId, moduleId, status);
+        await invalidateServiceGraphCache();
         return ok({ ok: true });
       }
       case "UPSERT_PROMPT": {

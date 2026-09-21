@@ -48,6 +48,8 @@ export const FACT = {
   VISIT_COUNT: "visit_count",
   VEHICLE_LEFT_SITE_EVIDENCE: "vehicle_left_site_evidence",
   TIMESTAMP_DISCREPANCY: "timestamp_discrepancy",
+  ANPR_IMAGES_ON_NOTICE: "anpr_images_on_notice",
+  ANPR_DISPUTE_DETAIL: "anpr_dispute_detail",
 
   // --- Consideration / grace ---
   INITIAL_PERIOD_REASON: "initial_period_reason",
@@ -121,9 +123,20 @@ export const SCENARIO_TAGS = [
   "barrier_or_access_failure",
   "signage_issue",
   "landowner_authority_challenge",
+  "other_grounds",
   "no_ntk_received",
   "postal_ntk_timing_issue",
 ] as const;
+
+/** Customer profile fields collected on the keeper-details screen (not engine facts). */
+export const PROFILE = {
+  KEEPER_NAME: "keeper_name",
+  KEEPER_ADDRESS_LINE1: "keeper_address_line1",
+  KEEPER_ADDRESS_LINE2: "keeper_address_line2",
+  KEEPER_TOWN: "keeper_town",
+  KEEPER_POSTCODE: "keeper_postcode",
+  SITUATION_OTHER: "situation_other",
+} as const;
 
 export type ScenarioTag = (typeof SCENARIO_TAGS)[number];
 

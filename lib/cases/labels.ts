@@ -67,7 +67,7 @@ const STATUS_LABELS: Record<AppealCaseStatus, string> = {
   AWAITING_PAYMENT: "Ready — payment needed",
   PAID: "Being prepared",
   UNLOCKED: "Appeal ready",
-  AWAITING_ADMIN_APPROVAL: "Under review",
+  AWAITING_ADMIN_APPROVAL: "Being prepared",
   MANUAL_REVIEW: "Under review",
   OUT_OF_SCOPE: "Under review",
   FAILED: "Under review",
@@ -100,9 +100,15 @@ export function caseNextStep(
   paymentStatus: CasePaymentStatus,
 ): { label: string; href: (caseId: string) => string } | null {
   if (paymentStatus === "PAID") {
-    if (status === "AWAITING_ADMIN_APPROVAL" || status === "MANUAL_REVIEW") {
+    if (status === "MANUAL_REVIEW" || status === "OUT_OF_SCOPE") {
       return {
         label: "We're reviewing your appeal",
+        href: (id) => `/portal/cases/${id}`,
+      };
+    }
+    if (status === "AWAITING_ADMIN_APPROVAL" || status === "PAID" || status === "GENERATING") {
+      return {
+        label: "Open your appeal",
         href: (id) => `/portal/cases/${id}`,
       };
     }
@@ -123,6 +129,10 @@ export function caseNextStep(
     case "READY_PREVIEW":
       return { label: "Continue to checkout", href: (id) => `/checkout/${id}` };
     case "AWAITING_ADMIN_APPROVAL":
+      return {
+        label: "Open your appeal",
+        href: (id) => `/portal/cases/${id}`,
+      };
     case "MANUAL_REVIEW":
     case "OUT_OF_SCOPE":
       return {

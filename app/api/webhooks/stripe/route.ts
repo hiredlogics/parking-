@@ -58,6 +58,23 @@ export async function POST(request: Request) {
           status: result.status,
         },
       });
+
+      if (result.status === "PAID") {
+        const caseId = result.caseId;
+        void import("@/lib/generation/caseGeneration")
+          .then(async ({ generateAppealForCase }) => {
+            const { findCase } = await import("@/lib/cases/repo");
+            const c = await findCase(caseId);
+            if (!c?.customerId) return;
+            await generateAppealForCase(caseId, {
+              userId: c.customerId,
+              kind: "CUSTOMER",
+            });
+          })
+          .catch((err) =>
+            console.error("[webhooks/stripe] background generation failed:", err),
+          );
+      }
     }
 
     // Always 200 for a verified event, even when not relevant, so the

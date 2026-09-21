@@ -6,8 +6,8 @@ import type { AnswerValue, Question } from "@/lib/questions/types";
 /**
  * Generic renderer for one adaptive question.
  *
- * The component knows nothing about routes, rules or legal reasoning —
- * it renders whatever the engine sends, per the question JSON contract.
+ * Styled to match the client "Your situation" mockups: radio-style
+ * option cards + full-width Continue.
  */
 export function AdaptiveQuestion({
   question,
@@ -16,20 +16,23 @@ export function AdaptiveQuestion({
 }: {
   question: Question;
   busy: boolean;
-  onSubmit: (value: AnswerValue) => void;
+  onSubmit: (value: AnswerValue, meta?: { situation_other?: string }) => void;
 }) {
   const [text, setText] = useState("");
   const [choice, setChoice] = useState<string | null>(null);
   const [multi, setMulti] = useState<string[]>([]);
   const [numValue, setNumValue] = useState<string>("");
+  const [otherText, setOtherText] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  // Reset local state whenever a new question arrives.
+  const isSituation = question.questionId === "Q-WHAT-HAPPENED";
+
   useEffect(() => {
     setText("");
     setChoice(null);
     setMulti([]);
     setNumValue("");
+    setOtherText("");
     setError(null);
   }, [question.questionId]);
 
@@ -42,7 +45,12 @@ export function AdaptiveQuestion({
         value = choice;
         break;
       case "multi_choice":
-        value = multi;
+        // Situation mockup is single-select; store as a one-item array.
+        if (isSituation) {
+          value = choice ? [choice] : [];
+        } else {
+          value = multi;
+        }
         break;
       case "boolean":
         value = choice === "true" ? true : choice === "false" ? false : null;
@@ -64,6 +72,11 @@ export function AdaptiveQuestion({
         value = text;
     }
 
+    if (isSituation && choice === "other_grounds" && !otherText.trim()) {
+      setError("Please briefly describe what happened.");
+      return;
+    }
+
     const empty =
       value === null ||
       (typeof value === "string" && value.trim() === "") ||
@@ -73,32 +86,40 @@ export function AdaptiveQuestion({
       setError("Please answer this question to continue.");
       return;
     }
-    onSubmit(value);
+    onSubmit(
+      value,
+      isSituation && choice === "other_grounds"
+        ? { situation_other: otherText.trim() }
+        : undefined,
+    );
   };
 
-  const toggleMulti = (v: string) => {
+  const pickMulti = (v: string) => {
     setMulti((prev) =>
       prev.includes(v) ? prev.filter((x) => x !== v) : [...prev, v],
     );
   };
 
   return (
-    <div className="app-card" data-testid="adaptive-question">
-      <h1
-        className="text-[20px] font-black leading-snug tracking-tight sm:text-[24px]"
-        data-testid="question-label"
-      >
-        {question.label}
-      </h1>
-      {question.helpText && (
-        <p className="mt-2 text-[13.5px] leading-relaxed text-brand-mute">
-          {question.helpText}
-        </p>
-      )}
+    <div data-testid="adaptive-question">
+      <div className="text-center sm:text-left">
+        <h1
+          className="text-[22px] font-bold leading-tight tracking-tight text-brand-text sm:text-[26px]"
+          data-testid="question-label"
+        >
+          {question.label}
+        </h1>
+        {question.helpText && (
+          <p className="mt-2 text-[14px] leading-relaxed text-brand-mute">
+            {question.helpText}
+          </p>
+        )}
+      </div>
 
-      <div className="mt-5 space-y-2.5">
-        {/* Choice-style inputs */}
-        {(question.type === "single_choice" || question.type === "boolean") &&
+      <div className="mt-6 space-y-2.5">
+        {(question.type === "single_choice" ||
+          question.type === "boolean" ||
+          (question.type === "multi_choice" && isSituation)) &&
           (question.type === "boolean"
             ? [
                 { value: "true", label: "Yes" },
@@ -113,147 +134,108 @@ export function AdaptiveQuestion({
                 type="button"
                 onClick={() => setChoice(opt.value)}
                 aria-pressed={active}
-                className={`flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left text-[14px] transition ${
+                className={[
+                  "flex w-full items-center gap-3 rounded-xl border bg-white px-4 py-3.5 text-left text-[14px] transition",
                   active
-                    ? "border-brand-pink bg-brand-pinkPale text-brand-text"
-                    : "border-brand-border bg-white text-brand-text hover:border-brand-pink/50"
-                }`}
+                    ? "border-brand-pink bg-brand-pinkPale"
+                    : "border-brand-border hover:border-brand-pink/50",
+                ].join(" ")}
               >
                 <span
-                  aria-hidden="true"
-                  className={`mt-0.5 inline-flex h-4.5 w-4.5 shrink-0 items-center justify-center rounded-full border-2 ${
-                    active ? "border-brand-pink" : "border-brand-border"
-                  }`}
-                  style={{ height: 18, width: 18 }}
+                  className={[
+                    "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2",
+                    active ? "border-brand-pink" : "border-[#D1D5DB]",
+                  ].join(" ")}
                 >
-                  {active && (
-                    <span className="h-2 w-2 rounded-full bg-brand-pink" />
-                  )}
+                  {active && <span className="h-2.5 w-2.5 rounded-full bg-brand-pink" />}
                 </span>
-                <span>
-                  <span className="font-medium">{opt.label}</span>
-                  {"hint" in opt && opt.hint && (
-                    <span className="mt-0.5 block text-[12.5px] text-brand-mute">
-                      {opt.hint}
-                    </span>
-                  )}
-                </span>
+                <span className="font-medium text-brand-text">{opt.label}</span>
               </button>
             );
           })}
 
-        {/* Multi-select */}
-        {question.type === "multi_choice" &&
+        {question.type === "multi_choice" && !isSituation &&
           (question.options ?? []).map((opt) => {
             const active = multi.includes(opt.value);
             return (
               <button
                 key={opt.value}
                 type="button"
-                onClick={() => toggleMulti(opt.value)}
+                onClick={() => pickMulti(opt.value)}
                 aria-pressed={active}
-                className={`flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left text-[14px] transition ${
+                className={[
+                  "flex w-full items-center gap-3 rounded-xl border bg-white px-4 py-3.5 text-left text-[14px] transition",
                   active
-                    ? "border-brand-pink bg-brand-pinkPale text-brand-text"
-                    : "border-brand-border bg-white text-brand-text hover:border-brand-pink/50"
-                }`}
+                    ? "border-brand-pink bg-brand-pinkPale"
+                    : "border-brand-border hover:border-brand-pink/50",
+                ].join(" ")}
               >
                 <span
-                  aria-hidden="true"
-                  className={`mt-0.5 inline-flex shrink-0 items-center justify-center rounded border-2 ${
-                    active
-                      ? "border-brand-pink bg-brand-pink text-white"
-                      : "border-brand-border bg-white"
-                  }`}
-                  style={{ height: 18, width: 18 }}
+                  className={[
+                    "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border-2",
+                    active ? "border-brand-pink bg-brand-pink text-white" : "border-[#D1D5DB]",
+                  ].join(" ")}
                 >
                   {active && (
-                    <svg
-                      viewBox="0 0 24 24"
-                      className="h-3 w-3"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={3}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M5 12l4.5 4.5L20 6" />
+                    <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={3}>
+                      <path d="M5 12l4.5 4.5L20 6" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   )}
                 </span>
-                <span className="font-medium">{opt.label}</span>
+                <span className="font-medium text-brand-text">{opt.label}</span>
               </button>
             );
           })}
 
-        {/* Text inputs */}
-        {(question.type === "short_text" ||
-          question.type === "date" ||
-          question.type === "time") && (
-          <input
-            className="app-input"
-            type={
-              question.type === "date"
-                ? "date"
-                : question.type === "time"
-                  ? "time"
-                  : "text"
-            }
-            value={text}
-            placeholder={question.placeholder}
-            onChange={(e) => setText(e.target.value)}
+        {isSituation && choice === "other_grounds" && (
+          <textarea
+            className="mt-1 w-full rounded-xl border border-brand-border bg-white px-3.5 py-2.5 text-[14px] text-brand-text placeholder:text-brand-mute/60 focus:border-brand-pink focus:outline-none focus:ring-2 focus:ring-brand-pink/30"
+            rows={3}
+            placeholder="Please briefly describe what happened"
+            value={otherText}
+            onChange={(e) => setOtherText(e.target.value)}
           />
         )}
 
-        {question.type === "long_text" && (
-          <textarea
-            className="app-input min-h-28"
-            rows={4}
+        {(question.type === "short_text" ||
+          question.type === "long_text" ||
+          question.type === "date" ||
+          question.type === "time") && (
+          <input
+            className="w-full rounded-xl border border-brand-border bg-white px-3.5 py-2.5 text-[14px] focus:border-brand-pink focus:outline-none focus:ring-2 focus:ring-brand-pink/30"
+            type={
+              question.type === "date" ? "date" : question.type === "time" ? "time" : "text"
+            }
             value={text}
-            placeholder={question.placeholder}
             onChange={(e) => setText(e.target.value)}
           />
         )}
 
         {question.type === "number" && (
           <input
-            className="app-input"
+            className="w-full rounded-xl border border-brand-border bg-white px-3.5 py-2.5 text-[14px] focus:border-brand-pink focus:outline-none focus:ring-2 focus:ring-brand-pink/30"
             type="number"
-            inputMode="numeric"
-            min={question.min}
-            max={question.max}
             value={numValue}
             onChange={(e) => setNumValue(e.target.value)}
+            min={question.min}
+            max={question.max}
           />
         )}
       </div>
 
       {error && (
-        <div
-          role="alert"
-          className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800"
-        >
+        <p role="alert" className="mt-3 text-[13px] font-medium text-red-700">
           {error}
-        </div>
+        </p>
       )}
 
-      <div className="mt-6 flex items-center justify-end gap-3">
-        {!question.required && (
-          <button
-            type="button"
-            onClick={() => onSubmit(question.type === "multi_choice" ? [] : null)}
-            disabled={busy}
-            className="btn-brand-ghost"
-          >
-            None of these
-          </button>
-        )}
+      <div className="mt-8">
         <button
           type="button"
-          onClick={submit}
-          disabled={busy}
-          className="btn-brand-primary"
           data-testid="question-continue"
+          disabled={busy}
+          onClick={submit}
+          className="flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white shadow-sm transition hover:bg-brand-pinkDark focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-pink focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? "Saving…" : "Continue"}
         </button>

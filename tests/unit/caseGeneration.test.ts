@@ -129,10 +129,20 @@ function blockedResult(): GenerationResult {
 vi.mock("@/lib/cases/repo", () => ({
   findCase: async (id: string) => (id === current.id ? current : null),
   listCaseDocuments: async () => [],
+  findGeneratedDocumentForDraft: async () => null,
+  addCaseDocument: async () => ({ id: "doc_mock" }),
   addCaseEvent: async () => {},
   setCaseStatus: (id: string, s: string) => setCaseStatus(id, s),
   setAwaitingAdminApproval: async () => {},
   markSubmitted: (id: string) => markSubmitted(id),
+  updateCaseRoutes: async () => {},
+}));
+
+vi.mock("@/lib/cases/finalDocument", () => ({
+  ensureFinalAppealDocument: async () => ({
+    ok: true,
+    final: { created: false, document: { id: "doc_existing" } },
+  }),
 }));
 
 vi.mock("@/lib/generation/engine", () => ({
@@ -145,18 +155,47 @@ vi.mock("@/lib/generation/manualReview", () => ({
   openManualReview: async () => "rev_1",
 }));
 
-let currentAppeal: { id: string; status: string; caseId: string } | null = null;
+let currentAppeal: {
+  id: string;
+  status: string;
+  caseId: string;
+  paragraphs?: Array<{ id: string; text: string }>;
+  approvedParagraphs?: Array<{ id: string; text: string }> | null;
+} | null = null;
 
 vi.mock("@/lib/appeals/repo", () => ({
   findCurrentAppeal: async (caseId: string) =>
     currentAppeal && currentAppeal.caseId === caseId ? currentAppeal : null,
-  saveAwaitingApprovalAppeal: async (input: { caseId: string }) => {
+  findAppealById: async (id: string) =>
+    currentAppeal && currentAppeal.id === id ? currentAppeal : null,
+  saveAwaitingApprovalAppeal: async (input: {
+    caseId: string;
+    paragraphs?: Array<{ id: string; text: string }>;
+  }) => {
     currentAppeal = {
       id: "cap_1",
       status: "AWAITING_ADMIN_APPROVAL",
       caseId: input.caseId,
+      paragraphs: input.paragraphs ?? [],
+      approvedParagraphs: null,
     };
     return currentAppeal;
+  },
+}));
+
+vi.mock("@/lib/appeals/autoRelease", () => ({
+  releaseAppealToCustomer: async () => {
+    if (currentAppeal) {
+      currentAppeal.status = "APPROVED";
+      currentAppeal.approvedParagraphs = currentAppeal.paragraphs ?? [];
+    }
+    return {
+      ok: true,
+      appeal: currentAppeal,
+      emailId: "eml_1",
+      appealDocId: "doc_a",
+      instructionsDocId: "doc_i",
+    };
   },
 }));
 
@@ -352,21 +391,21 @@ describe("Generate once", () => {
     if (!res.ok) expect(res.code).toBe("CONFIRMATION_REQUIRED");
   });
 
-  it("moves the case to AWAITING_ADMIN_APPROVAL (not customer release)", async () => {
+  it("auto-releases on validation PASS (no awaiting-admin gate)", async () => {
     await generateAppealForCase("case_1", OWNER);
-    expect(setCaseStatus).toHaveBeenCalledWith("case_1", "AWAITING_ADMIN_APPROVAL");
+    expect(setCaseStatus).not.toHaveBeenCalledWith("case_1", "AWAITING_ADMIN_APPROVAL");
+    expect(currentAppeal?.status).toBe("APPROVED");
   });
 
-  it("does not unlock or mark submitted until admin approves", async () => {
+  it("does not leave a PASS draft stuck awaiting admin", async () => {
     await generateAppealForCase("case_1", OWNER);
-    expect(markSubmitted).not.toHaveBeenCalled();
-    expect(setCaseStatus).not.toHaveBeenCalledWith("case_1", "UNLOCKED");
+    expect(currentAppeal?.status).toBe("APPROVED");
   });
 
-  it("still queues admin review when validation blocks the draft", async () => {
+  it("queues manual review when validation blocks the draft", async () => {
     generateSpy.mockResolvedValueOnce(blockedResult());
     await generateAppealForCase("case_1", OWNER);
-    expect(setCaseStatus).toHaveBeenCalledWith("case_1", "AWAITING_ADMIN_APPROVAL");
+    expect(setCaseStatus).toHaveBeenCalledWith("case_1", "MANUAL_REVIEW");
     expect(markSubmitted).not.toHaveBeenCalled();
   });
 
@@ -399,16 +438,16 @@ describe("Customer-safe projection", () => {
     }
   });
 
-  it("shows Under review with no paragraphs before approval", async () => {
+  it("auto-releases READY with paragraphs on validation PASS", async () => {
     const res = await getAppealForCase("case_1", OWNER);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(res.appeal.status).toBe("UNDER_REVIEW");
-    expect(res.appeal.paragraphs).toEqual([]);
-    expect(res.appeal.reviewDetail).toBe("We're reviewing your appeal.");
+    expect(res.appeal.status).toBe("READY");
+    expect(res.appeal.paragraphs.length).toBeGreaterThan(0);
+    expect(res.appeal.needsReview).toBe(false);
   });
 
-  it("returns no paragraphs and no labels until approved", () => {
+  it("returns no paragraphs when not yet approved in projection helper", () => {
     const view = toCustomerView({
       ...drafts[0],
       id: "d",
@@ -426,7 +465,7 @@ describe("Customer-safe projection", () => {
     expect(view.paragraphs).toEqual([]);
     expect(view.groundLabels).toEqual([]);
     expect(view.needsReview).toBe(true);
-    expect(view.reviewDetail).toBe("We're reviewing your appeal.");
+    expect(view.reviewDetail).toBe("We're preparing your appeal.");
   });
 
   it("exposes paragraphs only after admin approval", () => {

@@ -160,28 +160,37 @@ function checkStorage(problems: ConfigProblem[]): void {
     });
     return;
   }
-  if (provider !== "s3" && provider !== "r2") {
+  if (provider !== "s3" && provider !== "r2" && provider !== "spaces") {
     problems.push({
       key: "STORAGE_PROVIDER",
-      detail: `Unknown value "${provider}". Use s3 or r2.`,
+      detail: `Unknown value "${provider}". Use s3, spaces, or r2.`,
     });
     return;
   }
 
-  const missing = ["R2_BUCKET", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY"].filter(
-    (name) => !isSet(name),
-  );
+  const hasBucket = isSet("R2_BUCKET") || isSet("SPACES_BUCKET");
+  const hasKey = isSet("R2_ACCESS_KEY_ID") || isSet("SPACES_KEY");
+  const hasSecret = isSet("R2_SECRET_ACCESS_KEY") || isSet("SPACES_SECRET");
+  const missing: string[] = [];
+  if (!hasBucket) missing.push("R2_BUCKET or SPACES_BUCKET");
+  if (!hasKey) missing.push("R2_ACCESS_KEY_ID or SPACES_KEY");
+  if (!hasSecret) missing.push("R2_SECRET_ACCESS_KEY or SPACES_SECRET");
   if (missing.length > 0) {
     problems.push({
       key: "STORAGE_CREDENTIALS",
       detail: `STORAGE_PROVIDER=${provider} but missing: ${missing.join(", ")}.`,
     });
   }
-  if (!isSet("R2_ENDPOINT") && !isSet("S3_ENDPOINT") && !isSet("R2_ACCOUNT_ID")) {
+  if (
+    !isSet("R2_ENDPOINT") &&
+    !isSet("S3_ENDPOINT") &&
+    !isSet("SPACES_ENDPOINT") &&
+    !isSet("R2_ACCOUNT_ID")
+  ) {
     problems.push({
       key: "S3_ENDPOINT",
       detail:
-        "No storage endpoint. For DigitalOcean Spaces set S3_ENDPOINT=https://<region>.digitaloceanspaces.com",
+        "No storage endpoint. For DigitalOcean Spaces set SPACES_ENDPOINT=https://<region>.digitaloceanspaces.com (or S3_ENDPOINT).",
     });
   }
 }

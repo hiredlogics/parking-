@@ -3,40 +3,56 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppHeader } from "@/components/app/AppHeader";
+import { JourneyHeader } from "@/components/app/JourneyHeader";
 import { ProgressSteps } from "@/components/ProgressSteps";
 import { useAppealStore } from "@/features/appeal/store";
 import { AdaptiveQuestion } from "@/features/appeal/AdaptiveQuestion";
 import { useCaseSession } from "@/features/appeal/useCaseSession";
 import {
   fetchNextQuestion,
+  saveKeeperProfile,
   submitAnswer,
   type QuestionStep,
 } from "@/features/appeal/caseSync";
-import { ShieldIcon } from "@/components/landing/Icons";
 import type { AnswerValue } from "@/lib/questions/types";
 
+type Phase = "pending" | "keeper" | "questions";
+
 /**
- * Adaptive questionnaire — ONE question at a time.
- *
- * MASTER Developer Pack V2 Part 4. The customer never sees the full
- * question set, and questions already answered by the confirmed notice
- * are never asked. Progress wording stays generic: we do not promise a
- * fixed number of questions or "5 minutes".
+ * Your situation — registered keeper details (when needed) then adaptive Q&A.
+ * Triggered after confirm “Looks correct, continue”.
  */
 export default function QuestionsPage() {
   const router = useRouter();
   const confirmed = useAppealStore((s) => s.confirmed);
+  const adaptiveAnswers = useAppealStore((s) => s.adaptiveAnswers);
+  const setAdaptiveAnswers = useAppealStore((s) => s.setAdaptiveAnswers);
   const setStep = useAppealStore((s) => s.setStep);
 
+  const [phase, setPhase] = useState<Phase>("pending");
   const [state, setState] = useState<QuestionStep | null>(null);
   const [busy, setBusy] = useState(false);
   const [loadingQuestion, setLoadingQuestion] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const loadedForCaseRef = useRef<string | null>(null);
 
-  // The server owns the answer map, so the page only needs the case id.
   const { caseId, status: sessionStatus } = useCaseSession();
+
+  const route = confirmed?.notice_route;
+  const missingKeeper = !String(adaptiveAnswers.keeper_name ?? "").trim();
+  // Windscreen / unclear notices need keeper name + address for the letter.
+  // Postal NTKs already carry keeper details — skip unless somehow missing later.
+  const needsKeeperForm =
+    missingKeeper && (route === "WINDSCREEN" || route === "UNKNOWN" || !route);
+
+  useEffect(() => {
+    if (sessionStatus !== "ready") return;
+    if (!confirmed) {
+      setPhase("pending");
+      return;
+    }
+    setPhase(needsKeeperForm ? "keeper" : "questions");
+  }, [sessionStatus, confirmed, needsKeeperForm]);
 
   const load = useCallback(async () => {
     if (!caseId) return;
@@ -53,15 +69,22 @@ export default function QuestionsPage() {
 
   useEffect(() => {
     if (sessionStatus !== "ready" || !caseId) return;
+    if (phase !== "questions") return;
     if (loadedForCaseRef.current === caseId) return;
     loadedForCaseRef.current = caseId;
     void load();
-  }, [load, sessionStatus, caseId]);
+  }, [load, sessionStatus, caseId, phase]);
 
-  const answer = async (value: AnswerValue) => {
+  const answer = async (
+    value: AnswerValue,
+    meta?: { situation_other?: string },
+  ) => {
     if (!caseId || !state?.question) return;
     setBusy(true);
     setError(null);
+    if (meta?.situation_other) {
+      await saveKeeperProfile(caseId, { situation_other: meta.situation_other });
+    }
     const res = await submitAnswer(caseId, state.question.questionId, value);
     setBusy(false);
     if (!res.ok) {
@@ -71,164 +94,266 @@ export default function QuestionsPage() {
     setState(res.data);
   };
 
-  if (sessionStatus === "loading") {
+  if (sessionStatus === "loading" || phase === "pending") {
     return (
-      <div className="app-shell">
-        <AppHeader />
-        <ProgressSteps current="questions" />
-        <main className="container-page py-14">
-          <div className="mx-auto max-w-2xl app-card">
-            <div className="h-24 animate-pulse rounded-xl bg-brand-canvas" />
-          </div>
-        </main>
-      </div>
+      <Shell>
+        <div className="h-40 animate-pulse rounded-2xl bg-brand-pinkPale" />
+      </Shell>
     );
   }
 
   if (!confirmed) {
     return (
-      <div className="app-shell">
-        <AppHeader />
-        <ProgressSteps current="questions" />
-        <main className="container-page py-14">
-          <div className="mx-auto max-w-2xl app-card">
-            <h1 className="text-2xl font-black tracking-tight">
-              Confirm your notice first
-            </h1>
-            <p className="mt-2 text-brand-mute">
-              We need the details from your parking notice before we can ask
-              anything useful.
-            </p>
-            <Link href="/appeal/upload" className="btn-brand-primary mt-4">
-              Start upload
-            </Link>
-          </div>
-        </main>
-      </div>
+      <Shell>
+        <div className="text-center">
+          <h1 className="text-[22px] font-bold text-brand-text">Confirm your notice first</h1>
+          <p className="mt-2 text-[14px] text-brand-mute">
+            We need the details from your parking notice before we can ask anything useful.
+          </p>
+          <Link
+            href="/appeal/upload"
+            className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white"
+          >
+            Start upload
+          </Link>
+        </div>
+      </Shell>
+    );
+  }
+
+  if (phase === "keeper") {
+    return (
+      <Shell>
+        <KeeperDetailsForm
+          caseId={caseId!}
+          windscreen={route === "WINDSCREEN" || route === "UNKNOWN" || !route}
+          initial={{
+            keeper_name: String(adaptiveAnswers.keeper_name ?? ""),
+            keeper_address_line1: String(adaptiveAnswers.keeper_address_line1 ?? ""),
+            keeper_address_line2: String(adaptiveAnswers.keeper_address_line2 ?? ""),
+            keeper_town: String(adaptiveAnswers.keeper_town ?? ""),
+            keeper_postcode: String(adaptiveAnswers.keeper_postcode ?? ""),
+          }}
+          onSaved={(answers) => {
+            setAdaptiveAnswers(answers);
+            setPhase("questions");
+            loadedForCaseRef.current = null;
+          }}
+        />
+      </Shell>
     );
   }
 
   return (
-    <div className="app-shell">
-      <AppHeader />
-      <ProgressSteps current="questions" />
-      <main className="container-page py-8 sm:py-10 lg:py-12">
-        <div className="mx-auto max-w-2xl">
-          <div className="mb-6">
-            <span className="app-badge">
-              <ShieldIcon className="h-3.5 w-3.5" /> We never ask who was driving
-            </span>
-            <p className="mt-3 text-[14px] leading-relaxed text-brand-mute">
-              We ask one question at a time, and only what your notice does not
-              already tell us. How many there are depends on your case.
-            </p>
-          </div>
+    <Shell>
+      {error && (
+        <div
+          role="alert"
+          className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"
+        >
+          <p>{error}</p>
+          <button
+            type="button"
+            className="mt-3 text-[13px] font-semibold text-brand-pink"
+            onClick={() => {
+              loadedForCaseRef.current = null;
+              void load();
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      )}
 
-          {error && (
-            <div
-              role="alert"
-              className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900"
-            >
-              <p>{error}</p>
-              <button
-                type="button"
-                className="btn-brand-outline mt-3"
-                onClick={() => {
-                  loadedForCaseRef.current = null;
-                  void load();
-                }}
-              >
-                Try again
-              </button>
-            </div>
-          )}
+      {loadingQuestion && !state && (
+        <div className="h-40 animate-pulse rounded-2xl bg-brand-pinkPale" />
+      )}
 
-          {/* Out of scope, or we could not resolve the case automatically */}
-          {state?.outOfScope || state?.needsReview ? (
-            <div className="app-card">
-              <h1 className="text-[20px] font-black tracking-tight sm:text-[24px]">
-                Under review
-              </h1>
-              <p className="mt-3 text-[14px] leading-relaxed text-brand-mute">
-                {(state.outOfScope ?? state.needsReview)?.detail ??
-                  "We're reviewing your appeal."}
-              </p>
-              <p className="mt-3 text-[13px] text-brand-mute">
-                You can still add evidence and finish checkout. Your appeal PDF
-                is released after payment and review — not before.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStep("evidence");
-                    router.push("/appeal/evidence");
-                  }}
-                  className="btn-brand-primary"
-                >
-                  Continue to evidence
-                </button>
-                <Link href="/appeal/confirm" className="btn-brand-ghost">
-                  Back to details
-                </Link>
-                <Link href="/portal" className="btn-brand-ghost">
-                  My portal
-                </Link>
-              </div>
-            </div>
-          ) : state?.questioningComplete ? (
-            <div className="app-card">
-              <h1 className="text-[20px] font-black tracking-tight sm:text-[24px]">
-                That&apos;s everything we need
-              </h1>
-              <p className="mt-3 text-[14px] leading-relaxed text-brand-mute">
-                Thank you. The next step is to attach any supporting evidence
-                you have — we will only refer to evidence you actually provide.
-              </p>
-              <div className="mt-6 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStep("evidence");
-                    router.push("/appeal/evidence");
-                  }}
-                  className="btn-brand-primary"
-                  data-testid="questions-complete-continue"
-                >
-                  Continue to evidence
-                </button>
-                <Link href="/appeal/confirm" className="btn-brand-ghost">
-                  Back to details
-                </Link>
-              </div>
-            </div>
-          ) : state?.question ? (
+      {state?.outOfScope || state?.needsReview ? (
+        <div>
+          <h1 className="text-[22px] font-bold text-brand-text">Under review</h1>
+          <p className="mt-2 text-[14px] text-brand-mute">
+            {(state.outOfScope ?? state.needsReview)?.detail ??
+              "We're reviewing your appeal."}
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setStep("evidence");
+              router.push("/appeal/evidence");
+            }}
+            className="mt-6 flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white"
+          >
+            Continue
+          </button>
+        </div>
+      ) : state?.questioningComplete ? (
+        <div>
+          <h1 className="text-[22px] font-bold text-brand-text">
+            That&apos;s everything we need
+          </h1>
+          <p className="mt-2 text-[14px] text-brand-mute">
+            Next you can attach any supporting evidence, then review your information.
+          </p>
+          <button
+            type="button"
+            data-testid="questions-complete-continue"
+            onClick={() => {
+              setStep("evidence");
+              router.push("/appeal/evidence");
+            }}
+            className="mt-6 flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white"
+          >
+            Continue
+          </button>
+        </div>
+      ) : state?.question ? (
+        <AdaptiveQuestion
+          question={state.question}
+          busy={busy}
+          onSubmit={(v) => void answer(v)}
+        />
+      ) : null}
+    </Shell>
+  );
+}
+
+function KeeperDetailsForm({
+  caseId,
+  windscreen,
+  initial,
+  onSaved,
+}: {
+  caseId: string;
+  windscreen: boolean;
+  initial: {
+    keeper_name: string;
+    keeper_address_line1: string;
+    keeper_address_line2: string;
+    keeper_town: string;
+    keeper_postcode: string;
+  };
+  onSaved: (answers: Record<string, unknown>) => void;
+}) {
+  const [form, setForm] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    const res = await saveKeeperProfile(caseId, {
+      keeper_name: form.keeper_name.trim(),
+      keeper_address_line1: form.keeper_address_line1.trim(),
+      keeper_address_line2: form.keeper_address_line2.trim(),
+      keeper_town: form.keeper_town.trim(),
+      keeper_postcode: form.keeper_postcode.trim(),
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.message || "Could not save keeper details.");
+      return;
+    }
+    onSaved(res.data.adaptiveAnswers);
+  };
+
+  const fields: {
+    key: keyof typeof form;
+    label: string;
+    placeholder: string;
+    required?: boolean;
+  }[] = [
+    { key: "keeper_name", label: "Registered keeper name", placeholder: "e.g. John Smith", required: true },
+    { key: "keeper_address_line1", label: "Address line 1", placeholder: "e.g. 12 High Street", required: true },
+    { key: "keeper_address_line2", label: "Address line 2 (optional)", placeholder: "e.g. Flat 3" },
+    { key: "keeper_town", label: "Town / City", placeholder: "e.g. Leeds", required: true },
+    { key: "keeper_postcode", label: "Postcode", placeholder: "e.g. LS1 2AB", required: true },
+  ];
+
+  return (
+    <form
+      onSubmit={(e) => void submit(e)}
+      className="flex flex-1 flex-col"
+      data-testid="keeper-details-form"
+    >
+      <div>
+        <h1 className="text-[22px] font-bold tracking-tight text-brand-text sm:text-[26px]">
+          Registered keeper details
+        </h1>
+        <p className="mt-2 text-[14px] leading-relaxed text-brand-mute">
+          {windscreen ? (
             <>
-              <AdaptiveQuestion
-                question={state.question}
-                busy={busy}
-                onSubmit={answer}
-              />
-              <p className="mt-4 text-center text-[12px] text-brand-mute">
-                {state.answered === 0
-                  ? "First question"
-                  : `${state.answered} answered so far`}
-              </p>
+              This appears to be a windscreen notice. Please confirm the registered
+              keeper&apos;s details so we can complete your appeal.
             </>
           ) : (
-            <div className="app-card text-center">
-              <div className="mx-auto h-10 w-10 animate-spin rounded-full border-2 border-brand-pinkLight border-t-brand-pink" />
-              <p className="mt-4 text-[15px] font-semibold text-brand-text">
-                {loadingQuestion
-                  ? "Preparing your next question…"
-                  : "Loading…"}
-              </p>
-              <p className="mt-1 text-[13px] text-brand-mute">
-                This can take a few seconds on the first question.
-              </p>
-            </div>
+            <>
+              Please confirm the registered keeper&apos;s details so we can complete
+              your appeal.
+            </>
           )}
-        </div>
+        </p>
+      </div>
+
+      <div className="mt-6 space-y-4 rounded-2xl border border-brand-border bg-white p-4 sm:p-5">
+        {fields.map((f) => (
+          <div key={f.key}>
+            <label className="text-[13px] font-bold text-brand-text" htmlFor={f.key}>
+              {f.label}
+            </label>
+            <input
+              id={f.key}
+              name={f.key}
+              required={f.required}
+              placeholder={f.placeholder}
+              value={form[f.key]}
+              onChange={set(f.key)}
+              className="mt-1.5 w-full rounded-xl border border-brand-border bg-white px-3.5 py-2.5 text-[14px] text-brand-text placeholder:text-brand-mute/55 focus:border-brand-pink focus:outline-none focus:ring-2 focus:ring-brand-pink/30"
+              autoComplete={
+                f.key === "keeper_name"
+                  ? "name"
+                  : f.key === "keeper_postcode"
+                    ? "postal-code"
+                    : f.key === "keeper_town"
+                      ? "address-level2"
+                      : "street-address"
+              }
+            />
+          </div>
+        ))}
+      </div>
+
+      {error && (
+        <p role="alert" className="mt-3 text-[13px] font-medium text-red-700">
+          {error}
+        </p>
+      )}
+
+      <div className="mt-auto pt-8">
+        <button
+          type="submit"
+          disabled={busy}
+          data-testid="keeper-details-continue"
+          className="flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white shadow-sm transition hover:bg-brand-pinkDark disabled:opacity-50"
+        >
+          {busy ? "Saving…" : "Continue"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function Shell({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen flex-col bg-white">
+      <JourneyHeader />
+      <ProgressSteps current="questions" />
+      <main className="mx-auto flex w-full max-w-lg flex-1 flex-col px-4 pb-8 pt-6 sm:px-6 sm:pt-8">
+        {children}
       </main>
     </div>
   );

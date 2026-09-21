@@ -173,15 +173,15 @@ export default function AdminAppealDetailPage() {
         {pending && (
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-brand-pink/20 bg-brand-pinkPale/40 px-4 py-3 sm:px-5">
             <p className="text-[13px] text-brand-text">
-              Appeal v{data.currentAppeal!.version} is waiting for approval.
-              Approve releases the PDF, emails the customer, and unlocks portal
-              download.
+              Appeal v{data.currentAppeal!.version} could not auto-release
+              (exception path). You can edit the letter and release it to the
+              customer, or hold it for further review.
             </p>
             <Link
               href={`/admin/review/${data.currentAppeal!.id}`}
               className="btn-brand-primary whitespace-nowrap"
             >
-              Open Approve
+              Open exception review
             </Link>
           </div>
         )}

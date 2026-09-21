@@ -62,12 +62,17 @@ export class KbCatalogError extends Error {
 }
 
 /** Short in-process cache so a single request chain does not re-query. */
-const CACHE_TTL_MS = 5_000;
+const CACHE_TTL_MS = 60_000;
+const REDIS_TTL_SEC = 300;
+const REDIS_KEY = "kb:catalog:v1";
 let cached: { catalog: KbCatalog; expiresAt: number } | null = null;
 
 /** Drop the cache — call after every admin mutation. */
 export function invalidateKbCatalog(): void {
   cached = null;
+  void import("@/lib/cache/store")
+    .then((m) => m.cacheDel(REDIS_KEY))
+    .catch(() => undefined);
 }
 
 function seedCatalog(): KbCatalog {
@@ -127,6 +132,19 @@ export async function loadKbCatalog(opts?: {
     return cached.catalog;
   }
 
+  if (!opts?.force) {
+    try {
+      const { cacheGetJson } = await import("@/lib/cache/store");
+      const fromRedis = await cacheGetJson<KbCatalog>(REDIS_KEY);
+      if (fromRedis?.modules?.length) {
+        cached = { catalog: fromRedis, expiresAt: Date.now() + CACHE_TTL_MS };
+        return fromRedis;
+      }
+    } catch {
+      // optional
+    }
+  }
+
   /*
    * Unit/integration tests default to the compiled seed so they do not
    * hang on a developer's DATABASE_URL. Live-admin DB behaviour is
@@ -156,6 +174,12 @@ export async function loadKbCatalog(opts?: {
   try {
     const catalog = await loadFromDatabase();
     cached = { catalog, expiresAt: Date.now() + CACHE_TTL_MS };
+    try {
+      const { cacheSetJson } = await import("@/lib/cache/store");
+      await cacheSetJson(REDIS_KEY, catalog, REDIS_TTL_SEC);
+    } catch {
+      // optional
+    }
     return catalog;
   } catch (err) {
     if (isProductionRuntime()) {

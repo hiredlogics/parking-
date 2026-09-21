@@ -52,6 +52,10 @@ export type ReasonCode =
   // ANPR / duration
   | "ANPR_PRESENCE_UNRESOLVED"
   | "VISIT_COUNT_UNRESOLVED"
+  | "ANPR_EVIDENCE_UNRESOLVED"
+  | "ANPR_TIMESTAMP_UNRESOLVED"
+  | "ANPR_IMAGES_UNRESOLVED"
+  | "ANPR_DETAIL_UNRESOLVED"
   | "CONSIDERATION_PERIOD_UNRESOLVED"
   | "GRACE_PERIOD_UNRESOLVED"
   // Other routes
@@ -84,6 +88,10 @@ export const ALL_REASON_CODES: readonly ReasonCode[] = [
   "PERMISSION_SOURCE_UNRESOLVED",
   "ANPR_PRESENCE_UNRESOLVED",
   "VISIT_COUNT_UNRESOLVED",
+  "ANPR_EVIDENCE_UNRESOLVED",
+  "ANPR_TIMESTAMP_UNRESOLVED",
+  "ANPR_IMAGES_UNRESOLVED",
+  "ANPR_DETAIL_UNRESOLVED",
   "CONSIDERATION_PERIOD_UNRESOLVED",
   "GRACE_PERIOD_UNRESOLVED",
   "EQUALITY_NEED_UNRESOLVED",
@@ -372,6 +380,15 @@ export const ROUTE_REQUIREMENTS: Partial<Record<RouteFamily, FactRequirement[]>>
 
   ANPR: [
     {
+      fact: FACT.ANPR_IMAGES_ON_NOTICE,
+      reasonCode: "ANPR_IMAGES_UNRESOLVED",
+      route: "ANPR",
+      priority: 100,
+      rationale:
+        "Whether the notice relies on entry/exit camera images frames how the duration challenge is put.",
+      kbModules: ["KB-ANPR-01"],
+    },
+    {
       fact: FACT.CONTINUOUS_PRESENCE,
       reasonCode: "ANPR_PRESENCE_UNRESOLVED",
       route: "ANPR",
@@ -388,7 +405,41 @@ export const ROUTE_REQUIREMENTS: Partial<Record<RouteFamily, FactRequirement[]>>
       rationale:
         "The number of separate visits is needed to show the charge treats two stays as one.",
       kbModules: ["KB-ANPR-02"],
-      when: (f) => is(f, FACT.CONTINUOUS_PRESENCE, "NO"),
+      when: (f) =>
+        f.tags.has("multiple_visits_same_day") ||
+        is(f, FACT.CONTINUOUS_PRESENCE, "NO"),
+    },
+    {
+      fact: FACT.VEHICLE_LEFT_SITE_EVIDENCE,
+      reasonCode: "ANPR_EVIDENCE_UNRESOLVED",
+      route: "ANPR",
+      priority: 107,
+      rationale:
+        "Independent evidence that the vehicle left the site supports a double-visit or incorrect pairing challenge.",
+      kbModules: ["KB-ANPR-02"],
+    },
+    {
+      fact: FACT.TIMESTAMP_DISCREPANCY,
+      reasonCode: "ANPR_TIMESTAMP_UNRESOLVED",
+      route: "ANPR",
+      priority: 108,
+      rationale:
+        "A timestamp or pairing error on the notice must be confirmed before it is argued.",
+      kbModules: ["KB-ANPR-03", "KB-TIME-01"],
+      when: (f) => f.tags.has("anpr_disputed"),
+    },
+    {
+      fact: FACT.ANPR_DISPUTE_DETAIL,
+      reasonCode: "ANPR_DETAIL_UNRESOLVED",
+      route: "ANPR",
+      priority: 109,
+      rationale:
+        "A short description of what is wrong with the times or images keeps the appeal specific.",
+      kbModules: ["KB-ANPR-03"],
+      when: (f) =>
+        f.tags.has("anpr_disputed") ||
+        is(f, FACT.CONTINUOUS_PRESENCE, "NO") ||
+        is(f, FACT.TIMESTAMP_DISCREPANCY, "YES"),
     },
   ],
 

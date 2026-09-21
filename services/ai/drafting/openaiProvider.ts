@@ -52,6 +52,28 @@ export class OpenAIDraftingProvider implements DraftingProvider {
     const prompt = getDraftingPrompt(this.promptVersion);
     const warnings: string[] = [];
 
+    // Admin-edited prompts from CRM / pack PDF upload (versioned in DB).
+    let systemBody = prompt.body;
+    try {
+      const { getActivePrompt } = await import("@/lib/config/adminRepo");
+      const [adminDraft, packGuidance] = await Promise.all([
+        getActivePrompt("DRAFTING"),
+        getActivePrompt("DRAFTING_PACK"),
+      ]);
+      if (adminDraft?.body?.trim()) {
+        systemBody += `\n\n=====================================================\nADMIN DRAFTING PROMPT (CRM v${adminDraft.version})\n=====================================================\n${adminDraft.body.trim()}`;
+        warnings.push(`Applied admin DRAFTING prompt v${adminDraft.version}.`);
+      }
+      if (packGuidance?.body?.trim()) {
+        systemBody += `\n\n=====================================================\nADMIN PACK RULES PDF GUIDANCE (v${packGuidance.version})\n=====================================================\n${packGuidance.body.trim()}`;
+        warnings.push(`Applied DRAFTING_PACK guidance v${packGuidance.version}.`);
+      }
+    } catch (err) {
+      warnings.push(
+        `Could not load admin prompts: ${err instanceof Error ? err.message : "unknown error"}`,
+      );
+    }
+
     const response = await withTransientRetry(
       () => this.client.responses.create({
       model: this.model,
@@ -62,7 +84,7 @@ export class OpenAIDraftingProvider implements DraftingProvider {
       input: [
         {
           role: "system",
-          content: [{ type: "input_text", text: prompt.body }],
+          content: [{ type: "input_text", text: systemBody }],
         },
         {
           role: "user",
@@ -99,9 +121,9 @@ export class OpenAIDraftingProvider implements DraftingProvider {
         }
       : undefined;
 
-    if (context.modules.length === 0) {
+    if (context.modules.length === 0 && !context.rulesBasis?.approvedParagraphTexts.length) {
       warnings.push(
-        "No knowledge modules were supplied — the draft cannot be grounded in approved material.",
+        "No knowledge modules or rules basis were supplied — the draft cannot be grounded in approved material.",
       );
     }
 

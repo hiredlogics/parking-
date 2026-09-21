@@ -37,8 +37,11 @@ export type ScenarioTag =
   | "anpr_disputed"
   | "multiple_visits_same_day"
   | "authorised_or_permit"
+  | "resident_parking_rights"
+  | "breakdown_immobilised"
   | "signage_issue"
   | "landowner_authority_challenge"
+  | "other_grounds"
   | "no_ntk_received"
   | "postal_ntk_timing_issue";
 

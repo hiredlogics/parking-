@@ -1,0 +1,134 @@
+import type { ConfirmedPcn, EvidenceItem } from "@/types";
+import type { AnswerMap } from "@/lib/questions/types";
+import { toLegacyAnswers } from "@/lib/questions/toLegacyAnswers";
+import { FACT } from "@/lib/questions/facts";
+import { evaluate } from "@/rules/engine";
+import { assembleAppeal } from "@/lib/assembly";
+import { getEffectiveParagraphs, getEffectiveRules } from "@/lib/appealLogic";
+import { RULES } from "@/rules";
+import { PARAGRAPH_LIBRARY } from "@/paragraphs/library";
+
+/**
+ * Enrich adaptive answers from uploaded evidence so the Master Pack
+ * rules fire even when the questionnaire stopped early (e.g. hire/lease
+ * soft-path) but the customer still uploaded a payment receipt.
+ */
+function enrichAnswersFromEvidence(
+  answers: AnswerMap,
+  evidenceTypes: string[],
+): AnswerMap {
+  const next: AnswerMap = { ...answers };
+  const types = new Set(evidenceTypes.map((t) => t.toLowerCase()));
+
+  // Product default: keeper appeals. Missing answer must not blank the intro.
+  if (next[FACT.REGISTERED_KEEPER] == null) {
+    next[FACT.REGISTERED_KEEPER] = "YES";
+  }
+  if (next[FACT.DRIVER_IDENTIFIED] == null) {
+    next[FACT.DRIVER_IDENTIFIED] = "NO";
+  }
+
+  const scenarios = new Set<string>(
+    Array.isArray(next[FACT.SCENARIOS])
+      ? (next[FACT.SCENARIOS] as string[])
+      : [],
+  );
+
+  const hasPaymentEvidence =
+    types.has("payment_receipt") ||
+    types.has("payment") ||
+    types.has("receipt") ||
+    next[FACT.PAYMENT_EVIDENCE] === "YES";
+
+  if (hasPaymentEvidence) {
+    scenarios.add("payment_made");
+    next[FACT.PAYMENT_EVIDENCE] = "YES";
+    if (next[FACT.PAYMENT_MADE] == null) next[FACT.PAYMENT_MADE] = "YES";
+  }
+
+  if (types.has("permit") || types.has("authorisation")) {
+    scenarios.add("authorised_or_permit");
+  }
+  if (types.has("signage_photo") || types.has("signage")) {
+    scenarios.add("signage_issue");
+  }
+
+  next[FACT.SCENARIOS] = Array.from(scenarios);
+  return next;
+}
+
+/**
+ * Build the appeal letter from the Master Pack rules engine + approved
+ * paragraph library — not free AI prose.
+ *
+ * Used as the primary letter body for case generation so PDFs always
+ * contain PP-INTRO / grounds / closing paragraphs driven by answers.
+ */
+export async function buildRulesBasedLetter(input: {
+  confirmed: ConfirmedPcn;
+  answers: AnswerMap;
+  evidenceTypes?: string[];
+}): Promise<{
+  body: string;
+  paragraphs: Array<{ id: string; text: string }>;
+  matchedParagraphIds: string[];
+  activeRoutes: string[];
+  keeperSafe: boolean;
+  warnings: string[];
+}> {
+  const evidenceTypes = input.evidenceTypes ?? [];
+  const enriched = enrichAnswersFromEvidence(input.answers, evidenceTypes);
+  const legacy = toLegacyAnswers(enriched);
+  const evidence: EvidenceItem[] = evidenceTypes.map((type, i) => ({
+    id: `ev_${i}`,
+    type: type as EvidenceItem["type"],
+    fileName: type,
+    mimeType: "application/octet-stream",
+    sizeBytes: 0,
+    storageKey: "",
+    uploadedAt: new Date().toISOString(),
+  }));
+
+  let rules = RULES;
+  let paragraphs = PARAGRAPH_LIBRARY;
+  try {
+    rules = await getEffectiveRules();
+    paragraphs = await getEffectiveParagraphs();
+  } catch {
+    // Fall back to compiled pack if DB overrides are unavailable.
+  }
+
+  const evaluation = evaluate(
+    {
+      pcn: input.confirmed,
+      answers: legacy,
+      evidence,
+    },
+    rules,
+  );
+
+  const assembled = assembleAppeal(
+    input.confirmed,
+    legacy,
+    evidence,
+    evaluation,
+    paragraphs,
+  );
+
+  return {
+    body: assembled.body,
+    paragraphs: assembled.paragraphs.map((p) => ({ id: p.id, text: p.text })),
+    matchedParagraphIds: evaluation.matchedParagraphIds,
+    activeRoutes: evaluation.activeRoutes,
+    keeperSafe: assembled.keeperSafe,
+    warnings: assembled.warnings,
+  };
+}
+
+/** Too short to be a real appeal letter (blocks admin approve of "sdk"). */
+export function isAppealBodyTooThin(body: string | null | undefined): boolean {
+  const text = (body ?? "").trim();
+  if (text.length < 120) return true;
+  const paras = text.split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  return paras.length < 2;
+}

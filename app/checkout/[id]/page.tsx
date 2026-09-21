@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AppHeader } from "@/components/app/AppHeader";
-import { CheckIcon, LockIcon, ShieldIcon } from "@/components/landing/Icons";
+import { JourneyHeader } from "@/components/app/JourneyHeader";
+import { ProgressSteps } from "@/components/ProgressSteps";
 import {
   confirmDemoPayment,
   fetchCase,
@@ -14,15 +14,8 @@ import {
 import type { CustomerCaseState } from "@/lib/cases/types";
 
 /**
- * Checkout for a case.
- *
- * `[id]` is the case id. Payment state comes from the server on every
- * load — the page never assumes an outcome, and the "paid" decision is
- * made by the payment provider, not here.
- *
- * With the demo provider the button asks the server to settle. With
- * Stripe the customer never reaches this page; they are sent to Stripe's
- * hosted checkout instead.
+ * Secure payment — matches client mockup.
+ * Amount is always from the live payment state (never hardcoded).
  */
 export default function CheckoutPage() {
   const params = useParams<{ id: string }>();
@@ -34,6 +27,7 @@ export default function CheckoutPage() {
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [method, setMethod] = useState<"card" | "paypal">("card");
 
   useEffect(() => {
     if (!caseId) return;
@@ -58,7 +52,6 @@ export default function CheckoutPage() {
       if (caseRes.ok) setAppealCase(caseRes.data.case);
       setLoading(false);
 
-      // Already settled — don't show a payment button for a paid case.
       if (payRes.data.payment.status === "PAID") {
         router.replace(`/checkout/${caseId}/success`);
       }
@@ -86,152 +79,217 @@ export default function CheckoutPage() {
 
   const price = payment?.amount ?? 0;
   const isDemo = payment?.provider === "demo";
+  const priceLabel = `£${price.toFixed(2)}`;
 
   return (
-    <div className="app-shell">
-      <AppHeader />
-      <main className="container-page py-8 sm:py-10 lg:py-12">
-        <div className="mx-auto grid max-w-5xl grid-cols-1 gap-6 lg:grid-cols-[1.15fr,1fr]">
-          <section className="app-card">
-            <div className="mb-6">
-              <span className="app-badge">
-                <LockIcon className="h-3.5 w-3.5" />{" "}
-                {isDemo ? "Secure demo checkout" : "Secure checkout"}
+    <div className="flex min-h-screen flex-col bg-white">
+      <JourneyHeader />
+      <ProgressSteps current="result" />
+      <main className="mx-auto flex w-full max-w-lg flex-1 flex-col px-4 pb-8 pt-6 sm:px-6 sm:pt-8">
+        <div>
+          <h1 className="text-[22px] font-bold tracking-tight text-brand-text sm:text-[26px]">
+            Secure payment
+          </h1>
+          <p className="mt-2 text-[14px] text-brand-mute">
+            Complete your payment to generate your appeal.
+          </p>
+        </div>
+
+        {loading ? (
+          <div className="mt-6 h-48 animate-pulse rounded-2xl bg-brand-canvas" />
+        ) : error && !payment ? (
+          <div className="mt-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+            {error}
+          </div>
+        ) : payment ? (
+          <>
+            {/* Card payment */}
+            <button
+              type="button"
+              onClick={() => setMethod("card")}
+              className="mt-6 flex w-full items-center justify-between gap-3 text-left"
+            >
+              <span className="flex items-center gap-3">
+                <Radio checked={method === "card"} />
+                <span className="text-[15px] font-semibold text-brand-text">Card payment</span>
               </span>
-              <h1 className="mt-3 text-[24px] font-black tracking-tight sm:text-[28px]">
-                Complete Your Payment
-              </h1>
-              <p className="mt-2 text-[13.5px] text-brand-mute">
-                Your appeal is prepared and checked immediately after payment.
-                You will be able to read it and download it straight away.
+              <CardBrandLogos />
+            </button>
+
+            {method === "card" && (
+              <div className="mt-4 space-y-3">
+                {isDemo ? (
+                  <p className="rounded-xl bg-brand-pinkPale px-3.5 py-2.5 text-[13px] text-brand-text">
+                    Demo checkout — no real card is charged. Tap pay to generate your appeal.
+                  </p>
+                ) : null}
+                <div>
+                  <label className="text-[13px] font-bold text-brand-text">Card number</label>
+                  <div className="relative mt-1.5">
+                    <input
+                      className="w-full rounded-xl border border-brand-border bg-white px-3.5 py-2.5 pr-10 text-[14px] placeholder:text-brand-mute/55"
+                      placeholder="1234 1234 1234 1234"
+                      inputMode="numeric"
+                      autoComplete="cc-number"
+                      disabled={isDemo}
+                      readOnly={isDemo}
+                    />
+                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-brand-mute">
+                      <CardIcon />
+                    </span>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[13px] font-bold text-brand-text">Expiry date</label>
+                    <input
+                      className="mt-1.5 w-full rounded-xl border border-brand-border bg-white px-3.5 py-2.5 text-[14px] placeholder:text-brand-mute/55"
+                      placeholder="MM / YY"
+                      autoComplete="cc-exp"
+                      disabled={isDemo}
+                      readOnly={isDemo}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[13px] font-bold text-brand-text">CVC</label>
+                    <input
+                      className="mt-1.5 w-full rounded-xl border border-brand-border bg-white px-3.5 py-2.5 text-[14px] placeholder:text-brand-mute/55"
+                      placeholder="123"
+                      autoComplete="cc-csc"
+                      disabled={isDemo}
+                      readOnly={isDemo}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PayPal */}
+            <button
+              type="button"
+              onClick={() => setMethod("paypal")}
+              className="mt-5 flex w-full items-center justify-between gap-3 border-t border-brand-borderSoft pt-5 text-left"
+            >
+              <span className="flex items-center gap-3">
+                <Radio checked={method === "paypal"} />
+                <span className="text-[15px] font-semibold text-brand-text">PayPal</span>
+              </span>
+              <PayPalMark />
+            </button>
+
+            {method === "paypal" && (
+              <p className="mt-3 text-[13px] text-brand-mute">
+                {isDemo
+                  ? "PayPal is shown for layout only in demo mode — use card payment to continue."
+                  : "You will be redirected to PayPal to complete payment securely."}
+              </p>
+            )}
+
+            <div className="mt-8 flex items-center justify-between text-[15px]">
+              <span className="text-brand-mute">Amount to pay</span>
+              <span className="font-bold text-brand-text">{priceLabel}</span>
+            </div>
+
+            {error && (
+              <p role="alert" className="mt-3 text-[13px] font-medium text-red-700">
+                {error}
+              </p>
+            )}
+
+            <div className="mt-4">
+              <button
+                type="button"
+                data-testid="complete-demo-payment"
+                onClick={() => void completePayment()}
+                disabled={paying || payment.status === "PAID" || !isDemo || method !== "card"}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white shadow-sm transition hover:bg-brand-pinkDark disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <LockIcon />
+                {paying
+                  ? "Preparing your appeal…"
+                  : payment.status === "PAID"
+                    ? "Payment complete"
+                    : `Pay and generate appeal`}
+              </button>
+              <p className="mt-3 flex items-start justify-center gap-1.5 text-center text-[11.5px] leading-snug text-brand-mute">
+                <LockIcon className="mt-0.5 h-3 w-3 shrink-0" />
+                Payments are processed securely by Stripe. We do not store your card details.
               </p>
             </div>
 
-            {loading ? (
-              <div className="h-40 animate-pulse rounded-xl bg-brand-canvas" />
-            ) : error ? (
-              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
-                {error}
-              </div>
-            ) : payment ? (
-              <>
-                <div className="rounded-xl border border-brand-borderSoft bg-brand-canvas p-4 text-[13px]">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-brand-mute">Reference</span>
-                    <span className="font-mono text-brand-text">
-                      {appealCase?.publicId ?? caseId}
-                    </span>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <span className="text-brand-mute">Service</span>
-                    <span className="font-semibold text-brand-text">
-                      {payment.description ?? "Appeal Builder"}
-                    </span>
-                  </div>
-                </div>
-
-                {isDemo && (
-                  <div className="mt-5 rounded-xl border border-brand-pink/30 bg-brand-pinkPale p-4 text-[13.5px] text-brand-text">
-                    <p className="font-semibold">
-                      Demo payment — not a real charge
-                    </p>
-                    <p className="mt-1 text-brand-mute">
-                      No card is taken. The server records the payment, then
-                      prepares and validates your appeal.
-                    </p>
-                  </div>
-                )}
-
-                <div className="mt-6 flex items-center gap-3 text-[12px] text-brand-mute">
-                  <ShieldIcon className="h-4 w-4 text-brand-pink" />
-                  Your appeal is only written after the server confirms payment.
-                </div>
-
-                <div className="mt-6 flex flex-col gap-3 sm:flex-row-reverse sm:items-center sm:justify-between">
-                  <button
-                    type="button"
-                    onClick={completePayment}
-                    disabled={paying || payment.status === "PAID" || !isDemo}
-                    className="btn-brand-primary w-full sm:w-auto"
-                    data-testid="complete-demo-payment"
-                  >
-                    {paying
-                      ? "Preparing your appeal…"
-                      : payment.status === "PAID"
-                        ? "Payment complete"
-                        : `Complete Demo Payment · £${price.toFixed(2)}`}
-                  </button>
-                  <Link href="/appeal/review" className="btn-brand-ghost w-full sm:w-auto">
-                    Back to summary
-                  </Link>
-                </div>
-              </>
-            ) : null}
-          </section>
-
-          <aside className="app-card h-fit">
-            <h2 className="text-[16px] font-black tracking-tight">Order summary</h2>
-            {payment && (
-              <>
-                <ul className="mt-3 space-y-2 text-[13px]">
-                  <li className="flex justify-between gap-2">
-                    <span className="text-brand-mute">Service</span>
-                    <span className="font-semibold text-brand-text">
-                      {payment.description ?? "Appeal Builder"}
-                    </span>
-                  </li>
-                  <li className="flex justify-between gap-2">
-                    <span className="text-brand-mute">PCN reference</span>
-                    <span className="font-mono">
-                      {appealCase?.confirmed?.pcn_number ?? "—"}
-                    </span>
-                  </li>
-                  <li className="flex justify-between gap-2">
-                    <span className="text-brand-mute">Vehicle</span>
-                    <span className="font-mono">
-                      {appealCase?.confirmed?.vrm ?? "—"}
-                    </span>
-                  </li>
-                  <li className="flex justify-between gap-2">
-                    <span className="text-brand-mute">Operator</span>
-                    <span className="truncate">
-                      {appealCase?.confirmed?.operator_name ?? "—"}
-                    </span>
-                  </li>
-                  {appealCase && appealCase.groundLabels.length > 0 && (
-                    <li className="flex justify-between gap-2">
-                      <span className="text-brand-mute">Grounds identified</span>
-                      <span>{appealCase.groundLabels.length}</span>
-                    </li>
-                  )}
-                  <li className="flex justify-between gap-2">
-                    <span className="text-brand-mute">Evidence attached</span>
-                    <span>{appealCase?.evidence.length ?? 0}</span>
-                  </li>
-                </ul>
-                <div className="mt-4 flex items-center justify-between border-t border-brand-borderSoft pt-3 text-[15px] font-black">
-                  <span>Total</span>
-                  <span>£{price.toFixed(2)}</span>
-                </div>
-                <ul className="mt-4 space-y-1.5 text-[12px] text-brand-mute">
-                  {[
-                    "Bespoke appeal written for your case",
-                    "Independently checked before release",
-                    "Instant PDF download",
-                  ].map((item) => (
-                    <li key={item} className="flex items-center gap-2">
-                      <span className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-green text-white">
-                        <CheckIcon className="h-3 w-3" />
-                      </span>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </>
+            {appealCase && (
+              <p className="mt-4 text-center text-[12px] text-brand-mute">
+                Ref {appealCase.publicId}
+                {appealCase.confirmed?.pcn_number
+                  ? ` · PCN ${appealCase.confirmed.pcn_number}`
+                  : ""}
+              </p>
             )}
-          </aside>
-        </div>
+
+            <div className="mt-4 text-center">
+              <Link href="/appeal/review" className="text-[13px] font-medium text-brand-mute hover:text-brand-text">
+                ← Back to review
+              </Link>
+            </div>
+          </>
+        ) : null}
       </main>
     </div>
+  );
+}
+
+function Radio({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className={[
+        "inline-flex h-5 w-5 items-center justify-center rounded-full border-2",
+        checked ? "border-brand-pink" : "border-[#D1D5DB]",
+      ].join(" ")}
+    >
+      {checked && <span className="h-2.5 w-2.5 rounded-full bg-brand-pink" />}
+    </span>
+  );
+}
+
+function LockIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CardIcon() {
+  return (
+    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+      <rect x="2" y="5" width="20" height="14" rx="2" />
+      <path d="M2 10h20" />
+    </svg>
+  );
+}
+
+function CardBrandLogos() {
+  return (
+    <span className="flex items-center gap-1.5" aria-hidden="true">
+      <span className="rounded bg-[#1A1F71] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-white">
+        VISA
+      </span>
+      <span className="rounded bg-[#EB001B] px-1.5 py-0.5 text-[9px] font-bold text-white">
+        MC
+      </span>
+      <span className="rounded bg-[#006FCF] px-1.5 py-0.5 text-[9px] font-bold text-white">
+        AMEX
+      </span>
+    </span>
+  );
+}
+
+function PayPalMark() {
+  return (
+    <span className="text-[15px] font-bold italic tracking-tight">
+      <span className="text-[#003087]">Pay</span>
+      <span className="text-[#009CDE]">Pal</span>
+    </span>
   );
 }

@@ -48,7 +48,9 @@ async function readSession(req: NextRequest): Promise<Guarded> {
     // hint and can be edited by the client.
     return {
       hasSession: true,
-      kind: data.kind ?? (req.cookies.get(KIND_COOKIE)?.value as SessionData["kind"]),
+      // Never fall back to the client-writable KIND_COOKIE for authz —
+      // that cookie is a UI hint only.
+      kind: data.kind,
     };
   } catch {
     return { hasSession: false, kind: undefined };
@@ -77,11 +79,14 @@ export async function middleware(req: NextRequest) {
   const stale = !hasSession && Boolean(req.cookies.get(SESSION_COOKIE));
 
   if (isAdmin) {
-    if (hasSession && kind !== "CUSTOMER") return NextResponse.next();
+    // Strict: only sealed ADMIN sessions. Never trust missing kind or
+    // client-writable pag_kind for CRM access.
+    if (hasSession && kind === "ADMIN") return NextResponse.next();
     return redirectTo(req, "/login", pathname, stale);
   }
 
-  // Customer flow: an admin CRM session must not skip customer signup.
+  // Customer flow: require a non-admin session (CUSTOMER or legacy
+  // customer cookies that still carry userId without kind).
   if (hasSession && kind !== "ADMIN") return NextResponse.next();
 
   // A first-time visitor almost certainly needs to register; someone

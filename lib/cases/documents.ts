@@ -139,6 +139,7 @@ export async function renderCaseDocument(
     pcn: appealCase.confirmed,
     evidence,
     appeal: { paragraphs },
+    caseReference: appealCase.publicId,
   });
 
   return {

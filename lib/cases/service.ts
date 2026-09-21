@@ -445,6 +445,124 @@ async function persistStepState(
 }
 
 /**
+ * Let the customer correct "I am not the registered keeper" so the
+ * automated question chain can continue.
+ */
+export async function correctRegisteredKeeperForCase(
+  caseId: string,
+  session: SessionData,
+): Promise<
+  | AnswerOutcome
+  | AccessFailure
+  | { ok: false; status: 400; code: string; message: string }
+> {
+  const access = await requireCaseAccess(caseId, session, "write");
+  if (!access.ok) return access;
+  const appealCase = access.appealCase;
+
+  if (!appealCase.confirmed) {
+    return {
+      ok: false,
+      status: 400,
+      code: "CONFIRMATION_REQUIRED",
+      message: "Confirm the notice details before answering questions.",
+    };
+  }
+
+  const answers: AnswerMap = {
+    ...appealCase.adaptiveAnswers,
+    [FACT.REGISTERED_KEEPER]: "YES",
+  };
+
+  await repo.recordCaseAnswer({
+    caseId,
+    questionId: FACT.REGISTERED_KEEPER,
+    answer: "YES",
+  });
+  await repo.addCaseEvent({
+    caseId,
+    eventType: "QUESTION_ANSWERED",
+    actorId: session.userId ?? null,
+    payload: {
+      targetFact: FACT.REGISTERED_KEEPER,
+      corrected: true,
+      value: "YES",
+    },
+  });
+
+  const updated: AppealCase = { ...appealCase, adaptiveAnswers: answers };
+  const { step, outcome } = await resolveNextStep(updated, answers);
+  await persistStepState(caseId, updated, answers, outcome);
+
+  return { ok: true, next: step, adaptiveAnswers: answers };
+}
+
+/**
+ * Persist profile fields collected outside the adaptive question engine
+ * (keeper address, free-text "other" situation, etc.).
+ */
+export async function saveKeeperProfileForCase(
+  caseId: string,
+  session: SessionData,
+  profile: {
+    keeper_name?: string;
+    keeper_address_line1?: string;
+    keeper_address_line2?: string;
+    keeper_town?: string;
+    keeper_postcode?: string;
+    situation_other?: string;
+  },
+): Promise<
+  | { ok: true; adaptiveAnswers: AnswerMap }
+  | AccessFailure
+  | { ok: false; status: 400; code: string; message: string }
+> {
+  const access = await requireCaseAccess(caseId, session, "write");
+  if (!access.ok) return access;
+  const appealCase = access.appealCase;
+
+  const answers: AnswerMap = { ...appealCase.adaptiveAnswers };
+
+  if (profile.keeper_name !== undefined) {
+    const name = profile.keeper_name.trim();
+    const line1 = (profile.keeper_address_line1 ?? "").trim();
+    const town = (profile.keeper_town ?? "").trim();
+    const postcode = (profile.keeper_postcode ?? "").trim();
+    if (!name || !line1 || !town || !postcode) {
+      return {
+        ok: false,
+        status: 400,
+        code: "VALIDATION_ERROR",
+        message: "Please complete the registered keeper name and address.",
+      };
+    }
+    answers.keeper_name = name;
+    answers.keeper_address_line1 = line1;
+    answers.keeper_address_line2 = (profile.keeper_address_line2 ?? "").trim() || null;
+    answers.keeper_town = town;
+    answers.keeper_postcode = postcode.toUpperCase();
+  }
+
+  if (profile.situation_other !== undefined) {
+    answers.situation_other = profile.situation_other.trim() || null;
+  }
+
+  await repo.saveAnswers(caseId, {
+    adaptiveAnswers: answers,
+    askedQuestionIds: appealCase.askedQuestionIds,
+    questioningComplete: appealCase.questioningComplete,
+    missingFacts: appealCase.missingFacts,
+    candidateRoutes: appealCase.candidateRoutes,
+    driverStatus: appealCase.driverStatus,
+    outOfScope: appealCase.outOfScopeReason
+      ? { reason: appealCase.outOfScopeReason, detail: appealCase.outOfScopeDetail ?? "" }
+      : null,
+  });
+
+  return { ok: true, adaptiveAnswers: answers };
+}
+
+/**
  * Record one adaptive answer and return the next question.
  *
  * The server owns the answer map. The client sends only a question id

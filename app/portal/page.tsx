@@ -24,6 +24,11 @@ export default function PortalDashboard() {
   const cases = data?.cases ?? [];
   const documents = data?.documents ?? [];
   const invoices = data?.invoices ?? [];
+  const events = data?.events ?? [];
+  const readyEvents = events.filter((e) =>
+    e.description.toLowerCase().includes("approved"),
+  );
+  const latestReady = readyEvents[0] ?? null;
 
   return (
     <AdminPage
@@ -34,6 +39,24 @@ export default function PortalDashboard() {
     >
       {loading && (
         <p className="mb-4 text-[13px] text-brand-mute">Loading…</p>
+      )}
+
+      {latestReady && (
+        <div className="mb-5 rounded-xl border border-brand-pink/30 bg-brand-pinkPale px-4 py-3">
+          <p className="text-[13px] font-semibold text-brand-pink">
+            {latestReady.description}
+          </p>
+          <p className="mt-1 text-[12px] text-brand-mute">
+            Case {latestReady.casePublicId} — your branded PDF is ready to view
+            and download.
+          </p>
+          <Link
+            href={`/portal/cases/${latestReady.caseId}`}
+            className="mt-2 inline-block text-[12px] font-semibold text-brand-pink hover:underline"
+          >
+            Open case
+          </Link>
+        </div>
       )}
 
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
@@ -130,6 +153,30 @@ export default function PortalDashboard() {
             {documents.length === 0 && (
               <li className="px-4 py-6 text-center text-brand-mute">
                 No documents yet.
+              </li>
+            )}
+          </ul>
+        </AdminCard>
+
+        <AdminCard>
+          <AdminCardHeader title="Notifications" />
+          <ul className="divide-y divide-brand-borderSoft text-[13px]">
+            {events.slice(0, 6).map((e) => (
+              <li key={e.id} className="px-4 py-3">
+                <Link
+                  href={`/portal/cases/${e.caseId}`}
+                  className="font-medium hover:text-brand-pink"
+                >
+                  {e.description}
+                </Link>
+                <p className="text-[11px] text-brand-mute">
+                  {e.casePublicId} · {formatDate(e.createdAt)}
+                </p>
+              </li>
+            ))}
+            {events.length === 0 && (
+              <li className="px-4 py-6 text-center text-brand-mute">
+                No notifications yet.
               </li>
             )}
           </ul>

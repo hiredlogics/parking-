@@ -113,38 +113,57 @@ export const QUESTION_BANK: QuestionDef[] = [
   },
   {
     questionId: "Q-WHAT-HAPPENED",
+    // Still multi_choice so scenarios stay an array; the UI presents
+    // these as a single-select list matching the client mockups.
     type: "multi_choice",
-    label: "Which of these describe what actually happened?",
+    label: "Your situation",
     helpText:
-      "Choose everything that applies. This tells us which points are worth making — pick nothing if none apply.",
-    required: false,
+      "Help us understand what happened so we can generate the strongest appeal for your case.",
+    required: true,
     options: [
-      { value: "payment_made", label: "A payment was made for the parking" },
-      { value: "payment_attempted_failed", label: "A payment was attempted but did not complete" },
-      { value: "vrm_error", label: "A vehicle registration was entered incorrectly" },
-      { value: "breakdown_immobilised", label: "The vehicle broke down or could not be moved" },
-      { value: "resident_parking_rights", label: "The vehicle was parked at the appellant's home under a lease or tenancy" },
-      { value: "authorised_or_permit", label: "A permit or permission to park was in place" },
-      { value: "short_stay_consideration", label: "The vehicle was only briefly on site" },
-      { value: "grace_or_exit", label: "The vehicle was delayed leaving after the parking ended" },
-      { value: "multiple_visits_same_day", label: "The vehicle attended more than once that day" },
-      { value: "anpr_disputed", label: "The camera times relied on are disputed" },
-      { value: "accessibility_additional_time", label: "Extra time was needed for a disability-related reason" },
-      { value: "hospital_attendance", label: "The visit was connected with hospital or medical attendance" },
-      { value: "loading_or_dropoff", label: "The vehicle was loading, unloading or dropping someone off" },
-      { value: "ev_charging", label: "The vehicle was charging" },
-      { value: "barrier_or_access_failure", label: "A barrier or entry/exit system failed" },
-      { value: "signage_issue", label: "The signs were unclear, hidden or contradictory" },
-      { value: "no_ntk_received", label: "No Notice to Keeper has been received" },
-      { value: "postal_ntk_timing_issue", label: "The postal Notice to Keeper arrived late" },
+      { value: "signage_issue", label: "The signage was unclear or inadequate" },
+      { value: "authorised_or_permit", label: "I have a valid permit or was authorised to park" },
+      { value: "resident_parking_rights", label: "I was a resident / have the right to park" },
+      { value: "grace_or_exit", label: "There wasn't enough time (grace period)" },
+      { value: "landowner_authority_challenge", label: "The charge is unfair or unreasonable" },
+      { value: "breakdown_immobilised", label: "I experienced a breakdown or unforeseen circumstances" },
+      { value: "other_grounds", label: "Other (please specify)" },
     ],
     serves: "TRIAGE",
     establishesFacts: [FACT.SCENARIOS],
-    askWhen: (f) => factStr(f, FACT.REGISTERED_KEEPER) !== null,
+    // Prefer issue activation from the notice allegation; only ask when
+    // the customer has not already named any scenarios.
+    askWhen: (f) =>
+      factStr(f, FACT.REGISTERED_KEEPER) !== null &&
+      (!Array.isArray(f.values[FACT.SCENARIOS]) ||
+        (f.values[FACT.SCENARIOS] as unknown[]).length === 0) &&
+      !f.tags.has("payment_made") &&
+      !f.tags.has("breakdown_immobilised") &&
+      !f.tags.has("resident_parking_rights"),
     priority: 40,
   },
 
   /* ==================== PAYMENT ==================== */
+  {
+    questionId: "Q-PAY-STATUS",
+    type: "single_choice",
+    label: "Was a parking payment made for this visit?",
+    required: true,
+    options: [
+      { value: "YES", label: "Yes — a payment was made" },
+      { value: "ATTEMPTED_FAILED", label: "A payment was attempted but did not complete" },
+      { value: "NO", label: "No payment was made" },
+      { value: "UNSURE", label: "I'm not sure" },
+    ],
+    serves: "PAYMENT",
+    establishesFacts: [FACT.PAYMENT_MADE],
+    askWhen: (f) =>
+      f.tags.has("payment_made") ||
+      f.tags.has("payment_attempted_failed") ||
+      f.tags.has("vrm_error"),
+    priority: 90,
+    supportsModules: ["KB-PAY-01"],
+  },
   {
     questionId: "Q-PAY-METHOD",
     type: "single_choice",
@@ -341,6 +360,39 @@ export const QUESTION_BANK: QuestionDef[] = [
 
   /* ==================== ANPR / DURATION ==================== */
   {
+    questionId: "Q-ANPR-IMAGES",
+    type: "single_choice",
+    label: "Does the notice show entry / exit camera images?",
+    required: true,
+    options: [
+      { value: "ANPR", label: "Yes — ANPR camera images" },
+      { value: "OTHER", label: "Other kind of evidence" },
+      { value: "UNSURE", label: "Not sure" },
+    ],
+    serves: "ANPR",
+    establishesFacts: [FACT.ANPR_IMAGES_ON_NOTICE],
+    askWhen: (f) =>
+      f.tags.has("anpr_disputed") || f.tags.has("multiple_visits_same_day"),
+    priority: 90,
+    supportsModules: ["KB-ANPR-01"],
+  },
+  {
+    questionId: "Q-ANPR-CONTINUOUS",
+    type: "single_choice",
+    label:
+      "Do you agree the vehicle remained there continuously between those times?",
+    helpText:
+      "If the vehicle left and returned, the camera may have joined the first entry to the last exit.",
+    required: true,
+    options: yesNoUnsure,
+    serves: "ANPR",
+    establishesFacts: [FACT.CONTINUOUS_PRESENCE],
+    askWhen: (f) =>
+      f.tags.has("anpr_disputed") || f.tags.has("multiple_visits_same_day"),
+    priority: 95,
+    supportsModules: ["KB-ANPR-01", "KB-ANPR-02"],
+  },
+  {
     questionId: "Q-ANPR-VISITS",
     type: "number",
     label: "How many separate times did the vehicle enter the site that day?",
@@ -351,12 +403,44 @@ export const QUESTION_BANK: QuestionDef[] = [
     max: 20,
     serves: "ANPR",
     establishesFacts: [FACT.VISIT_COUNT],
-    askWhen: (f) => f.tags.has("multiple_visits_same_day"),
-    priority: 95,
+    askWhen: (f) =>
+      f.tags.has("multiple_visits_same_day") ||
+      factStr(f, FACT.CONTINUOUS_PRESENCE) === "NO",
+    priority: 96,
     supportsModules: ["KB-ANPR-01", "KB-ANPR-02"],
   },
   {
-    questionId: "Q-ANPR-DISPUTE",
+    questionId: "Q-ANPR-ELSEWHERE",
+    type: "single_choice",
+    label:
+      "Is there evidence the vehicle was elsewhere or left the site between those times?",
+    helpText:
+      "You can upload it at the evidence step. We only refer to evidence you actually provide.",
+    required: true,
+    options: yesNoUnsure,
+    serves: "ANPR",
+    establishesFacts: [FACT.VEHICLE_LEFT_SITE_EVIDENCE],
+    askWhen: (f) =>
+      f.tags.has("anpr_disputed") ||
+      f.tags.has("multiple_visits_same_day") ||
+      factStr(f, FACT.CONTINUOUS_PRESENCE) === "NO",
+    priority: 97,
+    supportsModules: ["KB-ANPR-02"],
+  },
+  {
+    questionId: "Q-ANPR-TIMESTAMP",
+    type: "single_choice",
+    label: "Does anything look wrong with the timestamps on the notice?",
+    required: true,
+    options: yesNoUnsure,
+    serves: "ANPR",
+    establishesFacts: [FACT.TIMESTAMP_DISCREPANCY],
+    askWhen: (f) => f.tags.has("anpr_disputed"),
+    priority: 98,
+    supportsModules: ["KB-ANPR-03", "KB-TIME-01"],
+  },
+  {
+    questionId: "Q-ANPR-DETAIL",
     type: "long_text",
     label: "What specifically is wrong with the times or images relied on?",
     helpText:
@@ -365,9 +449,12 @@ export const QUESTION_BANK: QuestionDef[] = [
     placeholder:
       "e.g. the exit photograph is timestamped 14:32 but the vehicle had left before 14:00",
     serves: "ANPR",
-    establishesFacts: [FACT.CONTINUOUS_PRESENCE],
-    askWhen: (f) => f.tags.has("anpr_disputed"),
-    priority: 96,
+    establishesFacts: [FACT.ANPR_DISPUTE_DETAIL],
+    askWhen: (f) =>
+      f.tags.has("anpr_disputed") ||
+      factStr(f, FACT.CONTINUOUS_PRESENCE) === "NO" ||
+      factStr(f, FACT.TIMESTAMP_DISCREPANCY) === "YES",
+    priority: 99,
     supportsModules: ["KB-ANPR-03", "KB-TIME-01"],
   },
 
