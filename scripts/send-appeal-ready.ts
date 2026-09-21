@@ -27,9 +27,9 @@ async function main() {
   const { neon } = await import("@neondatabase/serverless");
   const nodemailer = (await import("nodemailer")).default;
   const { buildAppealReadyEmail } = await import(
-    "../lib/email/templates/appealReady.ts"
+    "../lib/email/templates/appealReady"
   );
-  const { getStorageProvider } = await import("../services/storage/index.ts");
+  const { getStorageProvider } = await import("../services/storage");
 
   const sql = neon(process.env.DATABASE_URL!);
 
