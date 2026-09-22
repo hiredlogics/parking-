@@ -296,8 +296,8 @@ export async function ensureAdminConfigSeeded(): Promise<void> {
         });
       }
       // Retire the old fact key so it is not still asked.
-      const { q } = await import("@/lib/db/pool");
-      await q(
+      const { getSql } = await import("@/lib/db/pool");
+      await getSql().query(
         `UPDATE issue_required_facts
          SET status = 'INACTIVE', updated_at = NOW()
          WHERE issue_id = $1 AND fact_key = $2`,
