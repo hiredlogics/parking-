@@ -14,9 +14,15 @@ import {
   isAuthFailure,
 } from "@/features/appeal/caseSync";
 
-const ACCEPT = "application/pdf,image/jpeg,image/png";
+// No `capture` attribute — on iOS/Android that forces the camera and
+// hides Photo Library / Camera Roll. image/* keeps gallery + take photo.
+const ACCEPT =
+  "image/*,application/pdf,.jpg,.jpeg,.png,.gif,.webp,.heic,.heif,.pdf";
 const MAX_BYTES = 10 * 1024 * 1024;
 const COMPRESS_OVER_BYTES = 900 * 1024;
+const ALLOWED_EXT = /\.(pdf|jpe?g|png|gif|webp|heic|heif)$/i;
+const ALLOWED_MIME =
+  /^(application\/pdf|image\/(jpeg|jpg|pjpeg|png|gif|webp|heic|heif|heic-sequence|heif-sequence))$/i;
 
 type Status = "idle" | "loading" | "error" | "success";
 
@@ -70,9 +76,11 @@ export default function UploadPage() {
       setError(null);
       setFileName(file.name);
       setPendingFile(file);
-      if (!/(pdf|jpeg|jpg|png)$/i.test(file.type) && !/\.(pdf|jpe?g|png)$/i.test(file.name)) {
+      const mimeOk = !file.type || ALLOWED_MIME.test(file.type);
+      const extOk = ALLOWED_EXT.test(file.name) || /^image\//i.test(file.type);
+      if (!mimeOk && !extOk) {
         setStatus("error");
-        setError("Unsupported file type. Please upload a PDF, JPG or PNG.");
+        setError("Unsupported file type. Please upload a photo (JPG, PNG, HEIC) or PDF.");
         return;
       }
       if (file.size > MAX_BYTES) {
@@ -203,7 +211,7 @@ export default function UploadPage() {
             data-testid="pcn-file-input"
             type="file"
             accept={ACCEPT}
-            capture="environment"
+            // Do not set capture — it blocks Camera Roll / Photo Library on mobile.
             onChange={onInputChange}
             className="sr-only"
           />
@@ -214,7 +222,7 @@ export default function UploadPage() {
               : "Drag and drop your file here or click to upload"}
           </p>
           <p className="mt-1.5 text-[12px] text-brand-mute sm:text-[13px]">
-            Accepted formats: JPG, PNG, PDF (Max 10MB)
+            Photo library, camera, or PDF · JPG, PNG, HEIC, PDF (Max 10MB)
           </p>
         </label>
 
@@ -350,8 +358,14 @@ function ReadingScreen({ checksVisible }: { checksVisible: number }) {
 }
 
 async function prepareUploadFile(file: File): Promise<File> {
-  if (!/^image\/(jpeg|jpg|png)$/i.test(file.type)) return file;
-  if (file.size <= COMPRESS_OVER_BYTES) return file;
+  // iOS camera-roll photos are often HEIC or have an empty mime type.
+  const isImage =
+    /^image\//i.test(file.type) ||
+    /\.(jpe?g|png|gif|webp|heic|heif)$/i.test(file.name);
+  if (!isImage) return file;
+  if (file.size <= COMPRESS_OVER_BYTES && /^image\/(jpeg|jpg|png)$/i.test(file.type)) {
+    return file;
+  }
 
   try {
     const bitmap = await createImageBitmap(file);
