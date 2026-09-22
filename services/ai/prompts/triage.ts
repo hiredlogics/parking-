@@ -18,6 +18,9 @@ It is NOT appropriate for:
 - Letters of Claim / pre-action protocol debt letters
 - County Court claim forms, CCJs, bailiff / enforcement notices
 - Council / local authority Penalty Charge Notices
+- Unrelated documents (receipts, IDs, CVs, random photos, invoices that are not a parking charge notice)
+
+If the document is clearly NOT a private parking charge notice / Notice to Keeper / windscreen notice, set document_kind to OTHER or UNKNOWN and service_decision to NOT_SUPPORTED. customer_detail must tell the customer to upload their parking notice instead.
 
 If the sender is a debt recovery company, document_kind must be DEBT_RECOVERY (or LETTER_OF_CLAIM if that is what it is), case_stage must be DEBT_RECOVERY or PRE_ACTION_LETTER_OF_CLAIM, and service_decision must be NOT_SUPPORTED.
 

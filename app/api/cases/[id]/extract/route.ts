@@ -154,6 +154,23 @@ export async function POST(
       caseId: id,
     });
     result = applyTriageToExtraction(result, triage);
+
+    // Unrelated / wrong-stage documents must not continue the appeal journey.
+    if (
+      triage.serviceDecision === "NOT_SUPPORTED" ||
+      triage.serviceDecision === "WRONG_STAGE_REDIRECT"
+    ) {
+      // Persist for audit, then return an error the upload screen can show.
+      await saveExtractionForCase(id, session, result).catch(() => undefined);
+      return fail(
+        triage.reasonCode === "UNRELATED_DOCUMENT"
+          ? "DOCUMENT_NOT_ACCEPTED"
+          : "WRONG_DOCUMENT_STAGE",
+        triage.detail ||
+          "This document is not suitable for the standard private parking appeal service. Please upload a parking charge notice.",
+        422,
+      );
+    }
   } catch (err) {
     console.error("[cases/extract] triage failed:", err);
     // Deterministic fallback inside runDocumentTriage should usually catch

@@ -17,6 +17,9 @@ const COURT_DETAIL =
 const COUNCIL_DETAIL =
   "This document appears to be at a later stage of the process and is not suitable for the standard appeal service.";
 
+const UNRELATED_DETAIL =
+  "This file does not appear to be a private parking charge notice (or Notice to Keeper). Please upload a clear photo or PDF of your parking notice. Other documents cannot be used for this appeal service.";
+
 const DEBT_RECOVERY_SENDERS =
   /\b(?:debt\s*recovery\s*plus|\bdrp\b|zzps|trace\s*debt|debt\s*recovery|debt\s*collection|parking\s*collection|direct\s*collection(?:\s*bailiffs)?|\bdcbl\b|bw\s*legal|gladstones(?:\s*solicitors)?|moorside\s*legal|wright\s*hassall|qdr\s*solicitors|freeths|excel\s*collections?)\b/i;
 
@@ -28,6 +31,14 @@ const COURT_TEXT =
 
 const COUNCIL_TEXT =
   /\b(?:local\s+authority|council\s+pcn|penalty\s+charge\s+notice|civil\s+enforcement\s+of\s+road\s+traffic|traffic\s+management\s+act)\b/i;
+
+/** Positive signals that this is (or could be) a private parking notice. */
+const PARKING_NOTICE_SIGNALS =
+  /\b(?:parking\s+charge|parking\s+notice|notice\s+to\s+keeper|pcn\b|anpr|private\s+parking|pay\s+and\s+display|failure\s+to\s+pay|overstay|permit|windscreen|keeper\s+liability|vehicle\s+registration|vrm)\b/i;
+
+const UNRELATED_DOC_SIGNALS =
+  /\b(?:curriculum\s+vitae|\bcv\b|passport|driving\s+licence|bank\s+statement|utility\s+bill|invoice\s+only|wedding|birthday|menu|receipt\s+from\s+tesco|amazon\s+order|boarding\s+pass|medical\s+report|prescription)\b/i;
+
 
 export interface DeterministicTriageInput {
   operatorName?: string | null;
@@ -139,6 +150,41 @@ export function assessDocumentDeterministic(
     });
   }
 
+  if (UNRELATED_DOC_SIGNALS.test(text)) {
+    return result({
+      documentKind: "OTHER",
+      caseStage: "UNKNOWN",
+      senderName: sender,
+      parkingOperatorName: null,
+      serviceDecision: "NOT_SUPPORTED",
+      reasonCode: "UNRELATED_DOCUMENT",
+      detail: UNRELATED_DETAIL,
+      confidence: 0.9,
+      signals: ["deterministic:unrelated_document"],
+    });
+  }
+
+  const hasParkingSignal = PARKING_NOTICE_SIGNALS.test(text);
+  const hasCoreFields =
+    Boolean(sender) ||
+    Boolean((input.allegedBreach ?? "").trim()) ||
+    Boolean((input.parkingLocation ?? "").trim());
+
+  // Empty / unrelated uploads: no parking language and almost no PCN fields.
+  if (!hasParkingSignal && !hasCoreFields) {
+    return result({
+      documentKind: "UNKNOWN",
+      caseStage: "UNKNOWN",
+      senderName: sender,
+      parkingOperatorName: null,
+      serviceDecision: "NOT_SUPPORTED",
+      reasonCode: "UNRELATED_DOCUMENT",
+      detail: UNRELATED_DETAIL,
+      confidence: 0.8,
+      signals: ["deterministic:no_parking_signals"],
+    });
+  }
+
   return result({
     documentKind: "INITIAL_OPERATOR_PCN",
     caseStage: "INITIAL_OPERATOR_APPEAL",
@@ -147,8 +193,10 @@ export function assessDocumentDeterministic(
     serviceDecision: "PRIVATE_PARKING_INITIAL_APPEAL_OK",
     reasonCode: "IN_SCOPE_INITIAL_APPEAL",
     detail: "Document appears to be an initial private parking notice.",
-    confidence: 0.55,
-    signals: ["deterministic:assumed_initial_pcn"],
+    confidence: hasParkingSignal ? 0.7 : 0.55,
+    signals: hasParkingSignal
+      ? ["deterministic:parking_notice_signals"]
+      : ["deterministic:assumed_initial_pcn"],
   });
 }
 
@@ -186,6 +234,20 @@ export function mergeTriageResults(
       parkingOperatorName:
         ai.parkingOperatorName ?? deterministic.parkingOperatorName,
       signals: [...ai.signals, "merge:ai_not_supported"],
+    };
+  }
+
+  // AI classified as OTHER/UNKNOWN but forgot NOT_SUPPORTED — still block.
+  if (
+    (ai.documentKind === "OTHER" || ai.documentKind === "UNKNOWN") &&
+    ai.serviceDecision === "PRIVATE_PARKING_INITIAL_APPEAL_OK"
+  ) {
+    return {
+      ...ai,
+      serviceDecision: "NOT_SUPPORTED",
+      reasonCode: ai.reasonCode || "UNRELATED_DOCUMENT",
+      detail: ai.detail || UNRELATED_DETAIL,
+      signals: [...ai.signals, "merge:other_forced_not_supported"],
     };
   }
 

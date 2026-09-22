@@ -46,6 +46,14 @@ export interface DraftingContext {
     assembledBody: string;
   };
   /**
+   * RAG-retrieved rule chunks from the separate vector store.
+   * Fully separate from the system prompt — injected only as retrieved context.
+   */
+  ragRules?: {
+    texts: string[];
+    ids: string[];
+  };
+  /**
    * What Case Intelligence already established from the document, before
    * the customer was asked anything.
    *

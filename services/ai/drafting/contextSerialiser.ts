@@ -109,6 +109,18 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
     if (m.draftingNotes) lines.push(`Drafting limits: ${m.draftingNotes}`);
   });
 
+  if (ctx.ragRules && ctx.ragRules.texts.length > 0) {
+    lines.push("");
+    lines.push("=== RETRIEVED RULES (RAG — separate vector store) ===");
+    lines.push(
+      "These rule excerpts were retrieved from the approved rules vector store for this case. Use them only where they fit the verified facts. Do not invent further legal propositions.",
+    );
+    ctx.ragRules.texts.forEach((t, i) => {
+      lines.push("");
+      lines.push(`[R${i + 1}] ${t}`);
+    });
+  }
+
   if (ctx.blocks.length > 0) {
     lines.push("");
     lines.push("=== APPROVED WORDING (paraphrase, merge and reorder — do not paste verbatim in sequence) ===");

@@ -12,9 +12,14 @@ import type {
 } from "@/types/triage";
 import type { ExtractionResult } from "@/types";
 
-/** Customer-facing stop message for unsuitable documents. */
+/** Customer-facing stop message for unsuitable / wrong-stage documents. */
 export const SERVICE_NOT_SUITABLE_DETAIL =
   "This document appears to be at a later stage of the process and is not suitable for the standard appeal service.";
+
+/** Customer-facing stop when the upload is not a related parking notice. */
+export const UNRELATED_DOCUMENT_DETAIL =
+  "This file does not appear to be a private parking charge notice (or Notice to Keeper). Please upload a clear photo or PDF of your parking notice. Other documents cannot be used for this appeal service.";
+
 
 export interface DurableDocumentUnderstanding {
   documentType: DocumentKind | null;

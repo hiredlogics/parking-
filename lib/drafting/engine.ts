@@ -161,6 +161,48 @@ export async function draftAppeal(
     evidenceTypes: input.evidenceTypes ?? [],
   });
 
+  // Separate rules vector store → RAG retrieve for the LLM prompt only.
+  let ragRules: { texts: string[]; ids: string[] } | undefined;
+  try {
+    const { buildCaseRagQuery, retrieveRulesForCase } = await import(
+      "@/lib/rag/retrieveRules"
+    );
+    const circumstanceTags = Array.isArray(
+      (input.answers as Record<string, unknown>)?.scenarios,
+    )
+      ? ((input.answers as Record<string, unknown>).scenarios as string[])
+      : [];
+    const query = buildCaseRagQuery({
+      allegedBreach: input.confirmed.alleged_breach,
+      operatorName: input.confirmed.operator_name,
+      routes: [
+        analysis.primaryRoute,
+        ...analysis.secondaryRoutes,
+      ].filter(Boolean) as string[],
+      circumstanceTags,
+      findings: (input.intelligence?.technicalFindings ?? [])
+        .filter((f) => f.status === "IDENTIFIED")
+        .map((f) => f.ground),
+    });
+    ragRules = await retrieveRulesForCase({
+      query,
+      routes: [
+        analysis.primaryRoute,
+        ...analysis.secondaryRoutes,
+      ].filter(Boolean) as string[],
+      topK: 8,
+    });
+    if (ragRules.texts.length > 0) {
+      warnings.push(
+        `RAG retrieved ${ragRules.texts.length} rule chunk(s) from the vector store.`,
+      );
+    }
+  } catch (err) {
+    warnings.push(
+      `RAG rules retrieve skipped: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
   if (
     retrieval.modules.length === 0 &&
     rulesBasis.approvedParagraphTexts.length === 0
@@ -193,6 +235,7 @@ export async function draftAppeal(
     availableEvidence: input.evidenceTypes ?? [],
     feedback: input.feedback,
     rulesBasis,
+    ragRules,
     intelligence: ci
       ? {
           documentType: ci.documentUnderstanding?.documentType ?? null,
