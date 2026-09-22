@@ -196,14 +196,22 @@ export function deriveKnownFacts(input: {
   // Infer England/Wales / Scotland / NI from location or postcode when
   // the customer has not already answered — avoids a redundant question.
   if (!isEstablished(values[FACT.JURISDICTION])) {
-    const inferred = inferUkJurisdiction(
+    const locationText =
       typeof values[FACT.PARKING_LOCATION] === "string"
-        ? values[FACT.PARKING_LOCATION]
-        : c?.parking_location,
+        ? (values[FACT.PARKING_LOCATION] as string)
+        : (c?.parking_location ?? null);
+    const keeperPostcode =
       typeof values["keeper_postcode"] === "string"
-        ? values["keeper_postcode"]
-        : null,
-      typeof values["keeper_town"] === "string" ? values["keeper_town"] : null,
+        ? (values["keeper_postcode"] as string)
+        : null;
+    const keeperTown =
+      typeof values["keeper_town"] === "string"
+        ? (values["keeper_town"] as string)
+        : null;
+    const inferred = inferUkJurisdiction(
+      locationText,
+      keeperPostcode,
+      keeperTown,
     );
     if (inferred) values[FACT.JURISDICTION] = inferred;
   }
