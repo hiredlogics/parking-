@@ -108,6 +108,28 @@ export async function buildRulesBasedLetter(input: {
     rules,
   );
 
+  // Hard suppress grace paragraphs when the recorded stay contradicts
+  // end-of-parking grace (e.g. multi-hour ANPR window).
+  const graceOk = isGraceGroundSupportable({
+    totalRecordedDurationMinutes: input.confirmed.total_recorded_duration ?? null,
+    entryTime: input.confirmed.entry_time ?? null,
+    exitTime: input.confirmed.exit_time ?? null,
+    exitDelayReason:
+      typeof enriched[FACT.EXIT_DELAY_REASON] === "string"
+        ? (enriched[FACT.EXIT_DELAY_REASON] as string)
+        : null,
+    allegedOverstayMinutes: legacy.branch.grace?.alleged_overstay_minutes ?? null,
+    gracePeriodApplicable: legacy.branch.grace?.grace_period_applicable ?? null,
+  });
+  if (!graceOk.ok) {
+    evaluation.matchedParagraphIds = evaluation.matchedParagraphIds.filter(
+      (id) => !id.startsWith("PP-GRACE-"),
+    );
+    evaluation.activeRoutes = evaluation.activeRoutes.filter(
+      (r) => r !== "GRACE_ROUTE",
+    );
+  }
+
   const assembled = assembleAppeal(
     input.confirmed,
     legacy,
