@@ -125,7 +125,8 @@ const ISSUE_SEEDS: IssueSeed[] = [
     triggerTags: ["grace"],
     facts: [
       { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 10 },
-      { factKey: FACT.DEPARTURE_DELAY, reasonCode: "GRACE_PERIOD_UNRESOLVED", priority: 20 },
+      // Align with Q-GRACE-EXIT (exit_delay_reason), not an unused departure_delay key.
+      { factKey: FACT.EXIT_DELAY_REASON, reasonCode: "GRACE_PERIOD_UNRESOLVED", priority: 20 },
     ],
     moduleIds: ["KB-GRACE-01"],
   },
@@ -269,6 +270,39 @@ export async function ensureAdminConfigSeeded(): Promise<void> {
           seedOnly: false,
         });
       }
+    }
+
+    // Force-refresh GRACE so exit_delay_reason replaces stale departure_delay.
+    const graceSeed = ISSUE_SEEDS.find((s) => s.code === "GRACE");
+    if (graceSeed) {
+      const grace = await upsertIssue({
+        serviceId: service.id,
+        code: graceSeed.code,
+        label: graceSeed.label,
+        sortOrder: graceSeed.sortOrder,
+        triggerTags: graceSeed.triggerTags,
+        status: "ACTIVE",
+        seedOnly: false,
+      });
+      for (const f of graceSeed.facts) {
+        await upsertIssueFact({
+          issueId: grace.id,
+          factKey: f.factKey,
+          reasonCode: f.reasonCode,
+          priority: f.priority,
+          evidenceTypes: f.evidenceTypes ?? [],
+          status: "ACTIVE",
+          seedOnly: false,
+        });
+      }
+      // Retire the old fact key so it is not still asked.
+      const { q } = await import("@/lib/db/pool");
+      await q(
+        `UPDATE issue_required_facts
+         SET status = 'INACTIVE', updated_at = NOW()
+         WHERE issue_id = $1 AND fact_key = $2`,
+        [grace.id, FACT.DEPARTURE_DELAY],
+      );
     }
 
     // Triage / scope facts as a synthetic issue for questioning completeness

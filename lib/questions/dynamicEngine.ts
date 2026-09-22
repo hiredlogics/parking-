@@ -366,14 +366,12 @@ export async function nextDynamicQuestion(
   const ordered = ranked.map((r) => r.requirement);
 
   /*
-   * Prefer the controlled bank first — avoids an OpenAI round-trip on
-   * every answer when a packed question already covers the fact.
-   * Skipped when a provider is injected (tests) or QUESTION_PREFER_BANK=0.
+   * Prefer AI phrasing of the next missing fact (AI-led journey).
+   * Set QUESTION_PREFER_BANK=1 to serve packed bank questions first.
    */
   const preferBank =
     input.provider === undefined &&
-    (process.env.QUESTION_PREFER_BANK ?? "1").toLowerCase() !== "0" &&
-    (process.env.QUESTION_PREFER_BANK ?? "1").toLowerCase() !== "false";
+    (process.env.QUESTION_PREFER_BANK ?? "0").toLowerCase() === "1";
 
   if (preferBank) {
     for (const requirement of ordered) {

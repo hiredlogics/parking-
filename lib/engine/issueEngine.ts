@@ -5,8 +5,10 @@
  * requirements.ts as the authority for "what is active" and "what fact
  * is still missing" when USE_ADMIN_ISSUE_ENGINE is enabled (default on).
  *
- * Legacy engines remain in the repo but are no longer called from the
- * live questioning path once this module is wired.
+ * Customer situation tags describe circumstances for questioning.
+ * Notice allegations may open investigation routes, but must not force
+ * residential / permit questionnaires when the customer has already
+ * named different circumstances (e.g. grace only).
  */
 import { loadServiceGraph } from "@/lib/config/adminRepo";
 import { ensureAdminConfigSeeded } from "@/lib/config/seedAdminConfig";
@@ -42,6 +44,23 @@ export interface IssueEngineResult {
   origin: "admin_config";
 }
 
+/**
+ * Issues that need customer-reported circumstances (or prior answers)
+ * before the notice allegation alone may force a questionnaire.
+ *
+ * "Unauthorised" / "no permit" on a hospital PCN must not drag someone
+ * who only reported a grace/exit timing issue through a residential
+ * lease interview.
+ */
+const CIRCUMSTANCE_LED_ISSUES = new Set([
+  "RESIDENTIAL",
+  "AUTHORISATION",
+  "AUTHORIZATION",
+  "PERMIT",
+  "EQUALITY",
+  "BREAKDOWN",
+]);
+
 function scenarioTags(facts: KnownFacts): Set<string> {
   const tags = new Set<string>();
   const scenarios = facts.values[FACT.SCENARIOS];
@@ -50,7 +69,6 @@ function scenarioTags(facts: KnownFacts): Set<string> {
       if (typeof s === "string") tags.add(s.toLowerCase());
     }
   }
-  // Also include KnownFacts.tags if present
   if (facts.tags) {
     for (const t of facts.tags) tags.add(String(t).toLowerCase());
   }
@@ -76,8 +94,15 @@ function factResolved(facts: KnownFacts, factKey: string): boolean {
   const v = facts.values[factKey];
   if (v === undefined || v === null || v === "") return false;
   if (Array.isArray(v) && v.length === 0) return false;
-  // "not sure" style answers still count as answered for journey progress
   return true;
+}
+
+/** Grace exit-delay answers satisfy either seeded fact key. */
+function graceDelayResolved(facts: KnownFacts): boolean {
+  return (
+    factResolved(facts, FACT.EXIT_DELAY_REASON) ||
+    factResolved(facts, FACT.DEPARTURE_DELAY)
+  );
 }
 
 /**
@@ -109,16 +134,17 @@ export async function evaluateIssues(input: {
   const allegationRoutes = new Set<RouteFamily>(
     classifyAllegation(factStr(input.facts, FACT.ALLEGED_BREACH)).routes,
   );
+  const scenariosAnswered = factResolved(input.facts, FACT.SCENARIOS);
 
   /** Map issue codes / labels onto allegation-opened route families. */
   const issueMatchesAllegation = (code: string, label: string): boolean => {
     const hay = `${code} ${label}`.toUpperCase();
     for (const route of allegationRoutes) {
       if (hay.includes(route)) return true;
-      // Common admin codes: GRACE_PERIOD, PAYMENT_KEYING, etc.
       if (route === "PAYMENT" && /PAY|KEYING/.test(hay)) return true;
       if (route === "AUTHORIZATION" && /AUTHOR|PERMIT/.test(hay)) return true;
       if (route === "CONSIDERATION" && /CONSIDER/.test(hay)) return true;
+      if (route === "GRACE" && /GRACE/.test(hay)) return true;
     }
     return false;
   };
@@ -127,44 +153,65 @@ export async function evaluateIssues(input: {
   const missingFacts: MissingFact[] = [];
 
   for (const issue of graph.issues) {
-    // TRIAGE_SCOPE always active until its facts are complete
     const isTriage = issue.code === "TRIAGE_SCOPE";
     const tagHit = issue.triggerTags.some((t) => tagsMatchTrigger(tags, t));
-    const allegationHit =
-      !isTriage && issueMatchesAllegation(issue.code, issue.label);
+    const matchesAllegation = issueMatchesAllegation(issue.code, issue.label);
 
-    // Activate from customer circumstances OR notice allegation.
-    // Do not require a scenario tag when the notice itself opens the route.
+    // After the customer has named circumstances, do not force
+    // residential / permit / equality questionnaires from notice wording
+    // alone. Those need a matching situation tag (or explicit answers).
+    const allegationHit =
+      !isTriage &&
+      matchesAllegation &&
+      (!scenariosAnswered ||
+        !CIRCUMSTANCE_LED_ISSUES.has(issue.code.toUpperCase()));
+
     if (!isTriage && !tagHit && !allegationHit) continue;
 
-    if (isTriage || tagHit || allegationHit) {
-      activeIssues.push({
-        code: issue.code,
-        label: issue.label,
-        moduleIds: issue.knowledge.map((k) => k.moduleId),
-      });
+    activeIssues.push({
+      code: issue.code,
+      label: issue.label,
+      moduleIds: issue.knowledge.map((k) => k.moduleId),
+    });
 
-      for (const f of issue.facts) {
-        if (factResolved(input.facts, f.factKey)) continue;
-        if (
-          f.evidenceTypes.length > 0 &&
-          f.evidenceTypes.some((e) => evidence.has(e))
-        ) {
-          continue;
-        }
-        missingFacts.push({
-          factKey: f.factKey,
-          reasonCode: f.reasonCode,
-          issueCode: issue.code,
-          priority: f.priority + issue.sortOrder,
-          evidenceTypes: f.evidenceTypes,
-        });
+    for (const f of issue.facts) {
+      if (f.factKey === FACT.SCENARIOS && scenariosAnswered) continue;
+
+      if (
+        (f.factKey === FACT.DEPARTURE_DELAY ||
+          f.factKey === FACT.EXIT_DELAY_REASON) &&
+        graceDelayResolved(input.facts)
+      ) {
+        continue;
       }
+
+      if (factResolved(input.facts, f.factKey)) continue;
+
+      // No point asking where permission came from if none was held.
+      if (
+        f.factKey === FACT.PERMISSION_SOURCE &&
+        factStr(input.facts, FACT.PERMISSION_HELD) === "NO"
+      ) {
+        continue;
+      }
+
+      if (
+        f.evidenceTypes.length > 0 &&
+        f.evidenceTypes.some((e) => evidence.has(e))
+      ) {
+        continue;
+      }
+
+      missingFacts.push({
+        factKey: f.factKey,
+        reasonCode: f.reasonCode,
+        issueCode: issue.code,
+        priority: f.priority + issue.sortOrder,
+        evidenceTypes: f.evidenceTypes,
+      });
     }
   }
 
-  // If scenarios answered but no issue matched, still surface scenarios as done
-  // and mark insufficient so admin/manual path can review.
   missingFacts.sort((a, b) => a.priority - b.priority);
   const nextFact = missingFacts[0] ?? null;
   const applicableModuleIds = [
@@ -177,7 +224,9 @@ export async function evaluateIssues(input: {
     missingFacts,
     nextFact,
     applicableModuleIds,
-    sufficient: missingFacts.length === 0 && activeIssues.some((i) => i.code !== "TRIAGE_SCOPE"),
+    sufficient:
+      missingFacts.length === 0 &&
+      activeIssues.some((i) => i.code !== "TRIAGE_SCOPE"),
     origin: "admin_config",
   };
 }

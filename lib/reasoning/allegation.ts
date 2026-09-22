@@ -57,7 +57,8 @@ const PATTERNS: Array<{
   {
     category: "NO_PERMIT",
     re: /\b(?:no|without|invalid|failure\s+to\s+display)\s*(?:valid\s+)?permit\b|\bpermit\s+not\s+(?:displayed|valid|shown)\b/i,
-    routes: ["PERMIT", "AUTHORIZATION", "RESIDENTIAL"],
+    // Permit/auth investigation — not residential tenancy (that needs customer circumstances).
+    routes: ["PERMIT", "AUTHORIZATION"],
   },
   {
     category: "OVERSTAY",
@@ -74,7 +75,7 @@ const PATTERNS: Array<{
   {
     category: "UNAUTHORISED",
     re: /\bunauthorised\b|\bunauthorized\b|\bno\s+(?:right|authority)\s+to\s+park\b|\bnot\s+authorised\b/i,
-    routes: ["AUTHORIZATION", "RESIDENTIAL", "PERMIT"],
+    routes: ["AUTHORIZATION", "PERMIT"],
   },
   {
     category: "WRONG_BAY",
@@ -118,9 +119,9 @@ export function factsImpliedByAllegation(
     case "OVERSTAY":
       return ["permitted_period", "departure_delay", "continuous_presence"];
     case "NO_PERMIT":
-      return ["permission_held", "occupier_status"];
+      return ["permission_held"];
     case "UNAUTHORISED":
-      return ["permission_held", "permission_source"];
+      return ["permission_held"];
     case "OUTSIDE_HOURS":
       return ["permission_held", "signage_issue_basis"];
     case "WRONG_BAY":
