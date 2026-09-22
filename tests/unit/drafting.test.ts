@@ -470,7 +470,8 @@ describe("draftAppeal end to end", () => {
     const r = await draftAppeal({
       confirmed: pcn(),
       answers: answers({
-        [FACT.SCENARIOS]: ["payment_attempted_failed"],
+        // Established status, not a ticked category — see issueAnalysis.
+        [FACT.PAYMENT_MADE]: "ATTEMPTED_FAILED",
         [FACT.PAYMENT_METHOD]: "machine",
       }),
     });

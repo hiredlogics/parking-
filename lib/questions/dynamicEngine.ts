@@ -2,7 +2,11 @@ import type { RouteFamily } from "@/types/caseState";
 import type { ConfirmedPcn } from "@/types";
 import { deriveKnownFacts } from "./facts";
 import { detectOutOfScope, type ScopeDecision } from "./scope";
-import { missingRequirements, unresolvedCriticalFacts } from "./missing";
+import {
+  isRequirementActive,
+  missingRequirements,
+  unresolvedCriticalFacts,
+} from "./missing";
 import type { FactRequirement } from "./requirements";
 import { assessCandidacy } from "@/lib/reasoning/routeCandidacy";
 import { retrieveForQuestion } from "@/lib/reasoning/questionKnowledge";
@@ -38,10 +42,12 @@ import {
   evaluateIssues,
   isAdminIssueEngineEnabled,
 } from "@/lib/engine/issueEngine";
-import { ALL_REASON_CODES } from "./requirements";
+import { ALL_REASON_CODES, requirementsForFact } from "./requirements";
 import { filterMissingFactsByCircumstances } from "./caseAssessment";
 import { triageBlocksAppealJourney } from "@/types/triage";
 import type { DocumentTriageResult } from "@/types/triage";
+import type { CaseIntelligence } from "@/lib/cases/caseIntelligence";
+import { hasIdentifiedIssue } from "@/lib/cases/caseIntelligence";
 
 /**
  * AI-dynamic question orchestration.
@@ -92,6 +98,8 @@ export interface NextQuestionInput {
   provider?: QuestionProvider | null;
   /** Pre-computed document triage from extraction. */
   triage?: DocumentTriageResult | null;
+  /** Durable Case Intelligence from confirm / prior answers. */
+  caseIntelligence?: CaseIntelligence | null;
 }
 
 export type DynamicOutcome =
@@ -268,20 +276,53 @@ export async function nextDynamicQuestion(
         evidenceTypes,
       });
       adminSufficient = evaluated.sufficient;
-      missing = evaluated.missingFacts.map((m) => ({
-        fact: m.factKey,
-        reasonCode: (ALL_REASON_CODES.includes(m.reasonCode as never)
-          ? m.reasonCode
-          : "GROUNDS_UNIDENTIFIED") as FactRequirement["reasonCode"],
-        route: "TRIAGE" as FactRequirement["route"],
-        priority: m.priority,
-        rationale: `Required for ${m.issueCode}`,
-        kbModules: evaluated.applicableModuleIds.slice(0, 4),
-        when: () => true,
-      }));
+      missing = evaluated.missingFacts.map((m) => {
+        /*
+         * The static requirement map stays the authority on which route
+         * declares a fact and when that fact is conditional, because
+         * `validateGeneratedQuestion` checks the generated question against
+         * it. Stamping every fact "TRIAGE" made every non-triage question
+         * fail ROUTE_MISMATCH — the AI was called, billed, then discarded
+         * on both attempts, so the bank answered every question. And
+         * `when: () => true` erased gates such as "only ask where the
+         * permission came from once permission is established".
+         */
+        const declared = requirementsForFact(m.factKey);
+        const scoped =
+          declared.find((r) => routes.includes(r.route as RouteFamily)) ??
+          declared[0];
+        return {
+          fact: m.factKey,
+          reasonCode: (ALL_REASON_CODES.includes(m.reasonCode as never)
+            ? m.reasonCode
+            : "GROUNDS_UNIDENTIFIED") as FactRequirement["reasonCode"],
+          route: scoped?.route ?? ("TRIAGE" as FactRequirement["route"]),
+          priority: m.priority,
+          rationale: `Required for ${m.issueCode}`,
+          kbModules: evaluated.applicableModuleIds.slice(0, 4),
+          when: scoped?.when,
+        };
+      });
+      // A fact whose gate is closed must not be asked at all — otherwise
+      // the bank serves it ungated and the journey reads as a fixed tree.
+      missing = missing.filter((r) => isRequirementActive(r, facts));
       // Assessment filter: after circumstances are named, drop permission /
       // residential (etc.) questionnaires that those answers do not justify.
       missing = filterMissingFactsByCircumstances(missing, facts);
+      // Merge Case Intelligence missing facts (e.g. late-notice clarifications)
+      // without inventing new question bank entries — only known requirements.
+      missing = mergeIntelligenceMissingFacts(
+        missing,
+        input.caseIntelligence,
+        facts,
+        routes,
+      );
+      if (
+        hasIdentifiedIssue(input.caseIntelligence, "possible_late_notice") &&
+        !routes.includes("POFA")
+      ) {
+        routes.push("POFA");
+      }
       if (missing.length === 0) {
         const circumstancesNamed = Array.isArray(facts.values.scenarios)
           ? (facts.values.scenarios as unknown[]).length > 0
@@ -316,12 +357,31 @@ export async function nextDynamicQuestion(
         missingRequirements(facts, routes),
         facts,
       );
+      missing = mergeIntelligenceMissingFacts(
+        missing,
+        input.caseIntelligence,
+        facts,
+        routes,
+      );
     }
   } else {
     missing = filterMissingFactsByCircumstances(
       missingRequirements(facts, routes),
       facts,
     );
+    missing = mergeIntelligenceMissingFacts(
+      missing,
+      input.caseIntelligence,
+      facts,
+      routes,
+    );
+  }
+
+  if (
+    hasIdentifiedIssue(input.caseIntelligence, "possible_late_notice") &&
+    !routes.includes("POFA")
+  ) {
+    routes.push("POFA");
   }
 
   /*
@@ -525,11 +585,23 @@ export async function nextDynamicQuestion(
     }
   }
 
+  /*
+   * A bank answer after the AI was asked is a degradation, not a normal
+   * path: it previously left no trace outside the case's `rejections`
+   * column, so a permanently failing provider looked like a working one.
+   */
+  if (provider && rejections.length > 0) {
+    console.warn(
+      `[dynamicEngine] AI question rejected; serving bank fallback: ${rejections.join(" ")}`,
+    );
+  }
+
   // ---- Controlled bank fallback (when AI failed or preferBank was off) ----
+  // Gated pass first, across every outstanding requirement. The ungated
+  // pass below is a last resort, so a question the bank itself gates off
+  // is never served while a properly gated one is available.
   for (const requirement of ordered) {
-    const fb =
-      fallbackQuestionFor(requirement, facts) ??
-      fallbackQuestionFor(requirement, facts, { ignoreGate: true });
+    const fb = fallbackQuestionFor(requirement, facts);
     if (!fb) continue;
     return {
       status: "QUESTION_REQUIRED",
@@ -548,27 +620,29 @@ export async function nextDynamicQuestion(
     };
   }
 
-  // Prefer-bank path already tried gated bank; try ungated before giving up.
-  if (preferBank) {
-    for (const requirement of ordered) {
-      const fb = fallbackQuestionFor(requirement, facts, { ignoreGate: true });
-      if (!fb) continue;
-      return {
-        status: "QUESTION_REQUIRED",
-        question: fb.question,
-        targetFact: requirement.fact,
-        requirement,
-        provenance: {
-          origin: "BANK_FALLBACK",
-          providerId: "bank",
-          model: null,
-          promptVersion: null,
-          rejections: ["- [GATE] askWhen relaxed for remaining bank question"],
-        },
-        eligibleRoutes: routes,
-        missingFacts: missing.map((m) => m.fact),
-      };
-    }
+  // Last resort: nothing could be served within its gate, so relax the
+  // gate rather than dead-ending the customer on "under review".
+  for (const requirement of ordered) {
+    const fb = fallbackQuestionFor(requirement, facts, { ignoreGate: true });
+    if (!fb) continue;
+    return {
+      status: "QUESTION_REQUIRED",
+      question: fb.question,
+      targetFact: requirement.fact,
+      requirement,
+      provenance: {
+        origin: "BANK_FALLBACK",
+        providerId: provider ? provider.id : "bank",
+        model: null,
+        promptVersion: null,
+        rejections: [
+          ...rejections,
+          "- [GATE] askWhen relaxed for remaining bank question",
+        ],
+      },
+      eligibleRoutes: routes,
+      missingFacts: missing.map((m) => m.fact),
+    };
   }
 
   /*
@@ -586,4 +660,50 @@ export async function nextDynamicQuestion(
 
 function describe(failures: ValidationFailure[]): string[] {
   return summariseFailures(failures).split("\n").filter(Boolean);
+}
+
+/**
+ * Fold Case Intelligence clarification facts into the missing list.
+ * Only adds facts that already exist in the requirements map — never
+ * invents new question targets.
+ */
+function mergeIntelligenceMissingFacts(
+  missing: FactRequirement[],
+  intelligence: CaseIntelligence | null | undefined,
+  facts: KnownFacts,
+  routes: RouteFamily[],
+): FactRequirement[] {
+  if (!intelligence?.identifiedIssues.length) return missing;
+  const have = new Set(missing.map((m) => m.fact));
+  const out = [...missing];
+
+  for (const issue of intelligence.identifiedIssues) {
+    const preferPofa = issue.code === "possible_late_notice";
+    for (const factKey of issue.missingFacts) {
+      if (have.has(factKey)) continue;
+      const v = facts.values[factKey];
+      if (v !== undefined && v !== null && v !== "") {
+        if (!Array.isArray(v) || v.length > 0) continue;
+      }
+      const declared = requirementsForFact(factKey);
+      if (declared.length === 0) continue;
+      const scoped =
+        (preferPofa
+          ? declared.find((r) => r.route === "POFA")
+          : undefined) ??
+        declared.find((r) => routes.includes(r.route as RouteFamily)) ??
+        declared[0];
+      if (!isRequirementActive(scoped, facts)) continue;
+      out.push({
+        ...scoped,
+        priority: Math.min(scoped.priority, preferPofa ? 8 : scoped.priority),
+        rationale: `Required to resolve ${issue.code}`,
+        kbModules: [
+          ...new Set([...(scoped.kbModules ?? []), ...issue.knowledgeRefs]),
+        ].slice(0, 6),
+      });
+      have.add(factKey);
+    }
+  }
+  return out;
 }

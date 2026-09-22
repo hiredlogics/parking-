@@ -157,14 +157,13 @@ export async function evaluateIssues(input: {
     const tagHit = issue.triggerTags.some((t) => tagsMatchTrigger(tags, t));
     const matchesAllegation = issueMatchesAllegation(issue.code, issue.label);
 
-    // After the customer has named circumstances, do not force
-    // residential / permit / equality questionnaires from notice wording
-    // alone. Those need a matching situation tag (or explicit answers).
+    // Circumstance-led issues (AUTHORISATION / RESIDENTIAL / PERMIT / …)
+    // activate only from customer circumstance tags — never from the
+    // notice allegation alone before circumstances are known.
     const allegationHit =
       !isTriage &&
       matchesAllegation &&
-      (!scenariosAnswered ||
-        !CIRCUMSTANCE_LED_ISSUES.has(issue.code.toUpperCase()));
+      !CIRCUMSTANCE_LED_ISSUES.has(issue.code.toUpperCase());
 
     if (!isTriage && !tagHit && !allegationHit) continue;
 

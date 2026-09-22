@@ -72,7 +72,7 @@ function makeCase(over: Partial<AppealCase> = {}): AppealCase {
     candidateRoutes: ["PAYMENT"], primaryRoute: "PAYMENT", secondaryRoutes: [],
     missingFacts: [], codeVersionId: "CODE-SINGLE-V1",
     questioningComplete: true, sufficiencyStatus: "SUFFICIENT",
-    readinessCheckedAt: null, outOfScopeReason: null, outOfScopeDetail: null,
+    readinessCheckedAt: null, outOfScopeReason: null, outOfScopeDetail: null, documentType: null, senderName: null, parkingOperatorName: null, caseStage: null, serviceDecision: null, caseIntelligence: null,
     // PAID is what entitles generation.
     paymentStatus: "PAID", appealLocked: false, orderId: null,
     lifecycleStatus: lifecycleStatusFor(status),
@@ -109,8 +109,17 @@ function readCase(c: AppealCase): AppealCase {
   };
 }
 
+const savedIntelligence: Array<{ caseId: string; intelligence: unknown }> = [];
+
 vi.mock("@/lib/cases/repo", () => ({
   findCase: async (id: string) => (cases[id] ? readCase(cases[id]) : null),
+  // Generation persists Case Intelligence before drafting; record it so a
+  // test can assert on it rather than silently dropping the write.
+  saveCaseIntelligence: async (caseId: string, intelligence: unknown) => {
+    savedIntelligence.push({ caseId, intelligence });
+  },
+  loadCaseIntelligence: async (caseId: string) =>
+    savedIntelligence.filter((r) => r.caseId === caseId).at(-1)?.intelligence ?? null,
   findCasesForCustomer: async (customerId: string) =>
     Object.values(cases)
       .filter((c) => c.customerId === customerId)

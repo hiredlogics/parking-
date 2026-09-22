@@ -23,9 +23,9 @@ describe("document triage — Debt Recovery Plus", () => {
     expect(triage.documentKind).toBe("DEBT_RECOVERY");
     expect(triage.caseStage).toBe("DEBT_RECOVERY");
     expect(triage.senderName).toMatch(/Debt Recovery Plus/i);
-    expect(triage.serviceDecision).toBe("WRONG_STAGE_REDIRECT");
+    expect(triage.serviceDecision).toBe("NOT_SUPPORTED");
     expect(triageBlocksAppealJourney(triage)).toBe(true);
-    expect(triage.detail).toMatch(/debt recovery/i);
+    expect(triage.detail).toMatch(/later stage|not suitable/i);
   });
 
   it("allows a normal operator PCN", () => {
@@ -40,7 +40,7 @@ describe("document triage — Debt Recovery Plus", () => {
     expect(triageBlocksAppealJourney(triage)).toBe(false);
   });
 
-  it("deterministic wrong-stage overrides AI saying OK", () => {
+  it("deterministic not-supported overrides AI saying OK", () => {
     const det = assessDocumentDeterministic({
       operatorName: "Debt Recovery Plus Ltd",
     });
@@ -57,7 +57,7 @@ describe("document triage — Debt Recovery Plus", () => {
       },
       det,
     );
-    expect(merged.serviceDecision).toBe("WRONG_STAGE_REDIRECT");
+    expect(merged.serviceDecision).toBe("NOT_SUPPORTED");
   });
 });
 
@@ -152,7 +152,7 @@ describe("dynamicEngine + triage gate", () => {
     });
     expect(out.status).toBe("OUT_OF_SCOPE");
     if (out.status === "OUT_OF_SCOPE") {
-      expect(out.scope.detail).toMatch(/debt recovery/i);
+      expect(out.scope.detail).toMatch(/not suitable|later stage/i);
     }
   });
 });

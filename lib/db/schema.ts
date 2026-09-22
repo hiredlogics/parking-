@@ -313,6 +313,39 @@ const SENTINEL_COLUMN = {
 };
 
 /**
+ * Additive migrations, applied by version rather than by probe.
+ *
+ * The sentinel above short-circuits the expensive CREATE TABLE block,
+ * which is what we want — but it also meant every column added later
+ * was invisible to an existing database. `ensureSchema()` returned
+ * before the ALTERs ran, and `scripts/migrate.mts` calls this same
+ * function, so there was no way to apply them at all: the document
+ * understanding and Case Intelligence columns never reached production.
+ *
+ * Everything listed here is idempotent (`ADD COLUMN IF NOT EXISTS`,
+ * `CREATE ... IF NOT EXISTS`) and runs once per version bump, on new
+ * and existing databases alike. Bump SCHEMA_VERSION when you append.
+ */
+const SCHEMA_VERSION = 2;
+
+const ADDITIVE_STATEMENTS: string[] = [
+  ...CASE_V2_STATEMENTS,
+  ...PASSWORD_RESET_STATEMENTS,
+];
+
+const SCHEMA_META_DDL = `CREATE TABLE IF NOT EXISTS schema_meta (
+    id         INTEGER PRIMARY KEY,
+    version    INTEGER NOT NULL,
+    updated_at TEXT NOT NULL
+  )`;
+
+function rowsOf(result: unknown): Array<Record<string, unknown>> {
+  if (Array.isArray(result)) return result as Array<Record<string, unknown>>;
+  const r = (result as { rows?: Array<Record<string, unknown>> }).rows;
+  return r ?? [];
+}
+
+/**
  * Create the schema, once.
  *
  * Every statement is idempotent, but over Neon's HTTP driver each is a
@@ -328,26 +361,49 @@ export async function ensureSchema(): Promise<void> {
   ensured = (async () => {
     const sql = getSql();
 
-    const probe = (await sql.query(
+    await sql.query(SCHEMA_META_DDL);
+
+    const probe = await sql.query(
       `SELECT to_regclass($1) IS NOT NULL
               AND EXISTS (
                 SELECT 1 FROM information_schema.columns
                  WHERE table_name = $2 AND column_name = $3
-              ) AS present`,
+              ) AS base_present,
+              COALESCE(
+                (SELECT version FROM schema_meta WHERE id = 1), 0
+              ) AS version`,
       [`public.${SENTINEL_TABLE}`, SENTINEL_COLUMN.table, SENTINEL_COLUMN.column],
-    )) as unknown as { rows?: Array<{ present: boolean }> } | Array<{ present: boolean }>;
-    const rows = Array.isArray(probe) ? probe : (probe.rows ?? []);
-    if (rows[0]?.present) {
-      // New tables added after the sentinel still need to land.
-      for (const stmt of PASSWORD_RESET_STATEMENTS) {
+    );
+    const row = rowsOf(probe)[0] ?? {};
+    const basePresent = row.base_present === true;
+    const applied = Number(row.version ?? 0);
+
+    if (!basePresent) {
+      // Genuinely new database: the full DDL, in order.
+      for (const stmt of STATEMENTS) {
         await sql.query(stmt);
       }
+    } else if (applied < SCHEMA_VERSION) {
+      /*
+       * Existing database on an older schema. Additive statements only —
+       * this is the path that was missing, and the reason production was
+       * running without the Case Intelligence columns.
+       */
+      for (const stmt of ADDITIVE_STATEMENTS) {
+        await sql.query(stmt);
+      }
+    } else {
       return;
     }
 
-    for (const stmt of STATEMENTS) {
-      await sql.query(stmt);
-    }
+    await sql.query(
+      `INSERT INTO schema_meta (id, version, updated_at)
+            VALUES (1, $1, $2)
+       ON CONFLICT (id) DO UPDATE
+              SET version = EXCLUDED.version,
+                  updated_at = EXCLUDED.updated_at`,
+      [SCHEMA_VERSION, new Date().toISOString()],
+    );
   })();
   try {
     await ensured;

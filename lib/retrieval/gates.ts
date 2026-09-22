@@ -49,7 +49,20 @@ const graceSupportable: Gate = (g) =>
         : null,
     gracePeriodApplicable: factStr(g.facts, "grace_period_applicable"),
   }).ok;
-const paymentFailed: Gate = (g) => g.facts.tags.has("payment_attempted_failed");
+/*
+ * A ticked situation category and an established answer are both
+ * acceptable grounding for a payment. `assessRoutes` was moved onto the
+ * facts, but these gates were left on the tags alone, so a payment the
+ * customer had positively confirmed retrieved no payment module and no
+ * payment paragraph — the deterministic checkbox silently outranking
+ * what the case actually established.
+ */
+const paymentMade: Gate = (g) =>
+  g.facts.tags.has("payment_made") ||
+  factStr(g.facts, FACT.PAYMENT_MADE) === "YES";
+const paymentFailed: Gate = (g) =>
+  g.facts.tags.has("payment_attempted_failed") ||
+  factStr(g.facts, FACT.PAYMENT_MADE) === "ATTEMPTED_FAILED";
 const signageBasis = (...keys: string[]): Gate => (g) => {
   const raw = g.facts.values[FACT.SIGNAGE_ISSUE_BASIS];
   const basis = Array.isArray(raw) ? (raw as string[]) : [];
@@ -82,7 +95,7 @@ export const MODULE_GATES: Record<string, Gate> = {
     g.facts.known.has(FACT.ENTRY_TIME),
 
   /* ---- Payment: distinguish success from prevented attempt ---- */
-  "KB-PAY-01": tag("payment_made"),
+  "KB-PAY-01": paymentMade,
   "KB-PAY-02": (g) => paymentFailed(g) && method("machine")(g),
   "KB-PAY-03": (g) => paymentFailed(g) && method("app", "online", "phone")(g),
 

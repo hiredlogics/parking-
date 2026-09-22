@@ -46,7 +46,7 @@ function makeCase(over: Partial<AppealCase> = {}): AppealCase {
     candidateRoutes: ["PAYMENT"], primaryRoute: "PAYMENT", secondaryRoutes: [],
     missingFacts: [], codeVersionId: null,
     questioningComplete: true, sufficiencyStatus: "SUFFICIENT",
-    readinessCheckedAt: null, outOfScopeReason: null, outOfScopeDetail: null,
+    readinessCheckedAt: null, outOfScopeReason: null, outOfScopeDetail: null, documentType: null, senderName: null, parkingOperatorName: null, caseStage: null, serviceDecision: null, caseIntelligence: null,
     paymentStatus: "PAID", appealLocked: false, orderId: null,
     outcomeStatus,
     outcomeRecordedAt: null, outcomeSource: null, outcomeDetail: null,

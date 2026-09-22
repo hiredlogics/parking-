@@ -65,6 +65,12 @@ function makeCase(over: Partial<AppealCase> = {}): AppealCase {
     readinessCheckedAt: null,
     outOfScopeReason: null,
     outOfScopeDetail: null,
+    documentType: null,
+    senderName: null,
+    parkingOperatorName: null,
+    caseStage: null,
+    serviceDecision: null,
+    caseIntelligence: null,
     paymentStatus: "UNPAID",
     appealLocked: true,
     orderId: null,
@@ -136,6 +142,7 @@ vi.mock("@/lib/cases/repo", () => ({
   setAwaitingAdminApproval: async () => {},
   markSubmitted: (id: string) => markSubmitted(id),
   updateCaseRoutes: async () => {},
+  saveCaseIntelligence: async () => {},
 }));
 
 vi.mock("@/lib/cases/finalDocument", () => ({

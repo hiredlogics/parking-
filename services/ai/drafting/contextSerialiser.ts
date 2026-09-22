@@ -197,6 +197,32 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
     for (const m of a.missingFacts) lines.push(`- ${m}`);
   }
 
+  const intel = ctx.intelligence;
+  if (intel) {
+    if (intel.sender && intel.operator && intel.sender !== intel.operator) {
+      lines.push("");
+      lines.push("=== DOCUMENT ORIGIN ===");
+      lines.push(`This document was sent by ${intel.sender}.`);
+      lines.push(`The parking operator is ${intel.operator}.`);
+      lines.push(
+        "Address the appeal to the parking operator, never to the sender.",
+      );
+    }
+    if (intel.technicalFindings.length > 0) {
+      lines.push("");
+      lines.push(
+        "=== TECHNICAL GROUNDS ALREADY ESTABLISHED FROM THE DOCUMENT ===",
+      );
+      lines.push(
+        "These were derived from the notice itself, not from the customer. Lead with them.",
+      );
+      for (const f of intel.technicalFindings) {
+        lines.push(`- ${f.ground} (${f.confidence})`);
+        for (const r of f.reasons) lines.push(`    ${r}`);
+      }
+    }
+  }
+
   if (ctx.feedback && ctx.feedback.trim().length > 0) {
     lines.push("");
     lines.push("=== VALIDATOR FEEDBACK ON YOUR PREVIOUS ATTEMPT ===");

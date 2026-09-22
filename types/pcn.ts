@@ -7,7 +7,13 @@
 /** Notice route vocabulary — uppercase per pack. */
 export type NoticeRoute = "POSTAL" | "WINDSCREEN" | "UNKNOWN";
 
-export type CaseStage = "INITIAL_OPERATOR_APPEAL";
+export type CaseStage =
+  | "INITIAL_OPERATOR_APPEAL"
+  | "DEBT_RECOVERY"
+  | "PRE_ACTION_LETTER_OF_CLAIM"
+  | "COURT_PROCEEDINGS"
+  | "ENFORCEMENT"
+  | "UNKNOWN";
 
 /** Raw extraction output from a DocumentExtractionProvider. */
 export interface ExtractedPcn {
@@ -34,7 +40,7 @@ export interface ExtractedPcn {
   charge_amount?: number;
   /** Operator's stated reason for the charge / contravention. */
   alleged_breach?: string;
-  /** Fixed for this build. */
+  /** Fixed for this build when in-scope; durable triage stage otherwise. */
   case_stage?: CaseStage;
 }
 
@@ -48,7 +54,8 @@ export interface ExtractionResult {
   warnings: string[];
   /**
    * Document triage — type, stage, sender vs operator, service suitability.
-   * Set after extraction. When WRONG_STAGE_REDIRECT, the appeal journey
+   * Set after extraction. When NOT_SUPPORTED (or legacy WRONG_STAGE_REDIRECT),
+   * the appeal journey must stop before questioning.
    * must stop before questioning/payment.
    */
   triage?: import("./triage").DocumentTriageResult;

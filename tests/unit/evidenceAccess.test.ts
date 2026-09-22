@@ -37,7 +37,7 @@ function makeCase(id: string, customerId: string): AppealCase {
     candidateRoutes: [], primaryRoute: null, secondaryRoutes: [],
     missingFacts: [], codeVersionId: null,
     questioningComplete: false, sufficiencyStatus: "INCOMPLETE",
-    readinessCheckedAt: null, outOfScopeReason: null, outOfScopeDetail: null,
+    readinessCheckedAt: null, outOfScopeReason: null, outOfScopeDetail: null, documentType: null, senderName: null, parkingOperatorName: null, caseStage: null, serviceDecision: null, caseIntelligence: null,
     paymentStatus: "UNPAID", appealLocked: true, orderId: null,
     lifecycleStatus: "IN_PROGRESS",
     outcomeStatus: "PENDING",

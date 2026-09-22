@@ -29,6 +29,9 @@ export type DetectedCaseStage =
 
 export type TriageServiceDecision =
   | "PRIVATE_PARKING_INITIAL_APPEAL_OK"
+  /** Standard private parking appeal service is not suitable. */
+  | "NOT_SUPPORTED"
+  /** @deprecated Prefer NOT_SUPPORTED — still recognised by gates. */
   | "WRONG_STAGE_REDIRECT"
   | "MANUAL_REVIEW";
 
@@ -59,5 +62,8 @@ export function triageBlocksAppealJourney(
   triage: DocumentTriageResult | null | undefined,
 ): boolean {
   if (!triage) return false;
-  return triage.serviceDecision === "WRONG_STAGE_REDIRECT";
+  return (
+    triage.serviceDecision === "NOT_SUPPORTED" ||
+    triage.serviceDecision === "WRONG_STAGE_REDIRECT"
+  );
 }

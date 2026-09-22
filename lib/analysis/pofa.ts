@@ -141,7 +141,57 @@ export function analysePofa(input: PofaInput): PofaAnalysis {
   const issueDate = parseDate(factStr(f, FACT.NOTICE_ISSUE_DATE));
 
   if (noticeRoute !== "POSTAL" && noticeRoute !== "WINDSCREEN") {
+    /*
+     * The route is not established. That used to end the analysis, which
+     * meant a notice the dates PROVE was served out of time produced no
+     * finding at all: `timingStatus` stayed UNRESOLVED, which left
+     * ALLEGE_POFA_TIMING_FAILURE prohibited, which excluded the timing
+     * modules and paragraphs. A notice rarely states its own method of
+     * service, so this was the common case, not the edge case.
+     *
+     * Instead, apply the shorter paragraph 9 (postal) period on the
+     * dates we do have. That is the conservative choice: 14 days is the
+     * tightest window, so a failure against it is a failure on any
+     * route. We report a failure only when the dates establish one, and
+     * NOTICE_ROUTE stays in `unresolved` so the journey still seeks
+     * confirmation. If the dates do NOT establish a failure we return
+     * UNRESOLVED as before, because an unknown route can never be the
+     * basis for asserting compliance.
+     */
     unresolved.push(FACT.NOTICE_ROUTE);
+
+    if (eventDate && issueDate) {
+      const inferredDeadline = addDays(eventDate, 14);
+      const inferredGiven = addWorkingDays(issueDate, 2);
+      const inferredLate = diffDays(inferredGiven, inferredDeadline);
+      const inferredReasons: string[] = [];
+      const inferredStatus = classify(
+        inferredLate,
+        inferredReasons,
+        inferredDeadline,
+        inferredGiven,
+        "14-day paragraph 9",
+      );
+      if (inferredStatus === "FAILED") {
+        return {
+          route: "POSTAL",
+          paragraph: "9",
+          timingStatus: "FAILED",
+          deadline: iso(inferredDeadline),
+          noticeGivenDate: iso(inferredGiven),
+          daysLate: inferredLate,
+          applicable: true,
+          reasons: [
+            "The method of service is not stated on the notice. The shorter paragraph 9 period has been applied to the recorded dates, which is the tightest window available on any Schedule 4 route.",
+            ...inferredReasons,
+            "The operator should confirm how and when the notice was served.",
+          ],
+          unresolved,
+          confirmedContentDefects: input.confirmedContentDefects ?? [],
+        };
+      }
+    }
+
     return {
       route: "UNRESOLVED",
       paragraph: null,
@@ -275,6 +325,101 @@ function classify(
     `The notice is treated as given on ${iso(given)}, within the ${label} deadline of ${iso(deadline)}.`,
   );
   return "COMPLIANT";
+}
+
+/**
+ * Date-first timing screen — used BEFORE keeper/driver answers exist.
+ *
+ * Does not allege a confirmed statutory failure (that still requires
+ * analysePofa with keeper YES / driver NO). It only flags that the
+ * notice dates, if the keeper route later applies, would be late.
+ */
+export interface PossibleLateNoticeAssessment {
+  possible: boolean;
+  paragraph: "8" | "9" | null;
+  noticeRoute: string | null;
+  timingStatus: PofaTimingStatus;
+  deadline: string | null;
+  noticeGivenDate: string | null;
+  daysLate: number | null;
+  supportingFacts: Record<string, string | number | null>;
+  missingFacts: string[];
+  reasons: string[];
+}
+
+export function assessPossibleLateNoticeFromDates(input: {
+  parkingEventDate?: string | null;
+  noticeIssueDate?: string | null;
+  noticeRoute?: string | null;
+}): PossibleLateNoticeAssessment {
+  const noticeRoute = (input.noticeRoute ?? "").toUpperCase() || null;
+  const eventDate = parseDate(input.parkingEventDate);
+  const issueDate = parseDate(input.noticeIssueDate);
+  const missingFacts: string[] = [];
+  const reasons: string[] = [];
+
+  if (!eventDate) missingFacts.push(FACT.PARKING_EVENT_DATE);
+  if (!issueDate) missingFacts.push(FACT.NOTICE_ISSUE_DATE);
+  if (noticeRoute !== "POSTAL" && noticeRoute !== "WINDSCREEN") {
+    missingFacts.push(FACT.NOTICE_ROUTE);
+  }
+
+  // Always need keeper/driver clarification before alleging liability.
+  missingFacts.push(FACT.REGISTERED_KEEPER, FACT.DRIVER_IDENTIFIED);
+
+  const supportingFacts: Record<string, string | number | null> = {
+    parking_event_date: input.parkingEventDate ?? null,
+    notice_issue_date: input.noticeIssueDate ?? null,
+    notice_route: noticeRoute,
+    delivery_assumption: "deemed_2nd_working_day_after_issue",
+  };
+
+  if (!eventDate || !issueDate) {
+    return {
+      possible: false,
+      paragraph: null,
+      noticeRoute,
+      timingStatus: "UNRESOLVED",
+      deadline: null,
+      noticeGivenDate: null,
+      daysLate: null,
+      supportingFacts,
+      missingFacts: [...new Set(missingFacts)],
+      reasons: ["Required dates are not established for a timing screen."],
+    };
+  }
+
+  // Default to paragraph 9 (postal NTK) when route unknown — most common
+  // late-NTK scenario; windscreen uses paragraph 8 with event as NTD date.
+  const usePostal = noticeRoute !== "WINDSCREEN";
+  const paragraph: "8" | "9" = usePostal ? "9" : "8";
+  const label = usePostal ? "14-day paragraph 9" : "28-day paragraph 8";
+  const deadline = usePostal
+    ? addDays(eventDate, 14)
+    : addDays(eventDate, 28);
+  const given = addWorkingDays(issueDate, 2);
+  const late = diffDays(given, deadline);
+  const timingReasons: string[] = [];
+  const status = classify(late, timingReasons, deadline, given, label);
+  reasons.push(...timingReasons);
+
+  supportingFacts.deadline = iso(deadline);
+  supportingFacts.notice_given_date = iso(given);
+  supportingFacts.days_late = status === "FAILED" ? late : null;
+  supportingFacts.paragraph = paragraph;
+
+  return {
+    possible: status === "FAILED",
+    paragraph,
+    noticeRoute: noticeRoute ?? (usePostal ? "POSTAL" : "WINDSCREEN"),
+    timingStatus: status,
+    deadline: iso(deadline),
+    noticeGivenDate: iso(given),
+    daysLate: status === "FAILED" ? late : null,
+    supportingFacts,
+    missingFacts: [...new Set(missingFacts)],
+    reasons,
+  };
 }
 
 /**

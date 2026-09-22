@@ -152,11 +152,18 @@ describe("Allegation opens routes", () => {
     expect(c.routes).toContain("KEYING");
   });
 
-  it("classifies no-permit and opens PERMIT plus RESIDENTIAL", () => {
+  it("classifies no-permit without inferring a residential tenancy", () => {
     const c = classifyAllegation("No valid permit displayed");
     expect(c.category).toBe("NO_PERMIT");
     expect(c.routes).toContain("PERMIT");
-    expect(c.routes).toContain("RESIDENTIAL");
+    expect(c.routes).toContain("AUTHORIZATION");
+    /*
+     * The wording of the allegation cannot tell us the customer is an
+     * occupier of the site. Opening RESIDENTIAL here is what used to
+     * drag every permit case through "what is your connection to the
+     * property?" — the route now waits for occupier facts.
+     */
+    expect(c.routes).not.toContain("RESIDENTIAL");
   });
 
   it("classifies overstay as a duration allegation", () => {

@@ -19,7 +19,7 @@ const PRIMARY_FIELDS: {
   type: "text" | "date" | "number";
   format?: "currency" | "dateUk";
 }[] = [
-  { key: "operator_name", label: "Parking company / sender", type: "text" },
+  { key: "operator_name", label: "Parking company", type: "text" },
   { key: "pcn_number", label: "PCN reference number", type: "text" },
   { key: "vrm", label: "Vehicle registration", type: "text" },
   { key: "parking_event_date", label: "Date of parking event", type: "date", format: "dateUk" },
@@ -140,7 +140,16 @@ export default function ConfirmPage() {
       ...(values as ExtractedPcn),
       // Normalise route so the next step can decide on keeper details.
       notice_route: (values.notice_route ?? "UNKNOWN") as NoticeRoute,
-      case_stage: "INITIAL_OPERATOR_APPEAL" as const,
+      // Durable stage from document understanding — do not reset to initial appeal.
+      case_stage: (effectiveTriage.caseStage ??
+        values.case_stage ??
+        "INITIAL_OPERATOR_APPEAL") as CaseStage,
+      // Prefer parking operator when triage separated sender vs operator.
+      operator_name:
+        effectiveTriage.parkingOperatorName ??
+        (typeof values.operator_name === "string"
+          ? values.operator_name
+          : undefined),
       confirmedAt: new Date().toISOString(),
     };
     setConfirmed(confirmed);

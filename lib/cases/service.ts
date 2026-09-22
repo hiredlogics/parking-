@@ -187,13 +187,28 @@ export async function confirmFactsForCase(
   const access = await requireCaseAccess(caseId, session, "write");
   if (!access.ok) return access;
 
+  const {
+    isServiceNotSupported,
+    SERVICE_NOT_SUITABLE_DETAIL,
+  } = await import("@/lib/cases/documentUnderstanding");
+  const { resolveSuitability } = await import("@/lib/cases/caseIntelligence");
+
   const triage = access.appealCase.extraction?.triage;
-  if (triage && triage.serviceDecision === "WRONG_STAGE_REDIRECT") {
+
+  // One authority for "can this service act on this document?".
+  const suitability = resolveSuitability({
+    caseIntelligence: access.appealCase.caseIntelligence,
+    serviceDecision: access.appealCase.serviceDecision,
+    triageServiceDecision: triage?.serviceDecision ?? null,
+    triageDetail: triage?.detail ?? null,
+    outOfScopeDetail: access.appealCase.outOfScopeDetail,
+  });
+  if (suitability.decision === "NOT_SUPPORTED") {
     return {
       ok: false,
       status: 409,
       code: "WRONG_DOCUMENT_STAGE",
-      message: triage.detail,
+      message: suitability.detail ?? SERVICE_NOT_SUITABLE_DETAIL,
     };
   }
 
@@ -205,26 +220,64 @@ export async function confirmFactsForCase(
     operatorName: confirmed.operator_name,
     allegedBreach: confirmed.alleged_breach,
     parkingLocation: confirmed.parking_location,
-    senderName: triage?.senderName,
-    parkingOperatorName: triage?.parkingOperatorName,
+    senderName:
+      access.appealCase.senderName ?? triage?.senderName ?? null,
+    parkingOperatorName:
+      access.appealCase.parkingOperatorName ??
+      triage?.parkingOperatorName ??
+      null,
   });
-  if (det.serviceDecision === "WRONG_STAGE_REDIRECT") {
+  if (isServiceNotSupported(det.serviceDecision)) {
     return {
       ok: false,
       status: 409,
       code: "WRONG_DOCUMENT_STAGE",
-      message: det.detail,
+      message: SERVICE_NOT_SUITABLE_DETAIL,
     };
   }
 
-  await repo.saveConfirmed(caseId, confirmed);
+  // Preserve durable case_stage from document understanding.
+  const confirmedWithStage: ConfirmedPcn = {
+    ...confirmed,
+    case_stage:
+      (access.appealCase.caseStage as ConfirmedPcn["case_stage"]) ??
+      confirmed.case_stage ??
+      "INITIAL_OPERATOR_APPEAL",
+    // Prefer parking operator on confirmed notice — never the debt sender.
+    operator_name:
+      access.appealCase.parkingOperatorName ??
+      confirmed.operator_name ??
+      undefined,
+  };
+
+  await repo.saveConfirmed(caseId, confirmedWithStage);
+
+  // Case Intelligence — technical analysis BEFORE questions.
+  const understanding = {
+    documentType: access.appealCase.documentType,
+    senderName: access.appealCase.senderName,
+    parkingOperatorName: access.appealCase.parkingOperatorName,
+    caseStage: access.appealCase.caseStage,
+    serviceDecision: access.appealCase.serviceDecision,
+  } as import("@/lib/cases/documentUnderstanding").DurableDocumentUnderstanding;
+  const { buildCaseIntelligence } = await import(
+    "@/lib/cases/caseIntelligence"
+  );
+  const intelligence = buildCaseIntelligence({
+    confirmed: confirmedWithStage,
+    answers: {},
+    evidenceTypes: [],
+    documentUnderstanding: understanding,
+  });
+  await repo.saveCaseIntelligence(caseId, intelligence);
 
   // Customer corrections are stored alongside the document values —
   // the original extraction is never overwritten.
   const raw = access.appealCase.extraction?.raw ?? {};
-  const entries = Object.entries(confirmed).filter(
+  const entries = Object.entries(confirmedWithStage).filter(
     ([field, value]) =>
       field !== "confirmedAt" &&
+      field !== "case_stage" &&
       value !== null &&
       value !== undefined &&
       value !== "",
@@ -348,12 +401,29 @@ async function resolveNextStep(
     await questionRepo.discardPendingQuestion(caseId);
   }
 
-  // Document triage gate — unsuitable documents never enter questioning.
+  // Suitability gate — an unsuitable document never enters questioning.
+  // Case Intelligence is the authority; see resolveSuitability.
+  const { SERVICE_NOT_SUITABLE_DETAIL } = await import(
+    "@/lib/cases/documentUnderstanding"
+  );
+  const { resolveSuitability } = await import("@/lib/cases/caseIntelligence");
   const triage = appealCase.extraction?.triage;
-  if (triage && triage.serviceDecision === "WRONG_STAGE_REDIRECT") {
+  const suitability = resolveSuitability({
+    caseIntelligence: appealCase.caseIntelligence,
+    serviceDecision: appealCase.serviceDecision,
+    triageServiceDecision: triage?.serviceDecision ?? null,
+    triageDetail: triage?.detail ?? null,
+    outOfScopeDetail: appealCase.outOfScopeDetail,
+  });
+  if (suitability.decision === "NOT_SUPPORTED") {
+    const detail = suitability.detail ?? SERVICE_NOT_SUITABLE_DETAIL;
     const scope = {
-      reason: triage.reasonCode,
-      detail: triage.detail,
+      reason:
+        appealCase.outOfScopeReason ??
+        suitability.reasonCode ??
+        triage?.reasonCode ??
+        "SERVICE_NOT_SUPPORTED",
+      detail,
       action: "OUT_OF_SCOPE" as const,
     };
     return {
@@ -362,7 +432,7 @@ async function resolveNextStep(
         question: null,
         answered: answeredCount,
         outstandingCount: 0,
-        outOfScope: { detail: triage.detail },
+        outOfScope: { detail },
         needsReview: null,
       },
       outcome: {
@@ -380,6 +450,7 @@ async function resolveNextStep(
     answers,
     evidenceTypes,
     triage: appealCase.extraction?.triage ?? null,
+    caseIntelligence: appealCase.caseIntelligence,
     // The operator's allegation opens routes on its own.
     allegedBreach:
       appealCase.confirmed?.alleged_breach ??
@@ -499,6 +570,25 @@ async function persistStepState(
           ? { reason: outcome.reason, detail: outcome.detail }
           : null,
   });
+
+  if (appealCase.confirmed) {
+    const { buildCaseIntelligence } = await import(
+      "@/lib/cases/caseIntelligence"
+    );
+    const intelligence = buildCaseIntelligence({
+      confirmed: appealCase.confirmed,
+      answers,
+      evidenceTypes,
+      documentUnderstanding: {
+        documentType: (appealCase.documentType as never) ?? null,
+        senderName: appealCase.senderName,
+        parkingOperatorName: appealCase.parkingOperatorName,
+        caseStage: (appealCase.caseStage as never) ?? null,
+        serviceDecision: (appealCase.serviceDecision as never) ?? null,
+      },
+    });
+    await repo.saveCaseIntelligence(caseId, intelligence);
+  }
 }
 
 /**

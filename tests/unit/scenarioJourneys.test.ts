@@ -230,21 +230,34 @@ describe("2. BREAKDOWN", () => {
 /* ============================ Scenario 3 ============================ */
 
 describe("3. RESIDENTIAL / ALLOCATED BAY", () => {
-  it("reads the instrument before permit arguments", async () => {
+  it("opens on occupier facts, not on the allegation wording", async () => {
     const r = await runJourney({
       confirmed: pcn({ alleged_breach: "No valid permit displayed" }),
       evidenceTypes: ["authorisation_evidence"],
-      answers: {
-        [FACT.SCENARIOS]: ["resident_parking_rights"],
+      seed: {
         [FACT.OCCUPIER_STATUS]: "YES",
-        [FACT.AGREEMENT_PERMIT_CLAUSE]: "NO",
         [FACT.BAY_REFERENCE]: "YES",
       },
+      answers: {
+        [FACT.AGREEMENT_PERMIT_CLAUSE]: "NO",
+      },
     });
-    expect(r.initialRoutes).toContain("RESIDENTIAL");
+    // Established occupier facts open the residential line.
+    expect(r.finalRoutes).toContain("RESIDENTIAL");
     // The lease upload establishes availability, so it is not asked.
     expect(factsOf(r)).not.toContain(FACT.AGREEMENT_UPLOADED);
-    expect(r.finalRoutes).toContain("RESIDENTIAL");
+
+    /*
+     * The same allegation with no occupier fact must not open it.
+     * "No valid permit displayed" says nothing about who lives there,
+     * and inferring it is what used to drag every permit case through
+     * "what is your connection to the property?".
+     */
+    const bare = await runJourney({
+      confirmed: pcn({ alleged_breach: "No valid permit displayed" }),
+      answers: {},
+    });
+    expect(bare.initialRoutes).not.toContain("RESIDENTIAL");
   });
 });
 
@@ -287,16 +300,26 @@ describe("5. ANPR MULTIPLE VISITS", () => {
 /* ============================ Scenario 6 ============================ */
 
 describe("6. CONSIDERATION PERIOD", () => {
-  it("investigates what happened before parking was accepted", async () => {
+  it("opens once the initial-period facts are established", async () => {
     const r = await runJourney({
       confirmed: pcn({ alleged_breach: "Parking without payment" }),
-      answers: {
-        [FACT.SCENARIOS]: ["short_stay_consideration"],
-        [FACT.INITIAL_PERIOD_REASON]: "YES",
-      },
+      /*
+       * Seeded rather than ticked. The situation checkbox used to open
+       * this route by itself; grounds are now decided from facts, so
+       * the fact is what the assertion has to rest on.
+       */
+      seed: { [FACT.INITIAL_PERIOD_REASON]: "YES" },
+      answers: {},
     });
     expect(r.finalRoutes).toContain("CONSIDERATION");
-    expect(factsOf(r)).toContain(FACT.INITIAL_PERIOD_REASON);
+  });
+
+  it("stays closed on a bare non-payment allegation with no such facts", async () => {
+    const r = await runJourney({
+      confirmed: pcn({ alleged_breach: "Parking without payment" }),
+      answers: {},
+    });
+    expect(r.finalRoutes).not.toContain("CONSIDERATION");
   });
 });
 
@@ -351,16 +374,15 @@ describe("9. ACCESSIBILITY / EQUALITY", () => {
   it("only activates when the facts indicate a disability-related need", async () => {
     const without = await runJourney({
       confirmed: pcn({ alleged_breach: "Overstaying maximum permitted stay" }),
-      answers: { [FACT.SCENARIOS]: ["grace_or_exit"] },
+      answers: {},
     });
     expect(without.finalRoutes).not.toContain("EQUALITY");
 
     const with_ = await runJourney({
       confirmed: pcn({ alleged_breach: "Overstaying maximum permitted stay" }),
-      answers: {
-        [FACT.SCENARIOS]: ["accessibility_additional_time"],
-        [FACT.ADDITIONAL_TIME_NEEDED]: "YES",
-      },
+      // The established need opens the route; a ticked category does not.
+      seed: { [FACT.ADDITIONAL_TIME_NEEDED]: "YES" },
+      answers: {},
     });
     expect(with_.finalRoutes).toContain("EQUALITY");
   });

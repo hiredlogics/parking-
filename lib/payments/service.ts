@@ -57,6 +57,31 @@ export async function startCheckout(
       message: "This service does not require payment.",
     };
   }
+  /*
+   * Suitability before money. Sufficiency already refuses an unsuitable
+   * document, but a customer must never be able to pay for an appeal we
+   * cannot lawfully produce, so the authority is checked directly here.
+   */
+  const { resolveSuitability } = await import("@/lib/cases/caseIntelligence");
+  const { SERVICE_NOT_SUITABLE_DETAIL } = await import(
+    "@/lib/cases/documentUnderstanding"
+  );
+  const suitability = resolveSuitability({
+    caseIntelligence: c.caseIntelligence,
+    serviceDecision: c.serviceDecision,
+    triageServiceDecision: c.extraction?.triage?.serviceDecision ?? null,
+    triageDetail: c.extraction?.triage?.detail ?? null,
+    outOfScopeDetail: c.outOfScopeDetail,
+  });
+  if (suitability.decision === "NOT_SUPPORTED") {
+    return {
+      ok: false,
+      status: 409,
+      code: "WRONG_DOCUMENT_STAGE",
+      message: suitability.detail ?? SERVICE_NOT_SUITABLE_DETAIL,
+    };
+  }
+
   if (c.sufficiencyStatus !== "SUFFICIENT") {
     return {
       ok: false,

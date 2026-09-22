@@ -34,8 +34,12 @@ export async function PATCH(
     ...body.confirmed,
     // The server stamps the confirmation time; the client cannot backdate it.
     confirmedAt: new Date().toISOString(),
-    case_stage: "INITIAL_OPERATOR_APPEAL",
+    // case_stage is durable from document understanding — never reset here.
   };
+  // Strip any client attempt to overwrite durable stage.
+  if ("case_stage" in confirmed) {
+    delete (confirmed as { case_stage?: unknown }).case_stage;
+  }
 
   const saved = await confirmFactsForCase(id, session, confirmed);
   if (!saved.ok) return failFromAccess(saved);

@@ -320,9 +320,9 @@ export async function ensureAdminConfigSeeded(): Promise<void> {
       { factKey: FACT.VEHICLE_HIRE_STATUS, reasonCode: "VEHICLE_STATUS_UNRESOLVED", priority: 2 },
       { factKey: FACT.REGISTERED_KEEPER, reasonCode: "KEEPER_STATUS_UNRESOLVED", priority: 3 },
       { factKey: FACT.DRIVER_IDENTIFIED, reasonCode: "DRIVER_NOTIFICATION_STATUS_UNRESOLVED", priority: 4 },
-      // SCENARIOS intentionally omitted — allegation + issue engine open
-      // only material routes; asking every ground as multi-choice caused
-      // excessive customer options.
+      // Circumstances before allegation-led questionnaires (AUTHORISATION /
+      // RESIDENTIAL / PERMIT). Spine: understand → circumstances → issues.
+      { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 5 },
     ]) {
       await upsertIssueFact({
         issueId: triage.id,
@@ -333,6 +333,17 @@ export async function ensureAdminConfigSeeded(): Promise<void> {
         seedOnly: true,
       });
     }
+
+    // Force-ensure SCENARIOS on TRIAGE_SCOPE even if the issue was seeded earlier
+    // without it (seedOnly would otherwise leave the gap).
+    await upsertIssueFact({
+      issueId: triage.id,
+      factKey: FACT.SCENARIOS,
+      reasonCode: "GROUNDS_UNIDENTIFIED",
+      priority: 5,
+      status: "ACTIVE",
+      seedOnly: false,
+    });
 
     await upsertEmailTemplate({
       code: "APPEAL_READY",

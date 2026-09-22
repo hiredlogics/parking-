@@ -130,8 +130,17 @@ export function computeProhibitedClaims(input: ProhibitedInput): string[] {
   }
   out.add("CLAIM_SIGN_INADEQUATE_FROM_NON_READING_ALONE");
 
-  // ---- Payment (KB-PAY-01) ----
-  if (!f.tags.has("payment_made")) {
+  /* ---- Payment (KB-PAY-01) ----
+   * An established answer outranks a ticked situation category. Route
+   * opening moved onto facts and evidence, but this gate was left on
+   * the tags alone, so a payment the customer had positively confirmed
+   * could not be asserted unless they had also ticked the box — the
+   * deterministic layer overriding what the case actually establishes.
+   */
+  if (
+    !f.tags.has("payment_made") &&
+    factStr(f, FACT.PAYMENT_MADE) !== "YES"
+  ) {
     out.add("ASSERT_PAYMENT_WAS_MADE");
   }
 

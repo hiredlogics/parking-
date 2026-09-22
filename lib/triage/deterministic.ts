@@ -6,16 +6,16 @@ import type {
 } from "@/types/triage";
 
 const DEBT_RECOVERY_DETAIL =
-  "This document is a debt recovery letter, not an initial parking charge notice. A standard private parking appeal cannot be prepared from this at this stage. Please use Expert Help for debt recovery support.";
+  "This document appears to be at a later stage of the process and is not suitable for the standard appeal service.";
 
 const LOC_DETAIL =
-  "This looks like a Letter of Claim / pre-action debt letter rather than an initial parking charge notice. The standard private parking appeal service is not appropriate. Please use Expert Help.";
+  "This document appears to be at a later stage of the process and is not suitable for the standard appeal service.";
 
 const COURT_DETAIL =
-  "This looks like court, claim or enforcement paperwork. We cannot prepare an automated private parking appeal from this document. Please use Expert Help for County Court, CCJ or bailiff support.";
+  "This document appears to be at a later stage of the process and is not suitable for the standard appeal service.";
 
 const COUNCIL_DETAIL =
-  "This looks like a council or statutory penalty notice rather than a private parking charge. Our private parking appeal service is not the right route for this document.";
+  "This document appears to be at a later stage of the process and is not suitable for the standard appeal service.";
 
 const DEBT_RECOVERY_SENDERS =
   /\b(?:debt\s*recovery\s*plus|\bdrp\b|zzps|trace\s*debt|debt\s*recovery|debt\s*collection|parking\s*collection|direct\s*collection(?:\s*bailiffs)?|\bdcbl\b|bw\s*legal|gladstones(?:\s*solicitors)?|moorside\s*legal|wright\s*hassall|qdr\s*solicitors|freeths|excel\s*collections?)\b/i;
@@ -96,7 +96,7 @@ export function assessDocumentDeterministic(
         : "COURT_PROCEEDINGS",
       senderName: sender,
       parkingOperatorName: parkingOp !== sender ? parkingOp : null,
-      serviceDecision: "WRONG_STAGE_REDIRECT",
+      serviceDecision: "NOT_SUPPORTED",
       reasonCode: "COURT_OR_ENFORCEMENT_STAGE",
       detail: COURT_DETAIL,
       confidence: 0.92,
@@ -117,7 +117,7 @@ export function assessDocumentDeterministic(
       senderName: sender,
       parkingOperatorName:
         parkingOp && parkingOp !== sender ? parkingOp : null,
-      serviceDecision: "WRONG_STAGE_REDIRECT",
+      serviceDecision: "NOT_SUPPORTED",
       reasonCode: isLoc ? "LETTER_OF_CLAIM_STAGE" : "DEBT_RECOVERY_STAGE",
       detail: isLoc ? LOC_DETAIL : DEBT_RECOVERY_DETAIL,
       confidence: 0.95,
@@ -131,7 +131,7 @@ export function assessDocumentDeterministic(
       caseStage: "UNKNOWN",
       senderName: sender,
       parkingOperatorName: null,
-      serviceDecision: "WRONG_STAGE_REDIRECT",
+      serviceDecision: "NOT_SUPPORTED",
       reasonCode: "COUNCIL_OR_STATUTORY",
       detail: COUNCIL_DETAIL,
       confidence: 0.85,
@@ -152,34 +152,40 @@ export function assessDocumentDeterministic(
   });
 }
 
-/** Prefer wrong-stage from either AI or deterministic. */
+/** Prefer not-supported from either AI or deterministic. */
 export function mergeTriageResults(
   ai: DocumentTriageResult | null | undefined,
   deterministic: DocumentTriageResult,
 ): DocumentTriageResult {
   if (!ai) return deterministic;
 
-  if (
-    deterministic.serviceDecision === "WRONG_STAGE_REDIRECT" &&
-    ai.serviceDecision !== "WRONG_STAGE_REDIRECT"
-  ) {
+  const detBlocks =
+    deterministic.serviceDecision === "NOT_SUPPORTED" ||
+    deterministic.serviceDecision === "WRONG_STAGE_REDIRECT";
+  const aiBlocks =
+    ai.serviceDecision === "NOT_SUPPORTED" ||
+    ai.serviceDecision === "WRONG_STAGE_REDIRECT";
+
+  if (detBlocks && !aiBlocks) {
     return {
       ...deterministic,
+      serviceDecision: "NOT_SUPPORTED",
       signals: [
         ...deterministic.signals,
-        "merge:deterministic_override_wrong_stage",
+        "merge:deterministic_override_not_supported",
         `ai_had:${ai.documentKind}`,
       ],
     };
   }
 
-  if (ai.serviceDecision === "WRONG_STAGE_REDIRECT") {
+  if (aiBlocks) {
     return {
       ...ai,
+      serviceDecision: "NOT_SUPPORTED",
       senderName: ai.senderName ?? deterministic.senderName,
       parkingOperatorName:
         ai.parkingOperatorName ?? deterministic.parkingOperatorName,
-      signals: [...ai.signals, "merge:ai_wrong_stage"],
+      signals: [...ai.signals, "merge:ai_not_supported"],
     };
   }
 

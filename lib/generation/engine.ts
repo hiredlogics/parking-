@@ -58,6 +58,24 @@ function withRulesRoutes(
 }
 
 /**
+ * A rules letter is a deterministic template assembled from PP-* pack
+ * paragraphs. It has passed neither the validator, the release
+ * checklist nor a keeper-safety check, so it is never released in place
+ * of a MANUAL_REVIEW outcome — all we record is that one is available
+ * for whoever picks the case up.
+ */
+function withRulesLetterAvailable(
+  warnings: string[],
+  rulesLetter: { body: string | null },
+): string[] {
+  if (isAppealBodyTooThin(rulesLetter.body)) return warnings;
+  return [
+    ...warnings,
+    "A rules-based starter letter was assembled and is available to the reviewer; it is not released automatically.",
+  ];
+}
+
+/**
  * Generation orchestrator.
  *
  * V2 Part 2 step 11: "If validation fails, regenerate/correct or route to
@@ -123,6 +141,16 @@ export interface GenerateInput {
   evidenceRefs?: string[];
   /** Max drafting attempts. Default 2 (initial + one regeneration). */
   maxAttempts?: number;
+  /** Pre-built analysis from Case Intelligence when available. */
+  analysis?: IssueAnalysis | null;
+  /**
+   * Full Case Intelligence. Drafting needs more than the analysis
+   * snapshot: technical grounds found from the document, the sender /
+   * operator split, and what is still outstanding.
+   */
+  intelligence?:
+    | import("@/lib/cases/caseIntelligence").CaseIntelligence
+    | null;
 }
 
 export async function generateValidatedAppeal(
@@ -136,7 +164,7 @@ export async function generateValidatedAppeal(
     evidenceRefs: input.evidenceRefs ?? [],
   };
 
-  const analysis = analyseCase(analysisInput);
+  const analysis = input.analysis ?? analyseCase(analysisInput);
   const facts = factsForCase(analysisInput);
   const warnings: string[] = [];
   const attempts: GenerationAttempt[] = [];
@@ -160,30 +188,20 @@ export async function generateValidatedAppeal(
   });
   warnings.push(...rulesLetter.warnings.map((w) => `[rules] ${w}`));
 
-  // Manual review decided before drafting (scope, unresolved Code, etc.).
-  // Still attach a rules-based starter letter so admin/PDF are not blank.
+  /*
+   * Manual review decided before drafting (scope, Scotland, unresolved
+   * Code). This gate is the reason an unappealable notice — a debt
+   * recovery letter, say — must not produce an appeal, so nothing may
+   * be released past it: no rules letter, no body at all.
+   */
   if (analysis.manualReview) {
-    if (!isAppealBodyTooThin(rulesLetter.body)) {
-      return {
-        ...base,
-        analysis: withRulesRoutes(analysis, rulesLetter.activeRoutes),
-        status: "READY",
-        body: rulesLetter.body,
-        moduleIds: [],
-        reason: null,
-        detail: null,
-        warnings: [
-          ...warnings,
-          `Rules letter used despite analysis flag ${analysis.manualReview.reason}.`,
-        ],
-      };
-    }
     return {
       ...base,
       status: "MANUAL_REVIEW",
-      body: rulesLetter.body || null,
+      body: null,
       reason: analysis.manualReview.reason,
       detail: analysis.manualReview.detail,
+      warnings: withRulesLetterAvailable(warnings, rulesLetter),
     };
   }
 
@@ -192,24 +210,18 @@ export async function generateValidatedAppeal(
     catalog = await loadKbCatalog();
   } catch (err) {
     if (err instanceof KbCatalogError) {
-      if (!isAppealBodyTooThin(rulesLetter.body)) {
-        return {
-          ...base,
-          analysis: withRulesRoutes(analysis, rulesLetter.activeRoutes),
-          status: "READY",
-          body: rulesLetter.body,
-          moduleIds: [],
-          reason: null,
-          detail: null,
-          warnings: [...warnings, `[kb] ${err.message}; used rules letter.`],
-        };
-      }
+      // The catalog IS the approved legal basis. Without it there is
+      // nothing to ground an appeal in, whatever the template says.
       return {
         ...base,
         status: "MANUAL_REVIEW",
-        body: rulesLetter.body || null,
+        body: null,
         reason: "KB_CATALOG_UNAVAILABLE",
         detail: err.message,
+        warnings: withRulesLetterAvailable(
+          [...warnings, `[kb] ${err.message}`],
+          rulesLetter,
+        ),
       };
     }
     throw err;
@@ -240,7 +252,13 @@ export async function generateValidatedAppeal(
 
   if (preferRules) {
     const body = (rulesLetter.body ?? "").trim();
-    if (body.length > 0) {
+    /*
+     * This flag ships pack paragraphs without running the validator at
+     * all (there are no drafting variables to validate against yet), so
+     * keeper safety is checked explicitly. An appeal must never identify
+     * the driver, whichever engine wrote it.
+     */
+    if (body.length > 0 && rulesLetter.keeperSafe) {
       return {
         ...base,
         analysis: withRulesRoutes(analysis, rulesLetter.activeRoutes),
@@ -292,6 +310,7 @@ export async function generateValidatedAppeal(
       ...analysisInput,
       caseId: input.caseId ?? null,
       analysis,
+      intelligence: input.intelligence ?? null,
       // Pass the same catalog so drafting does not re-load seed defaults.
       modules: catalog.modules,
       sources: catalog.sources,
@@ -321,37 +340,18 @@ export async function generateValidatedAppeal(
         continue;
       }
 
-      if (!isAppealBodyTooThin(rulesLetter.body)) {
-        return {
-          ...base,
-          analysis: withRulesRoutes(analysis, rulesLetter.activeRoutes),
-          status: "READY",
-          body: rulesLetter.body,
-          moduleIds: retrieval.modules.map((m) => m.moduleId),
-          provider: {
-            providerId: "rules-engine",
-            promptVersion: "pack-v1",
-            model: null,
-            bespoke: false,
-          },
-          reason: null,
-          detail: null,
-          warnings: [
-            ...warnings,
-            ...draft.warnings,
-            `Drafting failed (${draft.blockedReason}); used rules letter.`,
-          ],
-        };
-      }
-
       /*
-       * ANY remaining unreleasable outcome is MANUAL_REVIEW, not FAILED.
-       * The customer has paid — an unusable draft must land with a person.
+       * ANY unreleasable outcome is MANUAL_REVIEW, not FAILED. The
+       * customer has paid — an unusable draft must land with a person.
+       * Substituting the rules letter here would defeat the whole
+       * keeper-safety block: the draft was refused for naming the
+       * driver, and the template is built from those same facts without
+       * ever being keeper-checked or validated.
        */
       return {
         ...base,
         status: "MANUAL_REVIEW",
-        body: rulesLetter.body || null,
+        body: null,
         moduleIds: draft.draft?.moduleIds ?? [],
         provider: draft.draft
           ? {
@@ -362,7 +362,10 @@ export async function generateValidatedAppeal(
               usage: draft.draft.usage,
             }
           : null,
-        warnings: [...warnings, ...draft.warnings],
+        warnings: withRulesLetterAvailable(
+          [...warnings, ...draft.warnings],
+          rulesLetter,
+        ),
         reason: draft.blockedReason ?? "DRAFTING_FAILED",
         detail:
           draft.blockedReason === "KEEPER_SAFETY_FAILED"
@@ -389,9 +392,26 @@ export async function generateValidatedAppeal(
     attempts.push({ attempt, validation, checklist, accepted });
 
     if (accepted) {
-      // If AI body is thin / unhelpful, fall back to Master Pack rules letter.
+      /*
+       * A thin-but-valid AI draft can fall back to the Master Pack rules
+       * letter — but the substitute has to clear the same gates the AI
+       * body just cleared. `validateDraft` above ran against
+       * `draft.body`; releasing different text on the strength of that
+       * result would mean shipping an unvalidated, un-keeper-checked
+       * letter.
+       */
+      const rulesLetterReleasable =
+        !isAppealBodyTooThin(rulesLetter.body) &&
+        rulesLetter.keeperSafe &&
+        (() => {
+          const rulesCtx = { ...ctx, body: rulesLetter.body as string };
+          return (
+            validateDraft(rulesCtx).status === "PASS" &&
+            runReleaseChecklist(rulesCtx).passed
+          );
+        })();
       const usedRulesFallback =
-        isAppealBodyTooThin(draft.body) && !isAppealBodyTooThin(rulesLetter.body);
+        isAppealBodyTooThin(draft.body) && rulesLetterReleasable;
       const body = usedRulesFallback ? rulesLetter.body : draft.body;
       return {
         ...base,

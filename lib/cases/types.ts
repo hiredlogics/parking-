@@ -76,6 +76,16 @@ export interface AppealCase {
   adaptiveAnswers: AnswerMap;
   askedQuestionIds: string[];
 
+  /** Durable document understanding — set at extract, not overwritten on confirm. */
+  documentType: string | null;
+  senderName: string | null;
+  parkingOperatorName: string | null;
+  /** Detected stage from triage (stored in appeal_cases.case_stage). */
+  caseStage: string | null;
+  serviceDecision: string | null;
+  /** Pre-question technical understanding snapshot. */
+  caseIntelligence: import("@/lib/cases/caseIntelligence").CaseIntelligence | null;
+
   candidateRoutes: RouteFamily[];
   primaryRoute: RouteFamily | null;
   secondaryRoutes: RouteFamily[];

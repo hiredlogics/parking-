@@ -33,6 +33,15 @@ export const CASE_V2_STATEMENTS: string[] = [
   `ALTER TABLE appeal_cases ADD COLUMN IF NOT EXISTS out_of_scope_reason TEXT`,
   `ALTER TABLE appeal_cases ADD COLUMN IF NOT EXISTS out_of_scope_detail TEXT`,
 
+  /* ---------- Durable document understanding (triage spine) ---------- */
+  `ALTER TABLE appeal_cases ADD COLUMN IF NOT EXISTS document_type TEXT`,
+  `ALTER TABLE appeal_cases ADD COLUMN IF NOT EXISTS sender_name TEXT`,
+  `ALTER TABLE appeal_cases ADD COLUMN IF NOT EXISTS parking_operator_name TEXT`,
+  `ALTER TABLE appeal_cases ADD COLUMN IF NOT EXISTS service_decision TEXT`,
+  /* Durable Case Intelligence — pre-question technical analysis snapshot. */
+  `ALTER TABLE appeal_cases ADD COLUMN IF NOT EXISTS case_intelligence_json JSONB`,
+  /* case_stage already exists; triage writes detected stage; confirm must not overwrite. */
+
   /* ---------- case_documents_meta: evidence classification ---------- */
   `ALTER TABLE case_documents_meta ADD COLUMN IF NOT EXISTS evidence_type TEXT`,
   `ALTER TABLE case_documents_meta ADD COLUMN IF NOT EXISTS description TEXT`,

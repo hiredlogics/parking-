@@ -397,19 +397,31 @@ describe("Hybrid structured retrieval", () => {
   }
 
   it("gates payment modules by whether the payment succeeded or failed", () => {
-    const paid = retrieveFor({
-      [FACT.SCENARIOS]: ["payment_made"],
-      [FACT.PAYMENT_METHOD]: "app",
-    });
+    /*
+     * The payment status fact plus real evidence, not a ticked
+     * situation category, is what puts a payment ground in play.
+     * KB-PAY-01 asserts a payment WAS made, so it stays excluded by the
+     * ASSERT_PAYMENT_WAS_MADE prohibition until something evidences it
+     * — a tick with nothing behind it used to retrieve it anyway.
+     */
+    const paid = retrieveFor(
+      {
+        [FACT.PAYMENT_MADE]: "YES",
+        [FACT.PAYMENT_METHOD]: "app",
+        [FACT.PAYMENT_EVIDENCE]: "YES",
+      },
+      ["payment_receipt"],
+    );
     expect(paid.output.moduleIds).toContain("KB-PAY-01");
     // Machine-failure and digital-failure modules must not apply.
     expect(paid.output.moduleIds).not.toContain("KB-PAY-02");
     expect(paid.output.moduleIds).not.toContain("KB-PAY-03");
 
     const failedMachine = retrieveFor({
-      [FACT.SCENARIOS]: ["payment_attempted_failed"],
+      [FACT.PAYMENT_MADE]: "ATTEMPTED_FAILED",
       [FACT.PAYMENT_METHOD]: "machine",
     });
+
     expect(failedMachine.output.moduleIds).toContain("KB-PAY-02");
     expect(failedMachine.output.moduleIds).not.toContain("KB-PAY-03");
   });

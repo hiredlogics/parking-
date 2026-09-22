@@ -125,7 +125,10 @@ export class OpenAITriageProvider implements DocumentTriageProvider {
           caseStage: parsed.case_stage,
           senderName: parsed.sender_name,
           parkingOperatorName: parsed.parking_operator_name,
-          serviceDecision: parsed.service_decision,
+          serviceDecision:
+            parsed.service_decision === "WRONG_STAGE_REDIRECT"
+              ? "NOT_SUPPORTED"
+              : parsed.service_decision,
           reasonCode: parsed.reason_code || "TRIAGE_AI",
           detail: parsed.customer_detail,
           confidence:

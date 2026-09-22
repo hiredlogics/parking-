@@ -106,6 +106,26 @@ export async function generateAppealForCase(
   if (!entitled.ok) return entitled;
   const c = entitled.appealCase;
 
+  const { SERVICE_NOT_SUITABLE_DETAIL } = await import(
+    "@/lib/cases/documentUnderstanding"
+  );
+  const { resolveSuitability } = await import("@/lib/cases/caseIntelligence");
+  const suitability = resolveSuitability({
+    caseIntelligence: c.caseIntelligence,
+    serviceDecision: c.serviceDecision,
+    triageServiceDecision: c.extraction?.triage?.serviceDecision ?? null,
+    triageDetail: c.extraction?.triage?.detail ?? null,
+    outOfScopeDetail: c.outOfScopeDetail,
+  });
+  if (suitability.decision === "NOT_SUPPORTED") {
+    return {
+      ok: false,
+      status: 409,
+      code: "WRONG_DOCUMENT_STAGE",
+      message: suitability.detail ?? SERVICE_NOT_SUITABLE_DETAIL,
+    };
+  }
+
   if (!opts.force) {
     const appeal = await findCurrentAppeal(caseId);
     if (appeal?.status === "APPROVED") {
@@ -157,12 +177,32 @@ export async function generateAppealForCase(
   const docs = await repo.listCaseDocuments(caseId, "EVIDENCE");
   const evidenceTypes = docs.map((d) => d.evidenceType ?? "other");
 
+  // Refresh intelligence with latest answers before drafting, then reuse analysis.
+  const { buildCaseIntelligence } = await import(
+    "@/lib/cases/caseIntelligence"
+  );
+  const intelligence = buildCaseIntelligence({
+    confirmed: c.confirmed,
+    answers: c.adaptiveAnswers,
+    evidenceTypes,
+    documentUnderstanding: {
+      documentType: (c.documentType as never) ?? null,
+      senderName: c.senderName,
+      parkingOperatorName: c.parkingOperatorName,
+      caseStage: (c.caseStage as never) ?? null,
+      serviceDecision: (c.serviceDecision as never) ?? null,
+    },
+  });
+  await repo.saveCaseIntelligence(caseId, intelligence);
+
   const result = await generateValidatedAppeal({
     caseId,
     confirmed: c.confirmed,
     answers: c.adaptiveAnswers,
     evidenceTypes,
     evidenceRefs: docs.map((d) => d.id),
+    analysis: intelligence.analysis,
+    intelligence,
   });
 
   const draft = await saveDraft(caseId, result);

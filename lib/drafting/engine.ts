@@ -46,6 +46,12 @@ export interface DraftAppealInput {
   evidenceRefs?: string[];
   /** Reuse a prior analysis instead of recomputing. */
   analysis?: IssueAnalysis;
+  /**
+   * Case Intelligence for this case — the technical grounds found from
+   * the document before questioning. Passed through to the model so the
+   * letter opens knowing what the notice already shows.
+   */
+  intelligence?: import("@/lib/cases/caseIntelligence").CaseIntelligence | null;
   /** Validator feedback from a rejected attempt, for regeneration. */
   feedback?: string;
   /** Canonical catalog from loadKbCatalog() — required in production. */
@@ -176,6 +182,7 @@ export async function draftAppeal(
     };
   }
 
+  const ci = input.intelligence ?? null;
   const context: DraftingContext = {
     caseId: input.caseId ?? null,
     analysis,
@@ -186,6 +193,25 @@ export async function draftAppeal(
     availableEvidence: input.evidenceTypes ?? [],
     feedback: input.feedback,
     rulesBasis,
+    intelligence: ci
+      ? {
+          documentType: ci.documentUnderstanding?.documentType ?? null,
+          sender: ci.documentUnderstanding?.sender ?? null,
+          operator: ci.documentUnderstanding?.operator ?? null,
+          stage: ci.documentUnderstanding?.stage ?? null,
+          noticeRoute: ci.documentUnderstanding?.noticeRoute ?? null,
+          technicalFindings: ci.technicalFindings
+            .filter((f) => f.status === "IDENTIFIED")
+            .map((f) => ({
+              ground: f.ground,
+              confidence: f.confidence,
+              evidence: f.evidence,
+              reasons: f.reasons,
+            })),
+          knowledgeRefs: ci.knowledgeRefs,
+          outstandingFacts: ci.missingFacts,
+        }
+      : undefined,
   };
 
   const provider = getDraftingProvider();

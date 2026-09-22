@@ -19,7 +19,7 @@ It is NOT appropriate for:
 - County Court claim forms, CCJs, bailiff / enforcement notices
 - Council / local authority Penalty Charge Notices
 
-If the sender is a debt recovery company, document_kind must be DEBT_RECOVERY (or LETTER_OF_CLAIM if that is what it is), case_stage must be DEBT_RECOVERY or PRE_ACTION_LETTER_OF_CLAIM, and service_decision must be WRONG_STAGE_REDIRECT.
+If the sender is a debt recovery company, document_kind must be DEBT_RECOVERY (or LETTER_OF_CLAIM if that is what it is), case_stage must be DEBT_RECOVERY or PRE_ACTION_LETTER_OF_CLAIM, and service_decision must be NOT_SUPPORTED.
 
 Return strict JSON only.`;
 
@@ -77,6 +77,7 @@ export const TRIAGE_JSON_SCHEMA = {
         type: "string",
         enum: [
           "PRIVATE_PARKING_INITIAL_APPEAL_OK",
+          "NOT_SUPPORTED",
           "WRONG_STAGE_REDIRECT",
           "MANUAL_REVIEW",
         ],

@@ -45,6 +45,30 @@ export interface DraftingContext {
     approvedParagraphTexts: string[];
     assembledBody: string;
   };
+  /**
+   * What Case Intelligence already established from the document, before
+   * the customer was asked anything.
+   *
+   * Drafting used to receive only the `IssueAnalysis` snapshot, so a
+   * ground found from the notice dates alone — a Notice to Keeper served
+   * out of time, say — never reached the model. The letter has to open
+   * knowing the notice appears late.
+   */
+  intelligence?: {
+    documentType: string | null;
+    sender: string | null;
+    operator: string | null;
+    stage: string | null;
+    noticeRoute: string | null;
+    technicalFindings: Array<{
+      ground: string;
+      confidence: string;
+      evidence: Record<string, unknown>;
+      reasons: string[];
+    }>;
+    knowledgeRefs: string[];
+    outstandingFacts: string[];
+  };
 }
 
 export interface DraftResult {

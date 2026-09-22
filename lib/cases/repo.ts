@@ -5,6 +5,11 @@ import type { AppealCase, CaseDocument, ServiceType, SufficiencyStatus } from ".
 import type { ConfirmedPcn, ExtractionResult } from "@/types";
 import type { AnswerMap } from "@/lib/questions/types";
 import {
+  understandingFromTriage,
+  isServiceNotSupported,
+} from "@/lib/cases/documentUnderstanding";
+import type { CaseIntelligence } from "@/lib/cases/caseIntelligence";
+import {
   lifecycleStatusFor,
   type AppealCaseStatus,
   type CaseOutcomeSource,
@@ -58,6 +63,14 @@ function rowToCase(r: Row): AppealCase {
     confirmed: (r.confirmed_json as ConfirmedPcn | null) ?? null,
     adaptiveAnswers: (r.adaptive_answers as AnswerMap) ?? {},
     askedQuestionIds: arr<string>(r.asked_question_ids),
+
+    documentType: (r.document_type as string | null) ?? null,
+    senderName: (r.sender_name as string | null) ?? null,
+    parkingOperatorName: (r.parking_operator_name as string | null) ?? null,
+    caseStage: (r.case_stage as string | null) ?? null,
+    serviceDecision: (r.service_decision as string | null) ?? null,
+    caseIntelligence:
+      (r.case_intelligence_json as CaseIntelligence | null) ?? null,
 
     candidateRoutes: arr<RouteFamily>(r.candidate_routes),
     primaryRoute: (r.primary_route as RouteFamily | null) ?? null,
@@ -347,12 +360,23 @@ export async function findChildCases(parentId: string): Promise<AppealCase[]> {
   return rows.map(rowToCase);
 }
 
-/** Persist the raw extraction result exactly as returned. */
+/** Persist the raw extraction result and durable document understanding. */
 export async function saveExtraction(
   id: string,
   extraction: ExtractionResult,
 ): Promise<void> {
   const raw = extraction.raw ?? {};
+  const triage = extraction.triage ?? null;
+  const understanding = understandingFromTriage(triage);
+
+  // Denormalised operator_name is the parking operator only — never the
+  // debt-recovery sender.
+  const parkingOperator =
+    understanding.parkingOperatorName ??
+    (isServiceNotSupported(understanding.serviceDecision)
+      ? null
+      : (raw.operator_name ?? null));
+
   await q(
     `UPDATE appeal_cases
         SET extraction_json = $2,
@@ -362,27 +386,62 @@ export async function saveExtraction(
             parking_location = COALESCE($6, parking_location),
             parking_event_date = COALESCE($7, parking_event_date),
             notice_issue_date = COALESCE($8, notice_issue_date),
-            status = 'AWAITING_CONFIRMATION',
-            updated_at = $9
+            document_type = COALESCE($9, document_type),
+            sender_name = COALESCE($10, sender_name),
+            parking_operator_name = COALESCE($11, parking_operator_name),
+            case_stage = COALESCE($12, case_stage),
+            service_decision = COALESCE($13, service_decision),
+            out_of_scope_reason = CASE
+              WHEN $13::text IN ('NOT_SUPPORTED', 'WRONG_STAGE_REDIRECT')
+              THEN COALESCE($14, out_of_scope_reason)
+              ELSE out_of_scope_reason END,
+            out_of_scope_detail = CASE
+              WHEN $13::text IN ('NOT_SUPPORTED', 'WRONG_STAGE_REDIRECT')
+              THEN COALESCE($15, out_of_scope_detail)
+              ELSE out_of_scope_detail END,
+            status = CASE
+              WHEN $13::text IN ('NOT_SUPPORTED', 'WRONG_STAGE_REDIRECT')
+              THEN 'OUT_OF_SCOPE'
+              ELSE 'AWAITING_CONFIRMATION' END,
+            updated_at = $16
       WHERE id = $1`,
     [
       id,
       JSON.stringify(extraction),
-      raw.operator_name ?? null,
+      parkingOperator,
       raw.pcn_number ?? null,
       raw.vrm ?? null,
       raw.parking_location ?? null,
       raw.parking_event_date ?? null,
       raw.notice_issue_date ?? null,
+      understanding.documentType,
+      understanding.senderName,
+      understanding.parkingOperatorName,
+      understanding.caseStage,
+      understanding.serviceDecision,
+      triage?.reasonCode ?? null,
+      triage?.detail ?? null,
       new Date().toISOString(),
     ],
   );
 }
 
 /**
- * Persist the customer-confirmed notice. Only this may feed the
- * rules/AI pipeline (V2 Part 2 step 4).
+ * Persist Case Intelligence built after confirm / answer updates.
+ * Does not overwrite document understanding columns.
  */
+export async function saveCaseIntelligence(
+  id: string,
+  intelligence: CaseIntelligence,
+): Promise<void> {
+  await q(
+    `UPDATE appeal_cases
+        SET case_intelligence_json = $2::jsonb,
+            updated_at = $3
+      WHERE id = $1`,
+    [id, JSON.stringify(intelligence), new Date().toISOString()],
+  );
+}
 export async function saveConfirmed(
   id: string,
   confirmed: ConfirmedPcn,
@@ -390,7 +449,7 @@ export async function saveConfirmed(
   await q(
     `UPDATE appeal_cases
         SET confirmed_json = $2,
-            operator_name = $3,
+            operator_name = COALESCE($3, operator_name),
             pcn_number = $4,
             vrm = $5,
             parking_location = $6,
@@ -398,8 +457,12 @@ export async function saveConfirmed(
             notice_issue_date = $8,
             notice_received_date = $9,
             notice_route = COALESCE($10,'UNKNOWN'),
-            status = CASE WHEN status IN ('DRAFT','EXTRACTING','AWAITING_CONFIRMATION')
-                          THEN 'QUESTIONING' ELSE status END,
+            status = CASE
+              WHEN service_decision IN ('NOT_SUPPORTED', 'WRONG_STAGE_REDIRECT')
+              THEN 'OUT_OF_SCOPE'
+              WHEN status IN ('DRAFT','EXTRACTING','AWAITING_CONFIRMATION')
+              THEN 'QUESTIONING'
+              ELSE status END,
             updated_at = $11
       WHERE id = $1`,
     [

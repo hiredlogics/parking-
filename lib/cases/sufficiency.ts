@@ -5,6 +5,8 @@ import { deriveKnownFacts } from "@/lib/questions/facts";
 import { missingRequirements, askedFactKey } from "@/lib/questions/missing";
 import { openRoutes } from "@/lib/questions/requirements";
 import { detectOutOfScope, isHardOutOfScope } from "@/lib/questions/scope";
+import { resolveSuitability } from "@/lib/cases/caseIntelligence";
+import { SERVICE_NOT_SUITABLE_DETAIL } from "@/lib/cases/documentUnderstanding";
 import { routeLabels } from "./labels";
 import type { AppealCase, SufficiencyStatus } from "./types";
 import type { RouteFamily } from "@/types/caseState";
@@ -120,14 +122,24 @@ export async function assessSufficiency(
 
   const scope = detectOutOfScope(facts);
   const triage = appealCase.extraction?.triage;
-  if (
-    triage?.serviceDecision === "WRONG_STAGE_REDIRECT" ||
-    (scope && isHardOutOfScope(scope))
-  ) {
+  // Case Intelligence is the suitability authority; scope detection
+  // still contributes because it reads answers the document cannot.
+  const suitability = resolveSuitability({
+    caseIntelligence: appealCase.caseIntelligence,
+    serviceDecision: appealCase.serviceDecision,
+    triageServiceDecision: triage?.serviceDecision ?? null,
+    triageDetail: triage?.detail ?? null,
+    outOfScopeDetail: appealCase.outOfScopeDetail,
+  });
+  const notSupported =
+    suitability.decision === "NOT_SUPPORTED" ||
+    (scope && isHardOutOfScope(scope));
+  if (notSupported) {
     const detail =
-      triage?.serviceDecision === "WRONG_STAGE_REDIRECT"
-        ? triage.detail
-        : scope!.detail;
+      suitability.detail ??
+      appealCase.outOfScopeDetail ??
+      scope?.detail ??
+      SERVICE_NOT_SUITABLE_DETAIL;
     return {
       sufficient: false,
       status: "INCOMPLETE",
@@ -138,7 +150,12 @@ export async function assessSufficiency(
       outOfScope: { detail },
       internal: {
         ...NOT_READY_INTERNAL,
-        missingFacts: [triage?.reasonCode ?? scope!.reason],
+        missingFacts: [
+          appealCase.outOfScopeReason ??
+            triage?.reasonCode ??
+            scope?.reason ??
+            "SERVICE_NOT_SUPPORTED",
+        ],
       },
     };
   }

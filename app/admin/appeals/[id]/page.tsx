@@ -137,14 +137,23 @@ export default function AdminAppealDetailPage() {
       title={c.publicId}
       breadcrumb={crumb}
       actions={
-        pending ? (
+        <span className="inline-flex flex-wrap items-center gap-2">
+          {/* What the AI took from the document, before any question. */}
           <Link
-            href={`/admin/review/${data.currentAppeal!.id}`}
-            className="btn-brand-primary"
+            href={`/admin/appeals/${id}/intelligence`}
+            className="btn-brand-outline"
           >
-            Review &amp; Approve
+            Case Intelligence
           </Link>
-        ) : undefined
+          {pending && (
+            <Link
+              href={`/admin/review/${data.currentAppeal!.id}`}
+              className="btn-brand-primary"
+            >
+              Review &amp; Approve
+            </Link>
+          )}
+        </span>
       }
     >
       {/* Case summary */}

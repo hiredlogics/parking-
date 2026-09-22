@@ -80,6 +80,30 @@ vi.mock("@/lib/config/adminRepo", () => ({
 }));
 
 describe("evaluateIssues — circumstance-led questioning", () => {
+  it("before circumstances are named, allegation alone does not open AUTHORISATION/RESIDENTIAL", async () => {
+    const facts = deriveKnownFacts({
+      confirmed: {
+        alleged_breach: "Unauthorised parking",
+        parking_location: "Queen Elizabeth Hospital",
+        confirmedAt: new Date().toISOString(),
+      },
+      answers: {
+        [FACT.REGISTERED_KEEPER]: "YES",
+        [FACT.DRIVER_IDENTIFIED]: "NO",
+      },
+    });
+
+    const result = await evaluateIssues({ facts });
+    expect(result.activeIssues.map((i) => i.code)).not.toContain("RESIDENTIAL");
+    expect(result.activeIssues.map((i) => i.code)).not.toContain("AUTHORISATION");
+    expect(result.missingFacts.map((f) => f.factKey)).not.toContain(
+      FACT.PERMISSION_HELD,
+    );
+    expect(result.missingFacts.map((f) => f.factKey)).not.toContain(
+      FACT.OCCUPIER_STATUS,
+    );
+  });
+
   it("after grace-only selection, does not queue residential/permission facts from an unauthorised notice", async () => {
     const facts = deriveKnownFacts({
       confirmed: {
