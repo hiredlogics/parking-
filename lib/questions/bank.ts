@@ -68,7 +68,8 @@ export const QUESTION_BANK: QuestionDef[] = [
     ],
     serves: "SCOPE",
     establishesFacts: [FACT.JURISDICTION],
-    askWhen: () => true,
+    // Skipped when location/postcode already establishes the nation group.
+    askWhen: (f) => factStr(f, FACT.JURISDICTION) === null,
     priority: 5,
     supportsModules: ["KB-POFA-01"],
   },
@@ -113,21 +114,18 @@ export const QUESTION_BANK: QuestionDef[] = [
   },
   {
     questionId: "Q-WHAT-HAPPENED",
-    // Still multi_choice so scenarios stay an array; the UI presents
-    // these as a single-select list matching the client mockups.
     type: "multi_choice",
     label: "Your situation",
     helpText:
-      "Help us understand what happened so we can generate the strongest appeal for your case.",
+      "Select every option that applies. We will ask follow-up questions for each, and include all supported grounds in your appeal.",
     required: true,
     options: [
       { value: "signage_issue", label: "The signage was unclear or inadequate" },
       { value: "authorised_or_permit", label: "I have a valid permit or was authorised to park" },
       { value: "resident_parking_rights", label: "I was a resident / have the right to park" },
       { value: "grace_or_exit", label: "There wasn't enough time (grace period)" },
-      { value: "landowner_authority_challenge", label: "The charge is unfair or unreasonable" },
       { value: "breakdown_immobilised", label: "I experienced a breakdown or unforeseen circumstances" },
-      { value: "other_grounds", label: "Other (please specify)" },
+      { value: "other_grounds", label: "Something else happened / Other" },
     ],
     serves: "TRIAGE",
     establishesFacts: [FACT.SCENARIOS],

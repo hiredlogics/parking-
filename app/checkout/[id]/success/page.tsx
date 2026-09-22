@@ -107,7 +107,7 @@ export default function CheckoutSuccessPage() {
             Preparing your appeal…
           </p>
           <p className="mt-2 max-w-xs text-[13px] leading-relaxed text-brand-mute">
-            First-time generation can take 1–3 minutes locally. Keep this tab open — do not refresh.
+            This can take up to 1–3 minutes. Please keep this page open.
           </p>
         </div>
       </Shell>
@@ -213,6 +213,17 @@ export default function CheckoutSuccessPage() {
             <MailIcon />
             Email me a copy
           </button>
+        </div>
+
+        <div className="mt-8 w-full rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-left">
+          <p className="text-[14px] font-bold text-amber-950">
+            Important — registered keeper appeals
+          </p>
+          <p className="mt-2 text-[13px] leading-relaxed text-amber-900/90">
+            This appeal has been prepared on a registered keeper basis. When you
+            submit it to the parking company, do not name or identify the driver
+            in any covering message, form field, or phone call.
+          </p>
         </div>
 
         <div className="mt-8 w-full rounded-2xl bg-brand-pinkPale px-5 py-5 text-left">

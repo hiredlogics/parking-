@@ -46,6 +46,7 @@ export const ALLOWED_EVIDENCE_TYPES = new Set([
   "anpr_evidence",
   "location_evidence",
   "authorisation_evidence",
+  "breakdown_evidence",
   "other",
 ]);
 

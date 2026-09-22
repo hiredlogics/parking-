@@ -74,7 +74,7 @@ const PRIVATE_PARKING_INITIAL_APPEAL: ServiceWorkflow = {
   paymentGate: {
     required: true,
     afterStep: "SUFFICIENCY_CHECK",
-    amount: 29,
+    amount: 11.99,
     currency: "GBP",
     description: "Appeal Builder — Private Parking",
   },

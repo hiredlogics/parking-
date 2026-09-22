@@ -16,7 +16,9 @@ import {
   formatMoney,
   formatSituationLabel,
   formatUkDate,
+  followUpReviewRows,
 } from "@/lib/appeals/displayLabels";
+import { EVIDENCE_TYPE_LABELS } from "@/types";
 
 /**
  * Review your information — step 4 chrome (Payment).
@@ -26,6 +28,7 @@ export default function ReviewPage() {
   const router = useRouter();
   const confirmed = useAppealStore((s) => s.confirmed);
   const adaptiveAnswers = useAppealStore((s) => s.adaptiveAnswers);
+  const evidence = useAppealStore((s) => s.evidence);
   const setStep = useAppealStore((s) => s.setStep);
 
   const { caseId, status: sessionStatus } = useCaseSession();
@@ -173,6 +176,29 @@ export default function ReviewPage() {
   }
 
   rows.push({ label: "Your situation", value: situation });
+
+  const followUps = followUpReviewRows(adaptiveAnswers);
+  for (const fu of followUps) {
+    rows.push({ label: fu.label, value: fu.value });
+  }
+
+  if (evidence.length > 0) {
+    rows.push({
+      label: "Supporting evidence",
+      value: (
+        <span className="block whitespace-pre-line text-right">
+          {evidence
+            .map((e) => {
+              const label =
+                (EVIDENCE_TYPE_LABELS as Record<string, string>)[e.type] ??
+                "Evidence";
+              return `${label}: ${e.fileName}`;
+            })
+            .join("\n")}
+        </span>
+      ),
+    });
+  }
 
   return (
     <Shell>

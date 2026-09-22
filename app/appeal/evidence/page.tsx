@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ReactElement } from "react";
+import { useMemo, useRef, useState, type ReactElement } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { JourneyHeader } from "@/components/app/JourneyHeader";
@@ -8,7 +8,11 @@ import { ProgressSteps } from "@/components/ProgressSteps";
 import { useAppealStore } from "@/features/appeal/store";
 import { useCaseSession } from "@/features/appeal/useCaseSession";
 import { removeEvidence, uploadEvidence } from "@/features/appeal/caseSync";
-import type { EvidenceItem, EvidenceType } from "@/types";
+import {
+  evidenceTypesForScenarios,
+  type EvidenceItem,
+  type EvidenceType,
+} from "@/types";
 import {
   ArrowRightIcon,
   CarIcon,
@@ -25,68 +29,100 @@ interface Category {
   icon: ReactElement;
 }
 
-const CATEGORIES: Category[] = [
-  {
-    type: "payment_receipt",
+const CATEGORY_META: Record<
+  EvidenceType,
+  { title: string; description: string; icon: "doc" | "shield" | "person" | "car" }
+> = {
+  payment_receipt: {
     title: "Payment receipt",
     description: "Bank statement, till receipt, or PDF confirmation.",
-    icon: <DocumentIcon className="h-6 w-6" />,
+    icon: "doc",
   },
-  {
-    type: "app_screenshot",
+  app_screenshot: {
     title: "App screenshot",
     description: "Screenshot from the parking app showing the transaction.",
-    icon: <DocumentIcon className="h-6 w-6" />,
+    icon: "doc",
   },
-  {
-    type: "permit",
-    title: "Permit",
-    description: "The permit that was in force for the vehicle.",
-    icon: <ShieldIcon className="h-6 w-6" />,
+  permit: {
+    title: "Permit / resident pass",
+    description: "The permit, tenancy clause, or pass that was in force.",
+    icon: "shield",
   },
-  {
-    type: "signage_photo",
+  signage_photo: {
     title: "Signage photograph",
     description: "Photo of the entrance sign or specific term at the site.",
-    icon: <DocumentIcon className="h-6 w-6" />,
+    icon: "doc",
   },
-  {
-    type: "authorisation_evidence",
-    title: "Authorisation evidence",
-    description: "Letter, email, or record showing the vehicle was authorised.",
-    icon: <PersonShieldIcon className="h-6 w-6" />,
+  authorisation_evidence: {
+    title: "Authorisation / tenancy evidence",
+    description: "Letter, email, lease or record showing the vehicle was authorised.",
+    icon: "person",
   },
-  {
-    type: "anpr_evidence",
-    title: "ANPR evidence",
-    description: "Independent evidence the vehicle was elsewhere / left.",
-    icon: <CarIcon className="h-6 w-6" />,
+  anpr_evidence: {
+    title: "ANPR / timing evidence",
+    description: "Independent evidence of arrival, exit or time on site.",
+    icon: "car",
   },
-  {
-    type: "location_evidence",
+  location_evidence: {
     title: "Location evidence",
     description: "Map, address confirmation, or other location proof.",
-    icon: <DocumentIcon className="h-6 w-6" />,
+    icon: "doc",
   },
-  {
-    type: "other",
-    title: "Other evidence",
-    description: "Anything else you'd like the operator to consider.",
-    icon: <DocumentIcon className="h-6 w-6" />,
+  breakdown_evidence: {
+    title: "Breakdown / recovery evidence",
+    description: "Recovery report, breakdown attendance, or repair invoice.",
+    icon: "car",
   },
-];
+  other: {
+    title: "Other supporting evidence",
+    description: "Anything else you would like the operator to consider.",
+    icon: "doc",
+  },
+};
+
+function iconFor(kind: "doc" | "shield" | "person" | "car") {
+  switch (kind) {
+    case "shield":
+      return <ShieldIcon className="h-6 w-6" />;
+    case "person":
+      return <PersonShieldIcon className="h-6 w-6" />;
+    case "car":
+      return <CarIcon className="h-6 w-6" />;
+    default:
+      return <DocumentIcon className="h-6 w-6" />;
+  }
+}
 
 export default function EvidencePage() {
   const router = useRouter();
   const evidence = useAppealStore((s) => s.evidence);
+  const adaptiveAnswers = useAppealStore((s) => s.adaptiveAnswers);
   const remove = useAppealStore((s) => s.removeEvidence);
   const setStep = useAppealStore((s) => s.setStep);
   const hydrateFromCase = useAppealStore((s) => s.hydrateFromCase);
   const [uploadingType, setUploadingType] = useState<EvidenceType | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Evidence metadata is bound to the server case, so it survives a refresh.
   const { caseId } = useCaseSession();
+
+  const categories: Category[] = useMemo(() => {
+    const types = evidenceTypesForScenarios(adaptiveAnswers.scenarios);
+    // Keep any already-uploaded types visible even if not in the suggestion set.
+    const uploaded = new Set(evidence.map((e) => e.type));
+    const ordered = [...types];
+    for (const t of uploaded) {
+      if (!ordered.includes(t)) ordered.splice(ordered.length - 1, 0, t);
+    }
+    return ordered.map((type) => {
+      const meta = CATEGORY_META[type];
+      return {
+        type,
+        title: meta.title,
+        description: meta.description,
+        icon: iconFor(meta.icon),
+      };
+    });
+  }, [adaptiveAnswers.scenarios, evidence]);
 
   const onFile = async (type: EvidenceType, file: File) => {
     setError(null);
@@ -95,8 +131,6 @@ export default function EvidencePage() {
       if (!caseId) {
         throw new Error("Please start your appeal before uploading evidence.");
       }
-      // A single authenticated call validates, stores and attaches the
-      // file. The browser never sees or supplies a storage key.
       const uploaded = await uploadEvidence(caseId, {
         file,
         evidenceType: type,
@@ -142,7 +176,7 @@ export default function EvidencePage() {
               Add supporting evidence
             </h1>
             <p className="mt-2 text-[14px] leading-relaxed text-brand-mute">
-              Upload any evidence that supports your appeal. You can skip this if you have nothing to add.
+              Based on your situation, these are the most helpful uploads. You can skip this if you have nothing to add.
             </p>
           </div>
 
@@ -157,7 +191,7 @@ export default function EvidencePage() {
           )}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            {CATEGORIES.map((c) => {
+            {categories.map((c) => {
               const filesForCategory = evidence.filter((e) => e.type === c.type);
               return (
                 <CategoryCard

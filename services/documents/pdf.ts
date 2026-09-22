@@ -243,9 +243,27 @@ export async function renderAppealPdf(input: {
     y -= PARA_GAP;
   }
 
-  drawText("Yours faithfully,");
+  // Keep the closing block together so we never orphan "The registered
+  // keeper" alone on a second page when page 1 still has room.
+  const signOff = "The registered keeper";
+  const closingNeeded = LINE_H * 2 + PARA_GAP;
+  ensureSpace(closingNeeded);
+  page.drawText("Yours faithfully,", {
+    x: MARGIN_X,
+    y,
+    size: 10.5,
+    font,
+    color: BRAND.text,
+  });
   y -= LINE_H;
-  drawText("The registered keeper", { bold: true });
+  page.drawText(signOff, {
+    x: MARGIN_X,
+    y,
+    size: 10.5,
+    font: bold,
+    color: BRAND.text,
+  });
+  y -= LINE_H;
 
   drawFooter(pageIndex);
 

@@ -69,7 +69,7 @@ export async function POST(request: Request) {
         const name = required(str(body, "name"));
         const description = required(optStr(body, "description"));
         const paymentRequired = required(bool(body, "paymentRequired", true));
-        const amountPence = required(int(body, "amountPence", 2900));
+        const amountPence = required(int(body, "amountPence", 1199));
         const status = required(enumOf(body, "status", STATUS_VALUES, "ACTIVE"));
         const row = await upsertService({
           code,

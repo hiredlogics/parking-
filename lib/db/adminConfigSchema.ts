@@ -12,7 +12,7 @@ export const ADMIN_CONFIG_STATEMENTS: string[] = [
     name              TEXT NOT NULL,
     description       TEXT,
     payment_required  BOOLEAN NOT NULL DEFAULT TRUE,
-    amount_pence      INTEGER NOT NULL DEFAULT 2900,
+    amount_pence      INTEGER NOT NULL DEFAULT 1199,
     currency          TEXT NOT NULL DEFAULT 'GBP',
     status            TEXT NOT NULL DEFAULT 'ACTIVE',
     config_json       JSONB NOT NULL DEFAULT '{}',

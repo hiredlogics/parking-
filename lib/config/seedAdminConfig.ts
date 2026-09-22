@@ -215,7 +215,7 @@ export async function ensureAdminConfigSeeded(): Promise<void> {
       name: "Private Parking Initial Appeal",
       description: "First-stage private parking operator appeal",
       paymentRequired: true,
-      amountPence: 2900,
+      amountPence: 1199,
       status: "ACTIVE",
       seedOnly: true,
     });

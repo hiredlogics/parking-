@@ -1,5 +1,6 @@
 import type { ConfirmedPcn } from "@/types";
 import type { AnswerMap, AnswerValue, KnownFacts } from "./types";
+import { inferUkJurisdiction } from "./jurisdiction";
 
 /**
  * Material fact keys.
@@ -190,6 +191,21 @@ export function deriveKnownFacts(input: {
   // Answers override / add to notice facts.
   for (const [k, v] of Object.entries(input.answers ?? {})) {
     if (isEstablished(v)) values[k] = v;
+  }
+
+  // Infer England/Wales / Scotland / NI from location or postcode when
+  // the customer has not already answered — avoids a redundant question.
+  if (!isEstablished(values[FACT.JURISDICTION])) {
+    const inferred = inferUkJurisdiction(
+      typeof values[FACT.PARKING_LOCATION] === "string"
+        ? values[FACT.PARKING_LOCATION]
+        : c?.parking_location,
+      typeof values["keeper_postcode"] === "string"
+        ? values["keeper_postcode"]
+        : null,
+      typeof values["keeper_town"] === "string" ? values["keeper_town"] : null,
+    );
+    if (inferred) values[FACT.JURISDICTION] = inferred;
   }
 
   const known = new Set(Object.keys(values));

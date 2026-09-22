@@ -6,8 +6,8 @@ import type { AnswerValue, Question } from "@/lib/questions/types";
 /**
  * Generic renderer for one adaptive question.
  *
- * Styled to match the client "Your situation" mockups: radio-style
- * option cards + full-width Continue.
+ * Situation (Q-WHAT-HAPPENED) is multi-select so customers can raise
+ * several grounds; follow-ups then run for each selected tag.
  */
 export function AdaptiveQuestion({
   question,
@@ -45,12 +45,7 @@ export function AdaptiveQuestion({
         value = choice;
         break;
       case "multi_choice":
-        // Situation mockup is single-select; store as a one-item array.
-        if (isSituation) {
-          value = choice ? [choice] : [];
-        } else {
-          value = multi;
-        }
+        value = multi;
         break;
       case "boolean":
         value = choice === "true" ? true : choice === "false" ? false : null;
@@ -72,7 +67,7 @@ export function AdaptiveQuestion({
         value = text;
     }
 
-    if (isSituation && choice === "other_grounds" && !otherText.trim()) {
+    if (isSituation && multi.includes("other_grounds") && !otherText.trim()) {
       setError("Please briefly describe what happened.");
       return;
     }
@@ -88,7 +83,7 @@ export function AdaptiveQuestion({
     }
     onSubmit(
       value,
-      isSituation && choice === "other_grounds"
+      isSituation && multi.includes("other_grounds")
         ? { situation_other: otherText.trim() }
         : undefined,
     );
@@ -117,9 +112,7 @@ export function AdaptiveQuestion({
       </div>
 
       <div className="mt-6 space-y-2.5">
-        {(question.type === "single_choice" ||
-          question.type === "boolean" ||
-          (question.type === "multi_choice" && isSituation)) &&
+        {(question.type === "single_choice" || question.type === "boolean") &&
           (question.type === "boolean"
             ? [
                 { value: "true", label: "Yes" },
@@ -154,7 +147,7 @@ export function AdaptiveQuestion({
             );
           })}
 
-        {question.type === "multi_choice" && !isSituation &&
+        {question.type === "multi_choice" &&
           (question.options ?? []).map((opt) => {
             const active = multi.includes(opt.value);
             return (
@@ -173,12 +166,24 @@ export function AdaptiveQuestion({
                 <span
                   className={[
                     "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border-2",
-                    active ? "border-brand-pink bg-brand-pink text-white" : "border-[#D1D5DB]",
+                    active
+                      ? "border-brand-pink bg-brand-pink text-white"
+                      : "border-[#D1D5DB]",
                   ].join(" ")}
                 >
                   {active && (
-                    <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth={3}>
-                      <path d="M5 12l4.5 4.5L20 6" strokeLinecap="round" strokeLinejoin="round" />
+                    <svg
+                      viewBox="0 0 24 24"
+                      className="h-3 w-3"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={3}
+                    >
+                      <path
+                        d="M5 12l4.5 4.5L20 6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
                     </svg>
                   )}
                 </span>
@@ -187,7 +192,7 @@ export function AdaptiveQuestion({
             );
           })}
 
-        {isSituation && choice === "other_grounds" && (
+        {isSituation && multi.includes("other_grounds") && (
           <textarea
             className="mt-1 w-full rounded-xl border border-brand-border bg-white px-3.5 py-2.5 text-[14px] text-brand-text placeholder:text-brand-mute/60 focus:border-brand-pink focus:outline-none focus:ring-2 focus:ring-brand-pink/30"
             rows={3}
@@ -204,7 +209,11 @@ export function AdaptiveQuestion({
           <input
             className="w-full rounded-xl border border-brand-border bg-white px-3.5 py-2.5 text-[14px] focus:border-brand-pink focus:outline-none focus:ring-2 focus:ring-brand-pink/30"
             type={
-              question.type === "date" ? "date" : question.type === "time" ? "time" : "text"
+              question.type === "date"
+                ? "date"
+                : question.type === "time"
+                  ? "time"
+                  : "text"
             }
             value={text}
             onChange={(e) => setText(e.target.value)}

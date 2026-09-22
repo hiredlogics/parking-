@@ -139,6 +139,8 @@ export default function UploadPage() {
 
   const onInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
+    // Allow re-selecting the same photo from Camera Roll.
+    e.target.value = "";
     if (f) {
       setPendingFile(f);
       setFileName(f.name);
