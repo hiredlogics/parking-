@@ -310,6 +310,12 @@ describe("Drafting context", () => {
       availableEvidence: [],
     });
     expect(text).toMatch(/An established timing failure may be relied upon/);
+    // Customer-facing prose — never raw ISO next to "4 May 2026".
+    expect(text).toMatch(/notice treated as given \d{1,2} \w+ \d{4}/);
+    expect(text).toMatch(/deadline \d{1,2} \w+ \d{4}/);
+    expect(text).not.toMatch(
+      /notice treated as given \d{4}-\d{2}-\d{2}/,
+    );
   });
 });
 

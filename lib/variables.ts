@@ -1,4 +1,5 @@
 import type { AllAnswers, ConfirmedPcn } from "@/types";
+import { formatUkDate, formatUkTime } from "@/lib/format/ukDate";
 
 /**
  * Variables inserted into approved paragraphs. Names match those used in
@@ -8,6 +9,10 @@ import type { AllAnswers, ConfirmedPcn } from "@/types";
  * appear inside approved paragraphs: {{permission_source}} in PP-AUTH-003,
  * and {{alleged_term}} in PP-SIGN-012. All other placeholders are drawn
  * from the pack's Part 3 PCN data variables.
+ *
+ * Date/time values are formatted for UK letter prose. Canonical ISO
+ * values stay on the ConfirmedPcn / analysis layer — this map is
+ * presentation only.
  */
 export const SUPPORTED_VARIABLES = [
   "vrm",
@@ -35,17 +40,21 @@ export type VariableMap = Partial<Record<SupportedVariable, string>>;
 export function buildVariableMap(pcn: ConfirmedPcn, answers: AllAnswers): VariableMap {
   const strOrUndef = (v: unknown): string | undefined =>
     v == null ? undefined : String(v);
+  const dateOrUndef = (v: string | null | undefined): string | undefined =>
+    formatUkDate(v) ?? undefined;
+  const timeOrUndef = (v: string | null | undefined): string | undefined =>
+    formatUkTime(v) ?? undefined;
   return {
     vrm: pcn.vrm,
     pcn_number: pcn.pcn_number,
     operator_name: pcn.operator_name,
     parking_location: pcn.parking_location,
-    parking_event_date: pcn.parking_event_date,
-    notice_issue_date: pcn.notice_issue_date,
-    notice_received_date: pcn.notice_received_date,
+    parking_event_date: dateOrUndef(pcn.parking_event_date),
+    notice_issue_date: dateOrUndef(pcn.notice_issue_date),
+    notice_received_date: dateOrUndef(pcn.notice_received_date),
     notice_route: pcn.notice_route,
-    entry_time: pcn.entry_time,
-    exit_time: pcn.exit_time,
+    entry_time: timeOrUndef(pcn.entry_time),
+    exit_time: timeOrUndef(pcn.exit_time),
     total_recorded_duration: strOrUndef(pcn.total_recorded_duration),
     charge_amount: strOrUndef(pcn.charge_amount),
     alleged_breach: pcn.alleged_breach,

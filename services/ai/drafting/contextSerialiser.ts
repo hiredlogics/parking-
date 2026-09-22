@@ -78,8 +78,11 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
       (a.pofa.paragraph ? ` (paragraph ${a.pofa.paragraph})` : ""),
   );
   if (a.pofa.timingStatus === "FAILED") {
+    const given =
+      formatUkDate(a.pofa.noticeGivenDate) ?? a.pofa.noticeGivenDate;
+    const deadline = formatUkDate(a.pofa.deadline) ?? a.pofa.deadline;
     lines.push(
-      `An established timing failure may be relied upon: notice treated as given ${a.pofa.noticeGivenDate}, deadline ${a.pofa.deadline}.`,
+      `An established timing failure may be relied upon: notice treated as given ${given}, deadline ${deadline}.`,
     );
   } else {
     lines.push(
@@ -218,7 +221,7 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
       );
       for (const f of intel.technicalFindings) {
         lines.push(`- ${f.ground} (${f.confidence})`);
-        for (const r of f.reasons) lines.push(`    ${r}`);
+        for (const r of f.reasons) lines.push(`    ${formatIsoDatesInProse(r)}`);
       }
     }
   }
@@ -235,4 +238,12 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
   );
 
   return lines.join("\n");
+}
+
+/**
+ * Rewrite bare ISO dates inside free-text reasons so the model is never
+ * handed "2026-09-01" next to "9 July 2026". Presentation only.
+ */
+function formatIsoDatesInProse(text: string): string {
+  return text.replace(/\b(\d{4}-\d{2}-\d{2})\b/g, (iso) => formatUkDate(iso) ?? iso);
 }

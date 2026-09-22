@@ -24,7 +24,7 @@ describe("variable replacement", () => {
       vars,
     );
     expect(text).toBe(
-      "Vehicle AB12 CDE at Riverside on 2026-07-14 authorised by the landlord.",
+      "Vehicle AB12 CDE at Riverside on 14 July 2026 authorised by the landlord.",
     );
     expect(unresolved).toEqual([]);
   });
