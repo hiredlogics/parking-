@@ -102,7 +102,7 @@ export async function draftAppeal(
   // variable builder, so the adaptive flow and the legacy pipeline
   // resolve placeholders identically. Computed up front so every return
   // path can hand them to the validation pass.
-  const legacy = toLegacyAnswers(input.answers);
+  const legacy = toLegacyAnswers(input.answers, input.confirmed);
   const variables = buildVariableMap(input.confirmed, legacy) as Record<
     string,
     string

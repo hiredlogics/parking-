@@ -118,8 +118,25 @@ describe("Adaptive → legacy answer bridge", () => {
     const legacy = toLegacyAnswers({
       [FACT.SCENARIOS]: ["grace_or_exit"],
       [FACT.EXIT_DELAY_REASON]: "Queue at the barrier",
+      [FACT.TOTAL_RECORDED_DURATION]: 25,
     });
     expect(legacy.branch.grace?.additional_exit_time_required).toBe("YES");
+  });
+
+  it("does not map grace for a multi-hour stay", () => {
+    const legacy = toLegacyAnswers(
+      {
+        [FACT.SCENARIOS]: ["grace_or_exit"],
+        [FACT.EXIT_DELAY_REASON]: "Leaving",
+      },
+      {
+        total_recorded_duration: 441,
+        entry_time: "09:07",
+        exit_time: "16:28",
+        confirmedAt: new Date().toISOString(),
+      },
+    );
+    expect(legacy.branch.grace).toBeUndefined();
   });
 
   it("returns an empty-but-valid shape for no answers", () => {

@@ -1,6 +1,7 @@
 import { FACT, factNum, factStr } from "@/lib/questions/facts";
 import type { KnownFacts } from "@/lib/questions/types";
 import type { PofaAnalysis } from "@/lib/analysis/types";
+import { isGraceGroundSupportable } from "@/lib/appeals/graceSupport";
 
 /**
  * Fact-level applicability gates.
@@ -34,7 +35,20 @@ const method = (...ms: string[]) => (g: GateInput) => {
   const m = factStr(g.facts, FACT.PAYMENT_METHOD);
   return m !== null && ms.includes(m);
 };
-const paymentFailed: Gate = (g) => g.facts.tags.has("payment_attempted_failed");
+const graceSupportable: Gate = (g) =>
+  isGraceGroundSupportable({
+    totalRecordedDurationMinutes: factNum(g.facts, FACT.TOTAL_RECORDED_DURATION),
+    entryTime: factStr(g.facts, FACT.ENTRY_TIME),
+    exitTime: factStr(g.facts, FACT.EXIT_TIME),
+    exitDelayReason:
+      factStr(g.facts, FACT.EXIT_DELAY_REASON) ??
+      factStr(g.facts, FACT.DEPARTURE_DELAY),
+    allegedOverstayMinutes:
+      typeof g.facts.values["alleged_overstay_minutes"] === "number"
+        ? (g.facts.values["alleged_overstay_minutes"] as number)
+        : null,
+    gracePeriodApplicable: factStr(g.facts, "grace_period_applicable"),
+  }).ok;
 const signageBasis = (...keys: string[]): Gate => (g) => {
   const raw = g.facts.values[FACT.SIGNAGE_ISSUE_BASIS];
   const basis = Array.isArray(raw) ? (raw as string[]) : [];
@@ -57,11 +71,10 @@ export const MODULE_GATES: Record<string, Gate> = {
   /* ---- Consideration / grace / duration ---- */
   "KB-CON-01": tag("short_stay_consideration"),
   "KB-CON-02": tag("short_stay_consideration"),
-  "KB-GRACE-01": tag("grace_or_exit"),
-  "KB-GRACE-02": (g) =>
-    g.facts.tags.has("barrier_or_access_failure") ||
-    (g.facts.tags.has("grace_or_exit") &&
-      factStr(g.facts, FACT.EXIT_DELAY_REASON) !== null),
+  // Grace modules require factually supportable end-of-parking grace —
+  // never the situation checkbox alone.
+  "KB-GRACE-01": graceSupportable,
+  "KB-GRACE-02": graceSupportable,
   "KB-TIME-01": (g) =>
     g.facts.tags.has("anpr_disputed") ||
     g.facts.tags.has("multiple_visits_same_day") ||
@@ -208,12 +221,8 @@ export const BLOCK_GATES: Record<string, Gate> = {
   "PP-PAY-005": paymentFailed,
   // "The verified additional period falls within the grace period" —
   // only where the grace facts were actually given.
-  "PP-GRACE-005": (g) =>
-    g.facts.tags.has("grace_or_exit") &&
-    factStr(g.facts, FACT.EXIT_DELAY_REASON) !== null,
-  "PP-GRACE-003": (g) =>
-    g.facts.tags.has("barrier_or_access_failure") ||
-    g.facts.tags.has("grace_or_exit"),
+  "PP-GRACE-005": graceSupportable,
+  "PP-GRACE-003": graceSupportable,
   // "Independent evidence demonstrates the vehicle was not present..."
   "PP-ANPR-004": (g) => g.evidence.size > 0,
   // Multiple-visit wording needs multiple visits.

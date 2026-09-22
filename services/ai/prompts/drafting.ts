@@ -235,6 +235,7 @@ You MUST:
 
 You MUST NOT:
 - Force a grace, signage, permit, payment or other argument solely because the customer ticked that category.
+- Argue end-of-parking grace for a long continuous stay (for example several hours) unless VERIFIED FACTS establish a short overstay after a known permitted period ended (typically around 10 minutes). A multi-hour ANPR window is not itself a grace period.
 - Output rule IDs, paragraph IDs, route names or the words "Master Pack".`;
 
 export interface PromptVersion {

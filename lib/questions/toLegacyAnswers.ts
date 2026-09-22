@@ -1,6 +1,7 @@
 import type {
   AllAnswers,
   BranchAnswers,
+  ConfirmedPcn,
   CoreAnswers,
   ScenarioTag as LegacyScenarioTag,
   YesNoUnsure,
@@ -8,6 +9,7 @@ import type {
 import { EMPTY_ANSWERS } from "@/types";
 import { FACT } from "./facts";
 import type { AnswerMap, AnswerValue } from "./types";
+import { isGraceGroundSupportable } from "@/lib/appeals/graceSupport";
 
 /**
  * Bridge the adaptive engine onto the existing deterministic pipeline.
@@ -90,7 +92,10 @@ function legacyPermitType(
   }
 }
 
-export function toLegacyAnswers(adaptive: AnswerMap): AllAnswers {
+export function toLegacyAnswers(
+  adaptive: AnswerMap,
+  confirmed?: ConfirmedPcn | null,
+): AllAnswers {
   const core: CoreAnswers = { ...EMPTY_ANSWERS.core, scenarios: [] };
   const branch: BranchAnswers = {};
 
@@ -189,16 +194,34 @@ export function toLegacyAnswers(adaptive: AnswerMap): AllAnswers {
     }
   }
 
-  /* ---------------- Grace / exit — only with answered delay facts ---------- */
+  /* ---------------- Grace / exit — only when facts support end-grace ---------- */
   {
     const exitReason = str(adaptive[FACT.EXIT_DELAY_REASON]);
     const departure = str(adaptive[FACT.DEPARTURE_DELAY]);
-    if (exitReason || departure) {
+    const duration =
+      num(adaptive[FACT.TOTAL_RECORDED_DURATION]) ??
+      (typeof confirmed?.total_recorded_duration === "number"
+        ? confirmed.total_recorded_duration
+        : null);
+    const overstay = num(adaptive["alleged_overstay_minutes"]);
+    const support = isGraceGroundSupportable({
+      totalRecordedDurationMinutes: duration,
+      entryTime:
+        str(adaptive[FACT.ENTRY_TIME]) ?? confirmed?.entry_time ?? null,
+      exitTime: str(adaptive[FACT.EXIT_TIME]) ?? confirmed?.exit_time ?? null,
+      exitDelayReason: exitReason ?? departure,
+      allegedOverstayMinutes: overstay,
+      gracePeriodApplicable: str(adaptive["grace_period_applicable"]),
+    });
+    if (support.ok && (exitReason || departure || overstay != null)) {
       branch.grace = {
         parking_period_completed: "YES",
         additional_exit_time_required: "YES",
         exit_reason: "OTHER",
         exit_delay: "OTHER",
+        ...(typeof overstay === "number"
+          ? { alleged_overstay_minutes: overstay }
+          : {}),
       };
     }
   }

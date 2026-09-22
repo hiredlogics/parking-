@@ -122,12 +122,15 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
     lines.push(
       "These are candidate Master Pack triggers and approved wording that MAY apply. They are not instructions to assert every ground.",
     );
-    lines.push(
-      "Include a ground ONLY where VERIFIED FACTS and AVAILABLE EVIDENCE support it. Omit candidates whose factual preconditions are missing or contradicted.",
-    );
-    lines.push(
-      "Customer situation selections are circumstances for context — they do NOT force a ground into the letter.",
-    );
+  lines.push(
+    "Include a ground ONLY where VERIFIED FACTS and AVAILABLE EVIDENCE support it. Omit candidates whose factual preconditions are missing or contradicted.",
+  );
+  lines.push(
+    "Customer situation selections are circumstances for context — they do NOT force a ground into the letter.",
+  );
+  lines.push(
+    "End-of-parking grace applies only to a short exit delay after a permitted period. Do not argue grace for a long continuous recorded stay (e.g. multi-hour) unless a short quantified overstay is established in VERIFIED FACTS.",
+  );
     if (rb.activeRoutes.length > 0) {
       lines.push(`Candidate routes: ${rb.activeRoutes.join(", ")}`);
     }

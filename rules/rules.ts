@@ -1,4 +1,5 @@
 import type { Rule } from "@/types";
+import { isGraceGroundSupportable } from "@/lib/appeals/graceSupport";
 
 /**
  * MASTER TRIGGER / DECISION RULE TABLE — Master Developer Pack, Part 6.
@@ -409,7 +410,10 @@ export const RULES: Rule[] = [
     description: "additional_exit_time_required = YES OR exit_reason indicates returning/leaving — PP-GRACE-002.",
     test: (input) => {
       const g = input.answers.branch.grace;
-      const ok = isYes(g?.additional_exit_time_required) || g?.exit_reason === "RETURN_TO_VEHICLE";
+      const ok =
+        graceFactuallyOk(input) &&
+        (isYes(g?.additional_exit_time_required) ||
+          g?.exit_reason === "RETURN_TO_VEHICLE");
       return ok
         ? { matched: true, reason: "Time required to return to and leave the vehicle." }
         : { matched: false, reason: "Not applicable." };
@@ -421,6 +425,7 @@ export const RULES: Rule[] = [
     paragraphIds: ["PP-GRACE-003"],
     description: "exit_delay = CONGESTION — PP-GRACE-003.",
     test: (input) =>
+      graceFactuallyOk(input) &&
       input.answers.branch.grace?.exit_delay === "CONGESTION"
         ? { matched: true, reason: "Exit delay: congestion." }
         : { matched: false, reason: "Not applicable." },
@@ -431,6 +436,7 @@ export const RULES: Rule[] = [
     paragraphIds: ["PP-GRACE-004"],
     description: "Additional exit time fact established — PP-GRACE-004.",
     test: (input) =>
+      graceFactuallyOk(input) &&
       isYes(input.answers.branch.grace?.additional_exit_time_required)
         ? { matched: true, reason: "Additional exit time reasonably required." }
         : { matched: false, reason: "Not applicable." },
@@ -907,6 +913,21 @@ export const RULES: Rule[] = [
         : { matched: false, reason: "Not applicable." },
   },
 ];
+
+function graceFactuallyOk(input: {
+  pcn: { total_recorded_duration?: number; entry_time?: string; exit_time?: string };
+  answers: { branch: { grace?: { alleged_overstay_minutes?: number; grace_period_applicable?: string; additional_exit_time_required?: string } } };
+}): boolean {
+  const g = input.answers.branch.grace;
+  return isGraceGroundSupportable({
+    totalRecordedDurationMinutes: input.pcn.total_recorded_duration ?? null,
+    entryTime: input.pcn.entry_time ?? null,
+    exitTime: input.pcn.exit_time ?? null,
+    exitDelayReason: isYes(g?.additional_exit_time_required) ? "established" : null,
+    allegedOverstayMinutes: g?.alleged_overstay_minutes ?? null,
+    gracePeriodApplicable: g?.grace_period_applicable ?? null,
+  }).ok;
+}
 
 // ------------------------------------------------------------------
 // Predicates

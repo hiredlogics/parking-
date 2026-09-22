@@ -3,6 +3,7 @@ import { FACT, factNum, factStr } from "@/lib/questions/facts";
 import type { KnownFacts } from "@/lib/questions/types";
 import { pofaCanLead } from "./pofa";
 import type { PofaAnalysis, RouteAssessment } from "./types";
+import { isGraceGroundSupportable } from "@/lib/appeals/graceSupport";
 
 /**
  * Route detection and priority.
@@ -231,9 +232,8 @@ export function assessRoutes(input: RouteInput): RouteAssessment[] {
   }
 
   /* ---------- Consideration / grace ----------
-   * Situation tags only hint. Open these routes when follow-up facts,
-   * overstay on the notice, or evidence support them — not from the
-   * checkbox alone.
+   * Situation tags only hint. Grace opens only when end-of-parking
+   * facts are supportable (short overstay / exit delay — not a long stay).
    */
   {
     const initialReason = factStr(f, FACT.INITIAL_PERIOD_REASON);
@@ -247,32 +247,24 @@ export function assessRoutes(input: RouteInput): RouteAssessment[] {
 
     const exitReason = factStr(f, FACT.EXIT_DELAY_REASON);
     const departure = factStr(f, FACT.DEPARTURE_DELAY);
-    const allegation = (factStr(f, FACT.ALLEGED_BREACH) ?? "").toLowerCase();
-    const overstayAllegation =
-      /\bover\s?stay|\bexceed(?:ed|ing)\s+(?:the\s+)?(?:maximum|permitted|paid)|\blonger\s+than\s+permitted/i.test(
-        allegation,
-      );
+    const duration = factNum(f, FACT.TOTAL_RECORDED_DURATION);
+    const overstayRaw = f.values["alleged_overstay_minutes"];
+    const overstay =
+      typeof overstayRaw === "number" ? overstayRaw : null;
+    const graceOk = isGraceGroundSupportable({
+      totalRecordedDurationMinutes: duration,
+      entryTime: factStr(f, FACT.ENTRY_TIME),
+      exitTime: factStr(f, FACT.EXIT_TIME),
+      exitDelayReason: exitReason ?? departure,
+      allegedOverstayMinutes: overstay,
+      gracePeriodApplicable: factStr(f, "grace_period_applicable"),
+    });
 
-    if (exitReason || departure) {
-      add(
-        "GRACE",
-        "Additional time after the permitted parking period is supported by the customer's account of the exit.",
-        { rank: 52, evidenceBacked: true },
-      );
-    } else if (overstayAllegation && f.tags.has("grace_or_exit")) {
-      // Tag + overstay allegation: investigate, but mark as weaker until
-      // exit-delay facts are established (still useful for retrieval).
-      add(
-        "GRACE",
-        "The notice alleges an overstay and the customer reported exit timing circumstances — grace/actual parking period should be assessed against verified times.",
-        { rank: 58, evidenceBacked: false },
-      );
-    } else if (overstayAllegation) {
-      add(
-        "GRACE",
-        "The notice alleges an overstay — grace and the actual parking period should be assessed from the recorded times.",
-        { rank: 56, evidenceBacked: false },
-      );
+    if (graceOk.ok) {
+      add("GRACE", graceOk.reason, {
+        rank: 52,
+        evidenceBacked: Boolean(exitReason || departure || overstay != null),
+      });
     }
   }
 

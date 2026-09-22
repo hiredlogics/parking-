@@ -7,6 +7,7 @@ import { assembleAppeal } from "@/lib/assembly";
 import { getEffectiveParagraphs, getEffectiveRules } from "@/lib/appealLogic";
 import { RULES } from "@/rules";
 import { PARAGRAPH_LIBRARY } from "@/paragraphs/library";
+import { isGraceGroundSupportable } from "@/lib/appeals/graceSupport";
 
 /**
  * Enrich adaptive answers from uploaded evidence so the Master Pack
@@ -78,7 +79,7 @@ export async function buildRulesBasedLetter(input: {
 }> {
   const evidenceTypes = input.evidenceTypes ?? [];
   const enriched = enrichAnswersFromEvidence(input.answers, evidenceTypes);
-  const legacy = toLegacyAnswers(enriched);
+  const legacy = toLegacyAnswers(enriched, input.confirmed);
   const evidence: EvidenceItem[] = evidenceTypes.map((type, i) => ({
     id: `ev_${i}`,
     type: type as EvidenceItem["type"],
