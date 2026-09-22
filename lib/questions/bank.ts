@@ -121,6 +121,8 @@ export const QUESTION_BANK: QuestionDef[] = [
       "Select everything that describes what happened. We use this to ask the right follow-up questions. Your appeal grounds are decided from the notice, your answers and any evidence — not from these ticks alone.",
     required: true,
     options: [
+      { value: "payment_made", label: "A payment was made for the parking" },
+      { value: "vrm_error", label: "The vehicle registration was entered incorrectly" },
       { value: "signage_issue", label: "The signage was unclear or inadequate" },
       { value: "authorised_or_permit", label: "I have a valid permit or was authorised to park" },
       { value: "resident_parking_rights", label: "I was a resident / have the right to park" },

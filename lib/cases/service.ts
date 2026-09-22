@@ -38,7 +38,7 @@ import type {
 
 export type AccessFailure = {
   ok: false;
-  status: 401 | 403 | 404;
+  status: 401 | 403 | 404 | 409;
   code: string;
   message: string;
 };
@@ -187,6 +187,36 @@ export async function confirmFactsForCase(
   const access = await requireCaseAccess(caseId, session, "write");
   if (!access.ok) return access;
 
+  const triage = access.appealCase.extraction?.triage;
+  if (triage && triage.serviceDecision === "WRONG_STAGE_REDIRECT") {
+    return {
+      ok: false,
+      status: 409,
+      code: "WRONG_DOCUMENT_STAGE",
+      message: triage.detail,
+    };
+  }
+
+  // Deterministic re-check of sender / extracted fields.
+  const { assessDocumentDeterministic } = await import(
+    "@/lib/triage/deterministic"
+  );
+  const det = assessDocumentDeterministic({
+    operatorName: confirmed.operator_name,
+    allegedBreach: confirmed.alleged_breach,
+    parkingLocation: confirmed.parking_location,
+    senderName: triage?.senderName,
+    parkingOperatorName: triage?.parkingOperatorName,
+  });
+  if (det.serviceDecision === "WRONG_STAGE_REDIRECT") {
+    return {
+      ok: false,
+      status: 409,
+      code: "WRONG_DOCUMENT_STAGE",
+      message: det.detail,
+    };
+  }
+
   await repo.saveConfirmed(caseId, confirmed);
 
   // Customer corrections are stored alongside the document values —
@@ -318,11 +348,38 @@ async function resolveNextStep(
     await questionRepo.discardPendingQuestion(caseId);
   }
 
+  // Document triage gate — unsuitable documents never enter questioning.
+  const triage = appealCase.extraction?.triage;
+  if (triage && triage.serviceDecision === "WRONG_STAGE_REDIRECT") {
+    const scope = {
+      reason: triage.reasonCode,
+      detail: triage.detail,
+      action: "OUT_OF_SCOPE" as const,
+    };
+    return {
+      step: {
+        questioningComplete: true,
+        question: null,
+        answered: answeredCount,
+        outstandingCount: 0,
+        outOfScope: { detail: triage.detail },
+        needsReview: null,
+      },
+      outcome: {
+        status: "OUT_OF_SCOPE",
+        scope,
+        eligibleRoutes: [],
+        missingFacts: [],
+      },
+    };
+  }
+
   const outcome = await nextDynamicQuestion({
     caseId,
     confirmed: appealCase.confirmed,
     answers,
     evidenceTypes,
+    triage: appealCase.extraction?.triage ?? null,
     // The operator's allegation opens routes on its own.
     allegedBreach:
       appealCase.confirmed?.alleged_breach ??

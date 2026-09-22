@@ -39,6 +39,9 @@ import {
   isAdminIssueEngineEnabled,
 } from "@/lib/engine/issueEngine";
 import { ALL_REASON_CODES } from "./requirements";
+import { filterMissingFactsByCircumstances } from "./caseAssessment";
+import { triageBlocksAppealJourney } from "@/types/triage";
+import type { DocumentTriageResult } from "@/types/triage";
 
 /**
  * AI-dynamic question orchestration.
@@ -87,6 +90,8 @@ export interface NextQuestionInput {
   askedLabels?: string[];
   /** Injectable for tests. Defaults to the configured provider. */
   provider?: QuestionProvider | null;
+  /** Pre-computed document triage from extraction. */
+  triage?: DocumentTriageResult | null;
 }
 
 export type DynamicOutcome =
@@ -227,7 +232,15 @@ export async function nextDynamicQuestion(
   const routes = candidacy.candidates;
 
   // Scope first — never keep interrogating a case we cannot automate.
-  const scope = detectOutOfScope(facts);
+  const triageBlock =
+    input.triage && triageBlocksAppealJourney(input.triage)
+      ? {
+          action: "OUT_OF_SCOPE" as const,
+          reason: input.triage.reasonCode,
+          detail: input.triage.detail,
+        }
+      : null;
+  const scope = triageBlock ?? detectOutOfScope(facts);
   if (scope) {
     return {
       status: "OUT_OF_SCOPE",
@@ -266,15 +279,25 @@ export async function nextDynamicQuestion(
         kbModules: evaluated.applicableModuleIds.slice(0, 4),
         when: () => true,
       }));
-      if (adminSufficient && missing.length === 0) {
-        return {
-          status: "SUFFICIENT_INFORMATION",
-          eligibleRoutes: routes,
-          missingFacts: [],
-          readyForNextStage: true,
-        };
-      }
-      if (missing.length === 0 && !adminSufficient) {
+      // Assessment filter: after circumstances are named, drop permission /
+      // residential (etc.) questionnaires that those answers do not justify.
+      missing = filterMissingFactsByCircumstances(missing, facts);
+      if (missing.length === 0) {
+        const circumstancesNamed = Array.isArray(facts.values.scenarios)
+          ? (facts.values.scenarios as unknown[]).length > 0
+          : false;
+        if (
+          adminSufficient ||
+          circumstancesNamed ||
+          evaluated.activeIssues.some((i) => i.code !== "TRIAGE_SCOPE")
+        ) {
+          return {
+            status: "SUFFICIENT_INFORMATION",
+            eligibleRoutes: routes,
+            missingFacts: [],
+            readyForNextStage: true,
+          };
+        }
         return {
           status: "MANUAL_REVIEW",
           reason: "NO_VIABLE_ROUTE",
@@ -289,10 +312,16 @@ export async function nextDynamicQuestion(
         "[dynamicEngine] admin issue engine failed; using legacy requirements:",
         err,
       );
-      missing = missingRequirements(facts, routes);
+      missing = filterMissingFactsByCircumstances(
+        missingRequirements(facts, routes),
+        facts,
+      );
     }
   } else {
-    missing = missingRequirements(facts, routes);
+    missing = filterMissingFactsByCircumstances(
+      missingRequirements(facts, routes),
+      facts,
+    );
   }
 
   /*

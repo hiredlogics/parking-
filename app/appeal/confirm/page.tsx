@@ -9,6 +9,8 @@ import { useAppealStore } from "@/features/appeal/store";
 import { useCaseSession } from "@/features/appeal/useCaseSession";
 import { confirmCase } from "@/features/appeal/caseSync";
 import type { CaseStage, ExtractedPcn, NoticeRoute } from "@/types";
+import { triageBlocksAppealJourney } from "@/types/triage";
+import { assessDocumentDeterministic } from "@/lib/triage/deterministic";
 
 /** Primary fields shown on the check-details card (matches mockup). */
 const PRIMARY_FIELDS: {
@@ -17,7 +19,7 @@ const PRIMARY_FIELDS: {
   type: "text" | "date" | "number";
   format?: "currency" | "dateUk";
 }[] = [
-  { key: "operator_name", label: "Parking company", type: "text" },
+  { key: "operator_name", label: "Parking company / sender", type: "text" },
   { key: "pcn_number", label: "PCN reference number", type: "text" },
   { key: "vrm", label: "Vehicle registration", type: "text" },
   { key: "parking_event_date", label: "Date of parking event", type: "date", format: "dateUk" },
@@ -65,6 +67,28 @@ export default function ConfirmPage() {
 
   const { caseId, status: sessionStatus } = useCaseSession();
   const values = useMemo(() => extraction?.raw ?? {}, [extraction]);
+  const triage = extraction?.triage ?? null;
+  const fallbackTriage = useMemo(
+    () =>
+      assessDocumentDeterministic({
+        operatorName:
+          typeof values.operator_name === "string" ? values.operator_name : null,
+        allegedBreach:
+          typeof values.alleged_breach === "string"
+            ? values.alleged_breach
+            : null,
+        parkingLocation:
+          typeof values.parking_location === "string"
+            ? values.parking_location
+            : null,
+        senderName: triage?.senderName,
+        parkingOperatorName: triage?.parkingOperatorName,
+      }),
+    [values, triage],
+  );
+  const effectiveTriage = triage ?? fallbackTriage;
+  const blockedStage = triageBlocksAppealJourney(effectiveTriage);
+  const blockDetail = blockedStage ? effectiveTriage.detail : null;
 
   if (sessionStatus === "loading") {
     return (
@@ -100,6 +124,10 @@ export default function ConfirmPage() {
   }
 
   const saveAndContinue = async () => {
+    if (blockedStage) {
+      setError(null);
+      return;
+    }
     const required = ["operator_name", "pcn_number", "vrm", "parking_location", "parking_event_date"] as const;
     const missing = required.filter((k) => !values[k]);
     if (missing.length > 0) {
@@ -139,14 +167,65 @@ export default function ConfirmPage() {
       <main className="mx-auto flex w-full max-w-lg flex-1 flex-col px-4 pb-8 pt-6 sm:px-6 sm:pt-8">
         <div className="text-center sm:text-left">
           <h1 className="text-[22px] font-bold leading-tight tracking-tight text-brand-text sm:text-[26px]">
-            Check your details
+            {blockedStage ? "This notice is past the appeal stage" : "Check your details"}
           </h1>
           <p className="mt-2 text-[14px] leading-relaxed text-brand-mute">
-            We&apos;ve extracted the following information from your notice. Please check and amend if needed.
+            {blockedStage
+              ? blockDetail
+              : "We've extracted the following information from your notice. Please check and amend if needed."}
           </p>
         </div>
 
-        {extraction.warnings && extraction.warnings.length > 0 && (
+        {blockedStage && (
+          <div
+            className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-950"
+            data-testid="triage-blocked"
+          >
+            <p className="font-semibold">Document assessment</p>
+            <ul className="mt-2 space-y-1 leading-snug">
+              <li>
+                Sender:{" "}
+                {effectiveTriage.senderName ??
+                  (typeof values.operator_name === "string"
+                    ? values.operator_name
+                    : "Unknown")}
+              </li>
+              <li>
+                Document type:{" "}
+                {labelDocumentKind(effectiveTriage.documentKind)}
+              </li>
+              <li>
+                Case stage: {labelCaseStage(effectiveTriage.caseStage)}
+              </li>
+              <li>Standard private parking appeal: Not appropriate at this stage</li>
+            </ul>
+          </div>
+        )}
+
+        {blockedStage && (
+          <div className="mt-6 space-y-3">
+            <Link
+              href="/services"
+              className="flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white"
+            >
+              See Expert Help options
+            </Link>
+            <Link
+              href="/#contact"
+              className="flex w-full items-center justify-center rounded-xl border border-brand-border bg-white px-5 py-3.5 text-[15px] font-semibold text-brand-text"
+            >
+              Contact our team
+            </Link>
+            <Link
+              href="/appeal/upload"
+              className="block text-center text-[13px] font-medium text-brand-mute underline-offset-2 hover:underline"
+            >
+              Upload a different notice
+            </Link>
+          </div>
+        )}
+
+        {extraction.warnings && extraction.warnings.length > 0 && !blockedStage && (
           <div
             role="status"
             className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-950"
@@ -278,6 +357,7 @@ export default function ConfirmPage() {
           </div>
         )}
 
+        {!blockedStage && (
         <div className="mt-auto flex flex-col gap-3 pt-8">
           <button
             type="button"
@@ -299,6 +379,7 @@ export default function ConfirmPage() {
             The details are incorrect
           </button>
         </div>
+        )}
       </main>
     </div>
   );
@@ -311,6 +392,44 @@ function PencilIcon() {
       <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" strokeLinejoin="round" />
     </svg>
   );
+}
+
+function labelDocumentKind(kind: string): string {
+  switch (kind) {
+    case "DEBT_RECOVERY":
+      return "Debt recovery letter";
+    case "LETTER_OF_CLAIM":
+      return "Letter of Claim";
+    case "COURT_CLAIM":
+      return "Court claim";
+    case "CCJ_OR_ENFORCEMENT":
+      return "CCJ / enforcement";
+    case "COUNCIL_OR_STATUTORY":
+      return "Council / statutory notice";
+    case "INITIAL_OPERATOR_PCN":
+    case "NOTICE_TO_KEEPER":
+    case "WINDSCREEN_NOTICE":
+      return "Initial parking notice";
+    default:
+      return kind.replace(/_/g, " ").toLowerCase();
+  }
+}
+
+function labelCaseStage(stage: string): string {
+  switch (stage) {
+    case "DEBT_RECOVERY":
+      return "Debt recovery";
+    case "PRE_ACTION_LETTER_OF_CLAIM":
+      return "Pre-action / Letter of Claim";
+    case "COURT_PROCEEDINGS":
+      return "Court proceedings";
+    case "ENFORCEMENT":
+      return "Enforcement";
+    case "INITIAL_OPERATOR_APPEAL":
+      return "Initial operator appeal";
+    default:
+      return stage.replace(/_/g, " ").toLowerCase();
+  }
 }
 
 function formatDisplay(value: string, format?: "currency" | "dateUk"): string {

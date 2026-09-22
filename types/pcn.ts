@@ -46,6 +46,12 @@ export interface ExtractionResult {
   providerId: string;
   extractedAt: string;
   warnings: string[];
+  /**
+   * Document triage — type, stage, sender vs operator, service suitability.
+   * Set after extraction. When WRONG_STAGE_REDIRECT, the appeal journey
+   * must stop before questioning/payment.
+   */
+  triage?: import("./triage").DocumentTriageResult;
 }
 
 export interface ConfirmedPcn extends ExtractedPcn {

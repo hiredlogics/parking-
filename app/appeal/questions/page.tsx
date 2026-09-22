@@ -171,21 +171,40 @@ export default function QuestionsPage() {
 
       {state?.outOfScope || state?.needsReview ? (
         <div>
-          <h1 className="text-[22px] font-bold text-brand-text">Under review</h1>
+          <h1 className="text-[22px] font-bold text-brand-text">
+            {state.outOfScope ? "This notice is past the appeal stage" : "Under review"}
+          </h1>
           <p className="mt-2 text-[14px] text-brand-mute">
             {(state.outOfScope ?? state.needsReview)?.detail ??
               "We're reviewing your appeal."}
           </p>
-          <button
-            type="button"
-            onClick={() => {
-              setStep("evidence");
-              router.push("/appeal/evidence");
-            }}
-            className="mt-6 flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white"
-          >
-            Continue
-          </button>
+          {state.outOfScope ? (
+            <div className="mt-6 space-y-3">
+              <Link
+                href="/services"
+                className="flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white"
+              >
+                See Expert Help options
+              </Link>
+              <Link
+                href="/#contact"
+                className="flex w-full items-center justify-center rounded-xl border border-brand-border bg-white px-5 py-3.5 text-[15px] font-semibold text-brand-text"
+              >
+                Contact our team
+              </Link>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setStep("evidence");
+                router.push("/appeal/evidence");
+              }}
+              className="mt-6 flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white"
+            >
+              Continue
+            </button>
+          )}
         </div>
       ) : state?.questioningComplete ? (
         <div>

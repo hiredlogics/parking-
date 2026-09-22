@@ -136,6 +136,68 @@ export async function POST(
     );
   }
 
+  // Document triage — type, stage, sender vs operator, service suitability.
+  // Must run before the customer enters the appeal question journey.
+  try {
+    const { runDocumentTriage } = await import("@/lib/triage/runTriage");
+    const triage = await runDocumentTriage({
+      file: { name: fileName, mimeType: mime, bytes },
+      extractedHints: {
+        operatorName: result.raw.operator_name,
+        allegedBreach: result.raw.alleged_breach,
+        parkingLocation: result.raw.parking_location,
+        chargeAmount: result.raw.charge_amount,
+      },
+      caseId: id,
+    });
+    result = { ...result, triage };
+
+    // Prefer true parking operator on the PCN fields when triage separated them.
+    if (
+      triage.serviceDecision === "PRIVATE_PARKING_INITIAL_APPEAL_OK" &&
+      triage.parkingOperatorName &&
+      triage.senderName &&
+      triage.parkingOperatorName !== triage.senderName
+    ) {
+      result = {
+        ...result,
+        raw: {
+          ...result.raw,
+          operator_name: triage.parkingOperatorName,
+        },
+        warnings: [
+          ...(result.warnings ?? []),
+          `Document sender recorded as ${triage.senderName}; parking operator shown as ${triage.parkingOperatorName}.`,
+        ],
+      };
+    }
+
+    if (triage.serviceDecision === "WRONG_STAGE_REDIRECT") {
+      result = {
+        ...result,
+        warnings: [
+          ...(result.warnings ?? []),
+          triage.detail,
+        ],
+      };
+      // Keep sender visible on confirm so the customer sees why we stopped.
+      if (triage.senderName) {
+        result = {
+          ...result,
+          raw: {
+            ...result.raw,
+            operator_name: triage.senderName,
+          },
+        };
+      }
+    }
+  } catch (err) {
+    console.error("[cases/extract] triage failed:", err);
+    // Deterministic fallback inside runDocumentTriage should usually catch
+    // this; if import/runtime fails, still allow confirm — confirm UI also
+    // re-assesses from extracted fields.
+  }
+
   // Keep the source document so the extracted facts stay auditable.
   try {
     const stored = await getStorageProvider().put({

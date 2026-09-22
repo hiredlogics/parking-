@@ -4,7 +4,7 @@ import { KbCatalogError, loadKbCatalog } from "@/lib/kb/catalog";
 import { deriveKnownFacts } from "@/lib/questions/facts";
 import { missingRequirements, askedFactKey } from "@/lib/questions/missing";
 import { openRoutes } from "@/lib/questions/requirements";
-import { detectOutOfScope } from "@/lib/questions/scope";
+import { detectOutOfScope, isHardOutOfScope } from "@/lib/questions/scope";
 import { routeLabels } from "./labels";
 import type { AppealCase, SufficiencyStatus } from "./types";
 import type { RouteFamily } from "@/types/caseState";
@@ -119,12 +119,34 @@ export async function assessSufficiency(
   }
 
   const scope = detectOutOfScope(facts);
+  const triage = appealCase.extraction?.triage;
+  if (
+    triage?.serviceDecision === "WRONG_STAGE_REDIRECT" ||
+    (scope && isHardOutOfScope(scope))
+  ) {
+    const detail =
+      triage?.serviceDecision === "WRONG_STAGE_REDIRECT"
+        ? triage.detail
+        : scope!.detail;
+    return {
+      sufficient: false,
+      status: "INCOMPLETE",
+      blockers: [detail],
+      groundLabels: [],
+      outstandingCount: 0,
+      evidence: { uploadedCount: evidenceTypes.length, suggestions: [] },
+      outOfScope: { detail },
+      internal: {
+        ...NOT_READY_INTERNAL,
+        missingFacts: [triage?.reasonCode ?? scope!.reason],
+      },
+    };
+  }
   if (scope) {
     /*
-     * Scope gates (Scotland, hire vehicle, etc.) must not dump the
-     * customer to the portal. They can still finish evidence → review →
-     * pay. Generation then goes to admin approval rather than auto-
-     * releasing a PDF. Customer-facing copy stays plain English.
+     * Soft scope gates (e.g. Scotland) must not dump the customer.
+     * They can still finish evidence → review → pay. Generation then
+     * goes to admin approval rather than auto-releasing a PDF.
      */
     return {
       sufficient: true,

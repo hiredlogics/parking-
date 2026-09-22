@@ -749,12 +749,19 @@ describe("Example journeys", () => {
       const t = triage(fact);
       if (t !== null) return t;
       if (fact === FACT.SCENARIOS) return ["payment_made"];
+      if (fact === FACT.PAYMENT_MADE) return "YES";
       if (fact === FACT.PAYMENT_METHOD) return "machine";
       if (fact === FACT.PAYMENT_EVIDENCE) return "YES";
       return null;
     });
     const facts_ = asked.map((a) => a.fact);
-    expect(facts_).toContain(FACT.PAYMENT_METHOD);
+    const paymentFacts = new Set<string>([
+      FACT.PAYMENT_METHOD,
+      FACT.PAYMENT_EVIDENCE,
+      FACT.PAYMENT_MADE,
+    ]);
+    const askedPayment = facts_.some((f) => paymentFacts.has(f));
+    expect(askedPayment).toBe(true);
     expect(facts_).not.toContain(FACT.BREAKDOWN_NATURE);
     expect(facts_).not.toContain(FACT.OCCUPIER_STATUS);
     expect(final).not.toBe("LIMIT");
