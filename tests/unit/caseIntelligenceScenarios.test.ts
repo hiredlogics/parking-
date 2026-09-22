@@ -106,7 +106,29 @@ describe("Scenario A — Notice to Keeper served out of time", () => {
   });
 
   it("carries the ground into the drafting prompt", async () => {
-    const ci = buildCaseIntelligence({ confirmed: lateNtk, answers: {} });
+    // By drafting time the keeper clarifications the ground needs have
+    // been answered — that is what the questions exist to collect.
+    const answers = {
+      [FACT.REGISTERED_KEEPER]: "YES",
+      [FACT.DRIVER_IDENTIFIED]: "NO",
+      [FACT.JURISDICTION]: "ENGLAND_WALES",
+    };
+    const ci = buildCaseIntelligence({ confirmed: lateNtk, answers });
+
+    // Without a database there is no rules basis and no KB module, and
+    // drafting stops at NO_APPROVED_MODULES before any provider runs.
+    // Supply a minimal basis so the provider is reached.
+    vi.doMock("@/lib/appeals/rulesPromptBasis", () => ({
+      buildRulesPromptBasis: async () => ({
+        activeRoutes: ["POFA"],
+        matchedRuleIds: ["PP-POFA-003"],
+        matchedRuleDescriptions: ["Notice served outside the statutory period."],
+        approvedParagraphTexts: [
+          "The notice was not served within the period allowed.",
+        ],
+        assembledBody: "The notice was not served within the period allowed.",
+      }),
+    }));
 
     // Capture the context the model would actually receive.
     let seen: DraftingContext | null = null;
@@ -133,13 +155,14 @@ describe("Scenario A — Notice to Keeper served out of time", () => {
     const { draftAppeal } = await import("@/lib/drafting/engine");
     await draftAppeal({
       confirmed: lateNtk,
-      answers: {},
+      answers,
       intelligence: ci,
       modules: [],
       sources: [],
       blocks: [],
     });
     vi.doUnmock("@/services/ai/drafting");
+    vi.doUnmock("@/lib/appeals/rulesPromptBasis");
 
     expect(seen).toBeTruthy();
     const passed = seen!.intelligence;

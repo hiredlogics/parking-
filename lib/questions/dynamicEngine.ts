@@ -48,6 +48,7 @@ import { triageBlocksAppealJourney } from "@/types/triage";
 import type { DocumentTriageResult } from "@/types/triage";
 import type { CaseIntelligence } from "@/lib/cases/caseIntelligence";
 import { hasIdentifiedIssue } from "@/lib/cases/caseIntelligence";
+import { SERVICE_NOT_SUITABLE_DETAIL } from "@/lib/cases/documentUnderstanding";
 
 /**
  * AI-dynamic question orchestration.
@@ -239,7 +240,26 @@ export async function nextDynamicQuestion(
   });
   const routes = candidacy.candidates;
 
-  // Scope first — never keep interrogating a case we cannot automate.
+  /*
+   * Scope first — never keep interrogating a case we cannot automate.
+   *
+   * Case Intelligence is checked ahead of the raw triage result: it is
+   * the durable record, and for a case assessed since it was introduced
+   * its suitability already carries the triage decision forward. Read
+   * here as well as in the caller so no entry point into questioning
+   * can reach a fact for an unappealable document.
+   */
+  const intelligenceBlock =
+    input.caseIntelligence?.suitability.decision === "NOT_SUPPORTED"
+      ? {
+          action: "OUT_OF_SCOPE" as const,
+          reason:
+            input.caseIntelligence.suitability.reasonCode ?? "NOT_SUPPORTED",
+          detail:
+            input.caseIntelligence.suitability.detail ??
+            SERVICE_NOT_SUITABLE_DETAIL,
+        }
+      : null;
   const triageBlock =
     input.triage && triageBlocksAppealJourney(input.triage)
       ? {
@@ -248,7 +268,7 @@ export async function nextDynamicQuestion(
           detail: input.triage.detail,
         }
       : null;
-  const scope = triageBlock ?? detectOutOfScope(facts);
+  const scope = intelligenceBlock ?? triageBlock ?? detectOutOfScope(facts);
   if (scope) {
     return {
       status: "OUT_OF_SCOPE",
