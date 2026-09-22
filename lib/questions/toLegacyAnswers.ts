@@ -12,14 +12,12 @@ import type { AnswerMap, AnswerValue } from "./types";
 /**
  * Bridge the adaptive engine onto the existing deterministic pipeline.
  *
- * V2 Part 14 demotes the rules engine from "primary legal selector" to
- * "guardrails and hard checks" — it does not delete it. So the adaptive
- * answers are mapped onto the legacy `AllAnswers` shape, keeping
- * `/appeal/review`, the rules engine and the keeper-safe validator fully
- * operational while the customer experience becomes one-question-at-a-time.
+ * Situation tags (scenarios) are customer-reported circumstances used to
+ * drive follow-up questions. They are NOT sufficient on their own to
+ * invent affirmative branch facts that force appeal grounds.
  *
- * Only facts the customer actually established are written. Nothing is
- * inferred or invented here.
+ * Only facts the customer actually established (or clear answers to
+ * follow-ups) are written into the legacy shape for the rules engine.
  */
 
 const LEGACY_TAGS: LegacyScenarioTag[] = [
@@ -58,12 +56,18 @@ function legacyPaymentMethod(
   v: AnswerValue | undefined,
 ): NonNullable<BranchAnswers["payment"]>["payment_method"] {
   switch (str(v)) {
-    case "app": return "APP";
-    case "machine": return "MACHINE";
-    case "phone": return "PHONE";
-    case "online": return "ONLINE";
-    case "other": return "OTHER";
-    default: return undefined;
+    case "app":
+      return "APP";
+    case "machine":
+      return "MACHINE";
+    case "phone":
+      return "PHONE";
+    case "online":
+      return "ONLINE";
+    case "other":
+      return "OTHER";
+    default:
+      return undefined;
   }
 }
 
@@ -71,12 +75,18 @@ function legacyPermitType(
   v: AnswerValue | undefined,
 ): NonNullable<BranchAnswers["authorisation"]>["permit_type"] {
   switch (str(v)) {
-    case "resident_permit": return "RESIDENT";
-    case "employer": return "EMPLOYER";
-    case "hotel_or_business": return "HOTEL";
-    case "visitor_permit": return "VISITOR";
-    case "landowner": return "OTHER";
-    default: return "OTHER";
+    case "resident_permit":
+      return "RESIDENT";
+    case "employer":
+      return "EMPLOYER";
+    case "hotel_or_business":
+      return "HOTEL";
+    case "visitor_permit":
+      return "VISITOR";
+    case "landowner":
+      return "OTHER";
+    default:
+      return "OTHER";
   }
 }
 
@@ -117,123 +127,158 @@ export function toLegacyAnswers(adaptive: AnswerMap): AllAnswers {
     };
   }
 
-  /* ---------------- Payment ---------------- */
-  if (has("payment_made") || has("payment_attempted_failed")) {
+  /* ---------------- Payment — from answered payment status, not tag alone ---------- */
+  {
+    const payStatus = str(adaptive[FACT.PAYMENT_MADE]);
     const method = legacyPaymentMethod(adaptive[FACT.PAYMENT_METHOD]);
-    branch.payment = {
-      parking_payment_made: has("payment_made") ? "YES" : undefined,
-      payment_attempted: has("payment_attempted_failed") ? "YES" : undefined,
-      payment_completed: has("payment_made")
-        ? "YES"
-        : has("payment_attempted_failed")
-          ? "NO"
-          : undefined,
-      payment_method: method,
-      payment_evidence_uploaded: yn(adaptive[FACT.PAYMENT_EVIDENCE]),
-      machine_problem:
-        has("payment_attempted_failed") && method === "MACHINE" ? "YES" : undefined,
-      payment_system_problem:
-        has("payment_attempted_failed") && (method === "APP" || method === "ONLINE")
+    const evidence = yn(adaptive[FACT.PAYMENT_EVIDENCE]);
+    const paid =
+      payStatus === "YES" ||
+      (payStatus === null && has("payment_made") && evidence === "YES");
+    const attempted =
+      payStatus === "ATTEMPTED_FAILED" ||
+      (payStatus === null && has("payment_attempted_failed") && Boolean(method));
+
+    if (paid || attempted || payStatus === "NO" || payStatus === "UNSURE") {
+      branch.payment = {
+        parking_payment_made: paid
           ? "YES"
-          : undefined,
-    };
+          : payStatus === "NO"
+            ? "NO"
+            : payStatus === "UNSURE"
+              ? "UNSURE"
+              : undefined,
+        payment_attempted: attempted ? "YES" : undefined,
+        payment_completed: paid ? "YES" : attempted ? "NO" : undefined,
+        payment_method: method,
+        payment_evidence_uploaded: evidence,
+        machine_problem:
+          attempted && method === "MACHINE" ? "YES" : undefined,
+        payment_system_problem:
+          attempted && (method === "APP" || method === "ONLINE")
+            ? "YES"
+            : undefined,
+      };
+    }
   }
 
-  /* ---------------- Keying ---------------- */
-  if (has("vrm_error")) {
+  /* ---------------- Keying — require an entered VRM or keying answer ---------- */
+  {
     const entered = str(adaptive[FACT.VRM_ENTERED]);
-    branch.keying = {
-      vrm_error: "YES",
-      vrm_error_type: "MINOR",
-      payment_confirmed: has("payment_made") ? "YES" : undefined,
-      entered_vrm: entered ?? undefined,
-    };
+    const keying = yn(adaptive[FACT.KEYING_ERROR]);
+    if (entered || keying === "YES") {
+      branch.keying = {
+        vrm_error: "YES",
+        vrm_error_type: "MINOR",
+        payment_confirmed:
+          str(adaptive[FACT.PAYMENT_MADE]) === "YES" ? "YES" : undefined,
+        entered_vrm: entered ?? undefined,
+      };
+    }
   }
 
-  /* ---------------- Consideration ---------------- */
-  if (has("short_stay_consideration")) {
-    branch.consideration = {
-      short_stay: "YES",
-      consideration_reason: "OTHER",
-      parking_took_place: "UNSURE",
-    };
+  /* ---------------- Consideration — only with an answered reason ---------- */
+  {
+    const reason = str(adaptive[FACT.INITIAL_PERIOD_REASON]);
+    if (reason) {
+      branch.consideration = {
+        short_stay: "YES",
+        consideration_reason: "OTHER",
+        parking_took_place: "UNSURE",
+      };
+    }
   }
 
-  /* ---------------- Grace / exit ---------------- */
-  if (has("grace_or_exit")) {
-    branch.grace = {
-      parking_period_completed: "YES",
-      additional_exit_time_required: "YES",
-      exit_reason: has("accessibility_additional_time")
-        ? "ACCESSIBILITY"
-        : "OTHER",
-      exit_delay: has("barrier_or_access_failure") ? "CONGESTION" : "OTHER",
-    };
+  /* ---------------- Grace / exit — only with answered delay facts ---------- */
+  {
+    const exitReason = str(adaptive[FACT.EXIT_DELAY_REASON]);
+    const departure = str(adaptive[FACT.DEPARTURE_DELAY]);
+    if (exitReason || departure) {
+      branch.grace = {
+        parking_period_completed: "YES",
+        additional_exit_time_required: "YES",
+        exit_reason: "OTHER",
+        exit_delay: "OTHER",
+      };
+    }
   }
 
-  /* ---------------- ANPR ---------------- */
-  if (has("anpr_disputed") || has("multiple_visits_same_day")) {
+  /* ---------------- ANPR — from answered visit/continuity facts ---------- */
+  {
     const visits = num(adaptive[FACT.VISIT_COUNT]);
     const continuous = str(adaptive[FACT.CONTINUOUS_PRESENCE]);
     const images = str(adaptive[FACT.ANPR_IMAGES_ON_NOTICE]);
     const leftSite = str(adaptive[FACT.VEHICLE_LEFT_SITE_EVIDENCE]);
     const timestamp = str(adaptive[FACT.TIMESTAMP_DISCREPANCY]);
-    branch.anpr = {
-      evidence_type: images === "OTHER" ? "OTHER" : "ANPR",
-      customer_disputes_duration:
-        has("anpr_disputed") || timestamp === "YES" || continuous === "NO"
-          ? "YES"
-          : undefined,
-      multiple_visits_same_day:
-        has("multiple_visits_same_day") ||
-        (visits !== null && visits > 1) ||
-        continuous === "NO"
-          ? "YES"
-          : undefined,
-      incorrect_pairing_suspected:
-        (visits !== null && visits > 1) || continuous === "NO"
-          ? "YES"
-          : undefined,
-      evidence_vehicle_elsewhere: leftSite === "YES" ? "YES" : undefined,
-      timestamp_discrepancy_detected:
-        timestamp === "YES" ? "YES" : timestamp === "NO" ? "NO" : undefined,
-    };
+    const hasAnprFacts =
+      visits !== null ||
+      continuous !== null ||
+      leftSite !== null ||
+      timestamp !== null ||
+      images !== null;
+
+    if (hasAnprFacts) {
+      branch.anpr = {
+        evidence_type: images === "OTHER" ? "OTHER" : "ANPR",
+        customer_disputes_duration:
+          timestamp === "YES" || continuous === "NO" ? "YES" : undefined,
+        multiple_visits_same_day:
+          (visits !== null && visits > 1) || continuous === "NO"
+            ? "YES"
+            : undefined,
+        incorrect_pairing_suspected:
+          (visits !== null && visits > 1) || continuous === "NO"
+            ? "YES"
+            : undefined,
+        evidence_vehicle_elsewhere: leftSite === "YES" ? "YES" : undefined,
+        timestamp_discrepancy_detected:
+          timestamp === "YES" ? "YES" : timestamp === "NO" ? "NO" : undefined,
+      };
+    }
   }
 
-  /* ---------------- Authorisation / permit ---------------- */
-  if (has("authorised_or_permit") || has("resident_parking_rights")) {
+  /* ---------------- Authorisation / permit — require supporting answers ---------- */
+  {
     const source = str(adaptive[FACT.PERMISSION_SOURCE]);
-    branch.authorisation = {
-      parking_authorised: "YES",
-      permit_held: has("authorised_or_permit") ? "YES" : undefined,
-      permit_type: has("authorised_or_permit")
-        ? legacyPermitType(adaptive[FACT.PERMISSION_SOURCE])
-        : has("resident_parking_rights")
-          ? "RESIDENT"
-          : undefined,
-      permission_source: source ?? undefined,
-      visitor_permission: source === "visitor_permit" ? "YES" : undefined,
-    };
+    const held = yn(adaptive[FACT.PERMISSION_HELD]);
+    const occupier = str(adaptive[FACT.OCCUPIER_STATUS]);
+    const agreement = yn(adaptive[FACT.AGREEMENT_UPLOADED]);
+
+    if (held === "YES" || source || occupier || agreement === "YES") {
+      branch.authorisation = {
+        parking_authorised: "YES",
+        permit_held: held === "YES" || Boolean(source) ? "YES" : undefined,
+        permit_type: source
+          ? legacyPermitType(adaptive[FACT.PERMISSION_SOURCE])
+          : occupier
+            ? "RESIDENT"
+            : undefined,
+        permission_source: source ?? undefined,
+        visitor_permission: source === "visitor_permit" ? "YES" : undefined,
+      };
+    }
   }
 
-  /* ---------------- Signage ---------------- */
-  if (has("signage_issue")) {
+  /* ---------------- Signage — only from answered basis selections ---------- */
+  {
     const basis = new Set(list(adaptive[FACT.SIGNAGE_ISSUE_BASIS]));
-    branch.signage = {
-      entrance_sign_visible: basis.has("no_entrance_sign") ? "NO" : undefined,
-      relevant_term_unclear: basis.has("term_not_prominent") ? "YES" : undefined,
-      parking_charge_not_prominent: basis.has("charge_not_prominent")
-        ? "YES"
-        : undefined,
-      conflicting_signage: basis.has("conflicting_signs") ? "YES" : undefined,
-      sign_obscured: basis.has("obscured_or_damaged") ? "YES" : undefined,
-    };
+    if (basis.size > 0) {
+      branch.signage = {
+        entrance_sign_visible: basis.has("no_entrance_sign") ? "NO" : undefined,
+        relevant_term_unclear: basis.has("term_not_prominent")
+          ? "YES"
+          : undefined,
+        parking_charge_not_prominent: basis.has("charge_not_prominent")
+          ? "YES"
+          : undefined,
+        conflicting_signage: basis.has("conflicting_signs") ? "YES" : undefined,
+        sign_obscured: basis.has("obscured_or_damaged") ? "YES" : undefined,
+      };
+    }
   }
 
-  /* ---------------- Landowner ---------------- */
-  if (has("landowner_authority_challenge")) {
-    branch.landowner = { operator_landowner: "UNSURE" };
-  }
+  /* ---------------- Landowner — only if expressly answered ---------- */
+  // Do not invent landowner challenge from a free-text "other" alone.
 
   return { core, branch };
 }

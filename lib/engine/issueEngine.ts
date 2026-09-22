@@ -11,8 +11,10 @@
 import { loadServiceGraph } from "@/lib/config/adminRepo";
 import { ensureAdminConfigSeeded } from "@/lib/config/seedAdminConfig";
 import type { KnownFacts } from "@/lib/questions/types";
-import { FACT } from "@/lib/questions/facts";
+import { FACT, factStr } from "@/lib/questions/facts";
 import { hasDb } from "@/lib/db/pool";
+import { classifyAllegation } from "@/lib/reasoning/allegation";
+import type { RouteFamily } from "@/types/caseState";
 
 export interface ActiveIssue {
   code: string;
@@ -104,6 +106,22 @@ export async function evaluateIssues(input: {
 
   const tags = scenarioTags(input.facts);
   const evidence = new Set(input.evidenceTypes ?? []);
+  const allegationRoutes = new Set<RouteFamily>(
+    classifyAllegation(factStr(input.facts, FACT.ALLEGED_BREACH)).routes,
+  );
+
+  /** Map issue codes / labels onto allegation-opened route families. */
+  const issueMatchesAllegation = (code: string, label: string): boolean => {
+    const hay = `${code} ${label}`.toUpperCase();
+    for (const route of allegationRoutes) {
+      if (hay.includes(route)) return true;
+      // Common admin codes: GRACE_PERIOD, PAYMENT_KEYING, etc.
+      if (route === "PAYMENT" && /PAY|KEYING/.test(hay)) return true;
+      if (route === "AUTHORIZATION" && /AUTHOR|PERMIT/.test(hay)) return true;
+      if (route === "CONSIDERATION" && /CONSIDER/.test(hay)) return true;
+    }
+    return false;
+  };
 
   const activeIssues: ActiveIssue[] = [];
   const missingFacts: MissingFact[] = [];
@@ -111,19 +129,15 @@ export async function evaluateIssues(input: {
   for (const issue of graph.issues) {
     // TRIAGE_SCOPE always active until its facts are complete
     const isTriage = issue.code === "TRIAGE_SCOPE";
-    const triggered =
-      isTriage ||
-      issue.triggerTags.some((t) => tags.has(t.toLowerCase())) ||
-      // If scenarios not yet answered, keep triage + wait
-      (!factResolved(input.facts, FACT.SCENARIOS) && isTriage);
-
-    // Also activate payment/keying etc. when scenario tags match loosely
     const tagHit = issue.triggerTags.some((t) => tagsMatchTrigger(tags, t));
+    const allegationHit =
+      !isTriage && issueMatchesAllegation(issue.code, issue.label);
 
-    if (!isTriage && !tagHit && tags.size > 0) continue;
-    if (!isTriage && tags.size === 0) continue;
+    // Activate from customer circumstances OR notice allegation.
+    // Do not require a scenario tag when the notice itself opens the route.
+    if (!isTriage && !tagHit && !allegationHit) continue;
 
-    if (isTriage || tagHit || triggered) {
+    if (isTriage || tagHit || allegationHit) {
       activeIssues.push({
         code: issue.code,
         label: issue.label,
@@ -132,7 +146,6 @@ export async function evaluateIssues(input: {
 
       for (const f of issue.facts) {
         if (factResolved(input.facts, f.factKey)) continue;
-        // Evidence can satisfy evidence-linked facts
         if (
           f.evidenceTypes.length > 0 &&
           f.evidenceTypes.some((e) => evidence.has(e))

@@ -118,29 +118,62 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
   if (ctx.rulesBasis) {
     const rb = ctx.rulesBasis;
     lines.push("");
-    lines.push("=== MASTER PACK RULES BASIS (mandatory spine for this appeal) ===");
+    lines.push("=== CANDIDATE PACK MATERIAL (assess against verified facts) ===");
     lines.push(
-      "These are the defined pack rules that apply to THIS case. Your letter MUST be grounded in them. Rewrite into one coherent keeper-safe letter — do not invent extra legal grounds.",
+      "These are candidate Master Pack triggers and approved wording that MAY apply. They are not instructions to assert every ground.",
+    );
+    lines.push(
+      "Include a ground ONLY where VERIFIED FACTS and AVAILABLE EVIDENCE support it. Omit candidates whose factual preconditions are missing or contradicted.",
+    );
+    lines.push(
+      "Customer situation selections are circumstances for context — they do NOT force a ground into the letter.",
     );
     if (rb.activeRoutes.length > 0) {
-      lines.push(`Active routes: ${rb.activeRoutes.join(", ")}`);
+      lines.push(`Candidate routes: ${rb.activeRoutes.join(", ")}`);
     }
     if (rb.matchedRuleDescriptions.length > 0) {
       lines.push("");
-      lines.push("--- Matched rule triggers ---");
+      lines.push("--- Candidate rule triggers ---");
       for (const d of rb.matchedRuleDescriptions) {
         lines.push(`• ${d}`);
       }
     }
     if (rb.approvedParagraphTexts.length > 0) {
       lines.push("");
-      lines.push("--- Approved paragraph wording (paraphrase into flowing prose; do not output IDs) ---");
+      lines.push("--- Approved wording to paraphrase only if factually supported ---");
       rb.approvedParagraphTexts.forEach((text, i) => {
         lines.push("");
-        lines.push(`[Ground ${i + 1}]`);
+        lines.push(`[Candidate ${i + 1}]`);
         lines.push(text);
       });
     }
+  }
+
+  // Surface customer-reported circumstances separately from established grounds.
+  const circumstanceFields = [
+    "scenarios",
+    "situation_other",
+    "exit_delay_reason",
+    "initial_period_reason",
+    "signage_issue_basis",
+  ];
+  const circumstanceLines: string[] = [];
+  for (const f of a.verifiedFacts) {
+    if (circumstanceFields.includes(f.field)) {
+      circumstanceLines.push(
+        `${f.field} = ${displayValue(f.field, f.value)}`,
+      );
+    }
+  }
+  if (circumstanceLines.length > 0) {
+    lines.push("");
+    lines.push(
+      "=== CUSTOMER-REPORTED CIRCUMSTANCES (context only — not established grounds) ===",
+    );
+    lines.push(
+      "Use these to understand what the customer experienced. Do not treat a selected category as proof that the corresponding legal ground applies.",
+    );
+    for (const line of circumstanceLines) lines.push(line);
   }
 
   lines.push("");

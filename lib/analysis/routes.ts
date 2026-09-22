@@ -177,21 +177,30 @@ export function assessRoutes(input: RouteInput): RouteAssessment[] {
   }
 
   /* ---------- Payment / keying ---------- */
-  const paid = f.tags.has("payment_made");
-  const attempted = f.tags.has("payment_attempted_failed");
+  const paid =
+    f.tags.has("payment_made") ||
+    factStr(f, FACT.PAYMENT_MADE) === "YES";
+  const attempted =
+    f.tags.has("payment_attempted_failed") ||
+    factStr(f, FACT.PAYMENT_MADE) === "ATTEMPTED_FAILED";
   if (paid || attempted) {
     const evOk = factStr(f, FACT.PAYMENT_EVIDENCE) === "YES";
-    add(
-      "PAYMENT",
-      paid
-        ? "A payment was made for the parking event; the operator must reconcile its transaction records."
-        : "A genuine payment attempt was prevented by the payment mechanism provided.",
-      { rank: paid ? 22 : 27, evidenceBacked: evOk },
-    );
+    // Only treat as a strong payment ground when status or evidence supports it.
+    if (factStr(f, FACT.PAYMENT_MADE) || evOk || f.evidence.has("payment_receipt")) {
+      add(
+        "PAYMENT",
+        paid
+          ? "A payment was made for the parking event; the operator must reconcile its transaction records."
+          : "A genuine payment attempt was prevented by the payment mechanism provided.",
+        { rank: paid ? 22 : 27, evidenceBacked: evOk },
+      );
+    }
   }
-  if (f.tags.has("vrm_error")) {
-    // Appendix B: "Paid + wrong VRM → payment/keying current-Code route
-    // before generic signage."
+  if (
+    f.tags.has("vrm_error") &&
+    (factStr(f, FACT.VRM_ENTERED) !== null ||
+      factStr(f, FACT.KEYING_ERROR) === "YES")
+  ) {
     add(
       "KEYING",
       "A registration-entry error accompanied a payment — transaction matching and the keying-error requirements apply.",
@@ -221,39 +230,71 @@ export function assessRoutes(input: RouteInput): RouteAssessment[] {
     );
   }
 
-  /* ---------- Consideration / grace ---------- */
-  if (f.tags.has("short_stay_consideration")) {
-    // Appendix B: "Short entry-to-exit + no parking → consideration/
-    // contract formation before grace."
-    add(
-      "CONSIDERATION",
-      "Time was required on entry before any parking terms could reasonably be accepted.",
-      { rank: 50, evidenceBacked: factStr(f, FACT.INITIAL_PERIOD_REASON) !== null },
-    );
-  }
-  if (f.tags.has("grace_or_exit")) {
-    // Appendix B: "Paid parking ended + short exit delay → grace/actual
-    // parking period; do not call initial consideration time 'grace'."
-    add(
-      "GRACE",
-      "The permitted parking period ended and additional time was required before exit.",
-      { rank: 52, evidenceBacked: factStr(f, FACT.EXIT_DELAY_REASON) !== null },
-    );
+  /* ---------- Consideration / grace ----------
+   * Situation tags only hint. Open these routes when follow-up facts,
+   * overstay on the notice, or evidence support them — not from the
+   * checkbox alone.
+   */
+  {
+    const initialReason = factStr(f, FACT.INITIAL_PERIOD_REASON);
+    if (initialReason) {
+      add(
+        "CONSIDERATION",
+        "Time was required on entry before any parking terms could reasonably be accepted.",
+        { rank: 50, evidenceBacked: true },
+      );
+    }
+
+    const exitReason = factStr(f, FACT.EXIT_DELAY_REASON);
+    const departure = factStr(f, FACT.DEPARTURE_DELAY);
+    const allegation = (factStr(f, FACT.ALLEGED_BREACH) ?? "").toLowerCase();
+    const overstayAllegation =
+      /\bover\s?stay|\bexceed(?:ed|ing)\s+(?:the\s+)?(?:maximum|permitted|paid)|\blonger\s+than\s+permitted/i.test(
+        allegation,
+      );
+
+    if (exitReason || departure) {
+      add(
+        "GRACE",
+        "Additional time after the permitted parking period is supported by the customer's account of the exit.",
+        { rank: 52, evidenceBacked: true },
+      );
+    } else if (overstayAllegation && f.tags.has("grace_or_exit")) {
+      // Tag + overstay allegation: investigate, but mark as weaker until
+      // exit-delay facts are established (still useful for retrieval).
+      add(
+        "GRACE",
+        "The notice alleges an overstay and the customer reported exit timing circumstances — grace/actual parking period should be assessed against verified times.",
+        { rank: 58, evidenceBacked: false },
+      );
+    } else if (overstayAllegation) {
+      add(
+        "GRACE",
+        "The notice alleges an overstay — grace and the actual parking period should be assessed from the recorded times.",
+        { rank: 56, evidenceBacked: false },
+      );
+    }
   }
 
   /* ---------- Authorisation / permit ---------- */
-  if (f.tags.has("authorised_or_permit")) {
+  {
     const source = factStr(f, FACT.PERMISSION_SOURCE);
-    // Appendix B: "Permit held → underlying authorisation first; then
-    // admin/display issue; residential rights may supersede."
-    add(
-      "AUTHORIZATION",
-      source
-        ? `Permission to park derived from: ${source}. The underlying authorisation is analysed before any display or registration mismatch.`
-        : "Permission to park is asserted; the underlying authorisation must be analysed.",
-      { rank: 30, evidenceBacked: Boolean(source) },
-    );
-    add("PERMIT", "A permit or whitelist entitlement is relied upon.", { rank: 32 });
+    const held = factStr(f, FACT.PERMISSION_HELD) === "YES";
+    const occupier = factStr(f, FACT.OCCUPIER_STATUS);
+    if (held || source || occupier) {
+      add(
+        "AUTHORIZATION",
+        source
+          ? `Permission to park derived from: ${source}. The underlying authorisation is analysed before any display or registration mismatch.`
+          : "Permission to park is supported by the customer's account; the underlying authorisation must be analysed.",
+        { rank: 30, evidenceBacked: Boolean(source) || held },
+      );
+      if (held || source) {
+        add("PERMIT", "A permit or whitelist entitlement is relied upon.", {
+          rank: 32,
+        });
+      }
+    }
   }
 
   /* ---------- Equality ---------- */

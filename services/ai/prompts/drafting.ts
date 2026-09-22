@@ -207,6 +207,36 @@ You MUST:
 
 You MUST NOT output rule IDs, paragraph IDs, route names or the words "Master Pack".`;
 
+/**
+ * v4 — Grounds are assessed from notice + verified facts + evidence.
+ *
+ * Customer situation categories gather circumstances for questioning.
+ * They do not instruct which legal grounds must appear. Candidate pack
+ * material may be omitted when unsupported; notice-derived grounds may
+ * be included when verified facts support them.
+ */
+export const DRAFTING_PROMPT_V4_ID = "draft-v4";
+
+export const DRAFTING_SYSTEM_PROMPT_V4 = `${DRAFTING_SYSTEM_PROMPT_V2}
+
+=====================================================
+GROUNDS ASSESSMENT — highest priority for this run
+=====================================================
+The user message may include CANDIDATE PACK MATERIAL and CUSTOMER-REPORTED CIRCUMSTANCES.
+
+Your job is to analyse the NOTICE details, VERIFIED FACTS, AVAILABLE EVIDENCE and customer circumstances together, then decide which appeal grounds are actually supported.
+
+You MUST:
+1. Prefer grounds supported by VERIFIED FACTS and AVAILABLE EVIDENCE over grounds merely suggested by a customer category selection.
+2. Omit candidate pack wording whose factual preconditions are absent, weak or contradicted — even if the customer selected a related situation category.
+3. Include a notice-derived or fact-supported ground that appears in approved modules / candidate material even if the customer did not select that category.
+4. Treat CUSTOMER-REPORTED CIRCUMSTANCES as context for what happened, not as authority to assert a legal ground.
+5. If supported material is short, write a short accurate letter. Never pad with invented grounds.
+
+You MUST NOT:
+- Force a grace, signage, permit, payment or other argument solely because the customer ticked that category.
+- Output rule IDs, paragraph IDs, route names or the words "Master Pack".`;
+
 export interface PromptVersion {
   id: string;
   operation: "drafting";
@@ -229,10 +259,15 @@ export const DRAFTING_PROMPTS: Record<string, PromptVersion> = {
     operation: "drafting",
     body: DRAFTING_SYSTEM_PROMPT_V3,
   },
+  [DRAFTING_PROMPT_V4_ID]: {
+    id: DRAFTING_PROMPT_V4_ID,
+    operation: "drafting",
+    body: DRAFTING_SYSTEM_PROMPT_V4,
+  },
 };
 
 export const ACTIVE_DRAFTING_PROMPT =
-  process.env.DRAFTING_PROMPT_VERSION ?? DRAFTING_PROMPT_V3_ID;
+  process.env.DRAFTING_PROMPT_VERSION ?? DRAFTING_PROMPT_V4_ID;
 
 export function getDraftingPrompt(id: string = ACTIVE_DRAFTING_PROMPT): PromptVersion {
   const p = DRAFTING_PROMPTS[id];

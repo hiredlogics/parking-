@@ -40,13 +40,17 @@ describe("Adaptive → legacy answer bridge", () => {
     const legacy = toLegacyAnswers({
       [FACT.SCENARIOS]: [
         "payment_made",
-        // New V2 tags with no legacy equivalent must be dropped, not crash.
         "breakdown_immobilised",
         "resident_parking_rights",
+        // Unknown tags must be dropped, not crash.
         "hospital_attendance",
       ],
     });
-    expect(legacy.core.scenarios).toEqual(["payment_made"]);
+    expect(legacy.core.scenarios).toEqual([
+      "payment_made",
+      "breakdown_immobilised",
+      "resident_parking_rights",
+    ]);
   });
 
   it("maps a payment + keying case into the branch shape", () => {
@@ -54,6 +58,7 @@ describe("Adaptive → legacy answer bridge", () => {
       [FACT.REGISTERED_KEEPER]: "YES",
       [FACT.DRIVER_IDENTIFIED]: "NO",
       [FACT.SCENARIOS]: ["payment_made", "vrm_error"],
+      [FACT.PAYMENT_MADE]: "YES",
       [FACT.PAYMENT_METHOD]: "app",
       [FACT.PAYMENT_EVIDENCE]: "YES",
       [FACT.VRM_ENTERED]: "AB12CDF",
@@ -71,6 +76,7 @@ describe("Adaptive → legacy answer bridge", () => {
       [FACT.DRIVER_IDENTIFIED]: "NO",
       [FACT.NOTICE_ROUTE]: "POSTAL",
       [FACT.SCENARIOS]: ["payment_made", "vrm_error"],
+      [FACT.PAYMENT_MADE]: "YES",
       [FACT.PAYMENT_METHOD]: "machine",
       [FACT.PAYMENT_EVIDENCE]: "YES",
       [FACT.VRM_ENTERED]: "AB12CDF",
@@ -99,6 +105,21 @@ describe("Adaptive → legacy answer bridge", () => {
     });
     expect(legacy.branch.authorisation?.permit_type).toBe("RESIDENT");
     expect(legacy.branch.authorisation?.parking_authorised).toBe("YES");
+  });
+
+  it("does not invent grace branch facts from the situation tag alone", () => {
+    const legacy = toLegacyAnswers({
+      [FACT.SCENARIOS]: ["grace_or_exit"],
+    });
+    expect(legacy.branch.grace).toBeUndefined();
+  });
+
+  it("maps grace only when exit-delay facts were answered", () => {
+    const legacy = toLegacyAnswers({
+      [FACT.SCENARIOS]: ["grace_or_exit"],
+      [FACT.EXIT_DELAY_REASON]: "Queue at the barrier",
+    });
+    expect(legacy.branch.grace?.additional_exit_time_required).toBe("YES");
   });
 
   it("returns an empty-but-valid shape for no answers", () => {

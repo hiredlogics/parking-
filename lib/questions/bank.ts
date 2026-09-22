@@ -1,5 +1,6 @@
 import type { QuestionDef } from "./types";
 import { FACT, factBool, factStr } from "./facts";
+import { classifyAllegation } from "@/lib/reasoning/allegation";
 
 /**
  * Controlled question bank.
@@ -117,7 +118,7 @@ export const QUESTION_BANK: QuestionDef[] = [
     type: "multi_choice",
     label: "Your situation",
     helpText:
-      "Select every option that applies. We will ask follow-up questions for each, and include all supported grounds in your appeal.",
+      "Select everything that describes what happened. We use this to ask the right follow-up questions. Your appeal grounds are decided from the notice, your answers and any evidence — not from these ticks alone.",
     required: true,
     options: [
       { value: "signage_issue", label: "The signage was unclear or inadequate" },
@@ -469,7 +470,11 @@ export const QUESTION_BANK: QuestionDef[] = [
       "e.g. the vehicle circled the car park looking for a space and then left without parking",
     serves: "CONSIDERATION",
     establishesFacts: [FACT.INITIAL_PERIOD_REASON],
-    askWhen: (f) => f.tags.has("short_stay_consideration"),
+    askWhen: (f) =>
+      f.tags.has("short_stay_consideration") ||
+      classifyAllegation(factStr(f, FACT.ALLEGED_BREACH)).routes.includes(
+        "CONSIDERATION",
+      ),
     priority: 130,
     supportsModules: ["KB-CON-01", "KB-CON-02"],
   },
@@ -481,7 +486,11 @@ export const QUESTION_BANK: QuestionDef[] = [
     placeholder: "e.g. a queue at the exit barrier",
     serves: "GRACE",
     establishesFacts: [FACT.EXIT_DELAY_REASON],
-    askWhen: (f) => f.tags.has("grace_or_exit"),
+    askWhen: (f) =>
+      f.tags.has("grace_or_exit") ||
+      classifyAllegation(factStr(f, FACT.ALLEGED_BREACH)).routes.includes(
+        "GRACE",
+      ),
     priority: 131,
     supportsModules: ["KB-GRACE-01", "KB-GRACE-02"],
   },
