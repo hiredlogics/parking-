@@ -49,6 +49,7 @@ const graceSupportable: Gate = (g) =>
         : null,
     gracePeriodApplicable: factStr(g.facts, "grace_period_applicable"),
   }).ok;
+const paymentFailed: Gate = (g) => g.facts.tags.has("payment_attempted_failed");
 const signageBasis = (...keys: string[]): Gate => (g) => {
   const raw = g.facts.values[FACT.SIGNAGE_ISSUE_BASIS];
   const basis = Array.isArray(raw) ? (raw as string[]) : [];
