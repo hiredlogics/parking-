@@ -1,5 +1,12 @@
 # Rule Engine
 
+**Scope note:** this document covers **one** of the seven rule layers — the
+deterministic Master Pack rule table (`PP-R001`–`PP-R033`) that drives the
+rules-letter path. It does not describe module eligibility gates, prohibited
+claims, route requirements, validators or anything configurable in Postgres.
+For the full picture of where every rule lives and what can be changed without a
+deploy, see **[RULES_AND_CONFIGURATION.md](RULES_AND_CONFIGURATION.md)**.
+
 **Single source of truth:** `Private_Parking_Appeal_Automation_MASTER_Developer_Pack.pdf`
 (supplied by the client) — specifically Parts 3–11.
 
