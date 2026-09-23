@@ -68,7 +68,7 @@ export const UAT_FIXTURES: UatFixture[] = [
       [FACT.BREAKDOWN_EVIDENCE]: ["recovery_report"],
       [FACT.RECOVERY_ATTENDANCE]: "YES",
     },
-    evidenceTypes: ["recovery_report"],
+    evidenceTypes: ["breakdown_evidence"],
   },
   {
     id: "UAT-3",
@@ -81,7 +81,7 @@ export const UAT_FIXTURES: UatFixture[] = [
       [FACT.AGREEMENT_PERMIT_CLAUSE]: "NO",
       [FACT.BAY_REFERENCE]: "Bay 14",
     },
-    evidenceTypes: ["lease"],
+    evidenceTypes: ["authorisation_evidence"],
   },
   {
     id: "UAT-4",

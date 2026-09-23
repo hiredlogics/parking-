@@ -313,18 +313,21 @@ describe("every essential-evidence requirement is reachable from a real upload",
     expect(unreachable).toEqual([]);
   });
 
-  it("the upload vocabulary and the fixture vocabulary agree", async () => {
+  it("fixtures use evidence categories a customer can actually select", async () => {
     const { ALLOWED_EVIDENCE_TYPES } = await import("@/lib/cases/evidence");
     const { UAT_FIXTURES } = await import("../fixtures/uatCases");
-    const used = new Set(UAT_FIXTURES.flatMap((f) => f.evidenceTypes));
-    const { expandEvidenceKinds } = await import("@/types/evidence");
-    const reachable = new Set(
-      expandEvidenceKinds([...ALLOWED_EVIDENCE_TYPES] as string[]),
-    );
-    // A fixture may use a KB evidence kind, but it must be one a real
-    // upload can actually produce.
-    for (const t of used) {
-      expect(reachable.has(t), `fixture evidence type "${t}"`).toBe(true);
+    /*
+     * Not merely "reachable": a fixture must use the tile the customer
+     * picks on upload. Fixtures that named KB evidence kinds directly
+     * ("lease", "recovery_report") were the reason the unreachable
+     * essential-evidence filter went unnoticed, and they would also
+     * bypass the document reader, which is scoped by upload category.
+     */
+    for (const t of new Set(UAT_FIXTURES.flatMap((f) => f.evidenceTypes))) {
+      expect(
+        ALLOWED_EVIDENCE_TYPES.has(t),
+        `fixture evidence type "${t}" is not an upload category`,
+      ).toBe(true);
     }
   });
 });
