@@ -1,5 +1,6 @@
 import type { RouteFamily } from "@/types/caseState";
 import type { PofaRoute } from "@/lib/kb/types";
+import type { FactSource } from "@/lib/facts/types";
 
 /**
  * Issue analysis contract.
@@ -48,8 +49,8 @@ export interface PofaAnalysis {
 export interface VerifiedFact {
   field: string;
   value: unknown;
-  /** Where the fact came from: document, customer answer, or computed. */
-  source: "document" | "customer" | "computed";
+  /** Where the fact came from — see FactSource for what each origin permits. */
+  source: FactSource;
 }
 
 export interface RouteAssessment {

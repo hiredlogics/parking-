@@ -5,12 +5,12 @@ process.env.USE_ADMIN_ISSUE_ENGINE = "0";
 
 import { describe, expect, it } from "vitest";
 import type { ConfirmedPcn } from "@/types";
-import { deriveKnownFacts, FACT } from "@/lib/questions/facts";
+import { deriveKnownFacts, FACT } from "@/lib/facts/facts";
 import {
   missingMaterialFacts,
   missingRequirements,
   askedFactKey,
-} from "@/lib/questions/missing";
+} from "@/lib/facts/missing";
 import {
   allRequirements,
   isPermittedFact,
@@ -18,13 +18,13 @@ import {
   ROUTE_REQUIREMENTS,
   TRIAGE_REQUIREMENTS,
   ALL_REASON_CODES,
-} from "@/lib/questions/requirements";
+} from "@/lib/facts/requirements";
 import { validateGeneratedQuestion, similarity } from "@/lib/questions/validateGenerated";
 import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
 import { fallbackQuestionFor } from "@/lib/questions/fallback";
 import { applyAnswerToFact } from "@/lib/questions/applyAnswer";
 import type { GeneratedQuestion } from "@/lib/questions/generated";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap } from "@/lib/facts/types";
 import type { QuestionProvider } from "@/services/ai/questions";
 
 /**

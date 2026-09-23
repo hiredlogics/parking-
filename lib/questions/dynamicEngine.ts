@@ -1,13 +1,13 @@
 import type { RouteFamily } from "@/types/caseState";
 import type { ConfirmedPcn } from "@/types";
-import { deriveKnownFacts } from "./facts";
-import { detectOutOfScope, type ScopeDecision } from "./scope";
+import { deriveKnownFacts } from "@/lib/facts/facts";
+import { detectOutOfScope, type ScopeDecision } from "@/lib/facts/scope";
 import {
   isRequirementActive,
   missingRequirements,
   unresolvedCriticalFacts,
-} from "./missing";
-import type { FactRequirement } from "./requirements";
+} from "@/lib/facts/missing";
+import type { FactRequirement } from "@/lib/facts/requirements";
 import { assessCandidacy } from "@/lib/reasoning/routeCandidacy";
 import { retrieveForQuestion } from "@/lib/reasoning/questionKnowledge";
 import { analysePofa } from "@/lib/analysis/pofa";
@@ -24,11 +24,8 @@ import {
   validateGeneratedQuestion,
   type ValidationFailure,
 } from "./validateGenerated";
-import type {
-  AnswerMap,
-  KnownFacts,
-  Question,
-} from "./types";
+import type { Question } from "./types";
+import type { AnswerMap, KnownFacts } from "@/lib/facts/types";
 import type {
   GeneratedQuestion,
   GenerationContext,
@@ -42,7 +39,7 @@ import {
   evaluateIssues,
   isAdminIssueEngineEnabled,
 } from "@/lib/engine/issueEngine";
-import { ALL_REASON_CODES, requirementsForFact } from "./requirements";
+import { ALL_REASON_CODES, requirementsForFact } from "@/lib/facts/requirements";
 import { filterMissingFactsByCircumstances } from "./caseAssessment";
 import { triageBlocksAppealJourney } from "@/types/triage";
 import type { DocumentTriageResult } from "@/types/triage";

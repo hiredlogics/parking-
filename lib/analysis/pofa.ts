@@ -1,5 +1,5 @@
-import { FACT, factStr } from "@/lib/questions/facts";
-import type { KnownFacts } from "@/lib/questions/types";
+import { FACT, factStr } from "@/lib/facts/facts";
+import type { KnownFacts } from "@/lib/facts/types";
 import type { PofaAnalysis, PofaTimingStatus } from "./types";
 
 /**

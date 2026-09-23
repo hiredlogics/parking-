@@ -1,6 +1,6 @@
 import type { RouteFamily } from "@/types/caseState";
-import { FACT } from "@/lib/questions/facts";
-import type { AnswerValue } from "@/lib/questions/types";
+import { FACT } from "@/lib/facts/facts";
+import type { AnswerValue } from "@/lib/facts/types";
 
 /**
  * Evidence-derived facts.

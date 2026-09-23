@@ -1,6 +1,6 @@
 import type { KbModule, LegalSource, ValidationIssue, ValidatorCode } from "@/lib/kb/types";
 import type { IssueAnalysis } from "@/lib/analysis/types";
-import type { KnownFacts } from "@/lib/questions/types";
+import type { KnownFacts } from "@/lib/facts/types";
 
 /**
  * Independent validation pass.

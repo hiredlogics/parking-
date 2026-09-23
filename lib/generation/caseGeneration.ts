@@ -18,6 +18,7 @@ import { evaluateIssues } from "@/lib/engine/issueEngine";
 import { factsForCase } from "@/lib/analysis/engine";
 import { ensureAdminConfigSeeded } from "@/lib/config/seedAdminConfig";
 import { getServiceByCode } from "@/lib/config/adminRepo";
+import { resolveAnswersWithDefaults } from "@/lib/rules/factDefaults";
 
 /**
  * Case-scoped generation.
@@ -177,13 +178,27 @@ export async function generateAppealForCase(
   const docs = await repo.listCaseDocuments(caseId, "EVIDENCE");
   const evidenceTypes = docs.map((d) => d.evidenceType ?? "other");
 
+  /*
+   * A case that never went through adaptive questioning (or skipped it)
+   * still needs the same "registered keeper, driver not named" safe
+   * assumption the question engine would otherwise have asked about —
+   * without it, generation has no route to argue and falls through to
+   * MANUAL_REVIEW/NO_SUPPORTED_ROUTE. Only fills genuine gaps; a real
+   * answer the customer or a document already supplied is untouched.
+   */
+  const {
+    answers: draftingAnswers,
+    applied: appliedDefaults,
+    answerProvenance,
+  } = resolveAnswersWithDefaults(c.confirmed, c.adaptiveAnswers, evidenceTypes);
+
   // Refresh intelligence with latest answers before drafting, then reuse analysis.
   const { buildCaseIntelligence } = await import(
     "@/lib/cases/caseIntelligence"
   );
   const intelligence = buildCaseIntelligence({
     confirmed: c.confirmed,
-    answers: c.adaptiveAnswers,
+    answers: draftingAnswers,
     evidenceTypes,
     documentUnderstanding: {
       documentType: (c.documentType as never) ?? null,
@@ -192,18 +207,28 @@ export async function generateAppealForCase(
       caseStage: (c.caseStage as never) ?? null,
       serviceDecision: (c.serviceDecision as never) ?? null,
     },
+    answerProvenance,
   });
   await repo.saveCaseIntelligence(caseId, intelligence);
 
   const result = await generateValidatedAppeal({
     caseId,
     confirmed: c.confirmed,
-    answers: c.adaptiveAnswers,
+    answers: draftingAnswers,
     evidenceTypes,
     evidenceRefs: docs.map((d) => d.id),
     analysis: intelligence.analysis,
     intelligence,
+    answerProvenance,
   });
+
+  if (appliedDefaults.length > 0) {
+    result.warnings.push(
+      `[defaults] generated without adaptive answers for: ${appliedDefaults
+        .map((d) => d.factKey)
+        .join(", ")} — appeal uses generic, evidence-independent grounds only`,
+    );
+  }
 
   const draft = await saveDraft(caseId, result);
 

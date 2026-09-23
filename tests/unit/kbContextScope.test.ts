@@ -3,7 +3,7 @@
  */
 import { describe, expect, it } from "vitest";
 import type { ConfirmedPcn } from "@/types";
-import { FACT } from "@/lib/questions/facts";
+import { FACT } from "@/lib/facts/facts";
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
 import { serialiseDraftingContext } from "@/services/ai/drafting/contextSerialiser";

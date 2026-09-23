@@ -2,7 +2,7 @@ import { getSession } from "@/lib/auth/session";
 import { hasDb } from "@/lib/db/pool";
 import { fail, failFromAccess, ok, readJson } from "@/lib/api/envelope";
 import { recordAnswerForCase } from "@/lib/cases/service";
-import type { AnswerValue } from "@/lib/questions/types";
+import type { AnswerValue } from "@/lib/facts/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

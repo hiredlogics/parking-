@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
 import type { ExtractedPcn, ExtractionResult, NoticeRoute } from "@/types";
-import { resolveUkJurisdiction } from "@/lib/questions/jurisdiction";
+import { resolveUkJurisdiction } from "@/lib/facts/jurisdiction";
 
 /**
  * Rules / OCR-style fallback for UK private parking notices.

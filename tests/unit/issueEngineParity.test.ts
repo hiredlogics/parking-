@@ -6,8 +6,8 @@
  * without calling legacy route engines.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { FACT } from "@/lib/questions/facts";
-import type { KnownFacts } from "@/lib/questions/types";
+import { FACT } from "@/lib/facts/facts";
+import type { KnownFacts } from "@/lib/facts/types";
 
 const graph = {
   service: {
@@ -185,6 +185,7 @@ function facts(values: Record<string, unknown>, tags: string[] = []): KnownFacts
   return {
     values: values as KnownFacts["values"],
     known: new Set(Object.keys(values)),
+    provenance: {},
     tags: new Set(tags),
     evidence: new Set(),
   };

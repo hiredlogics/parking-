@@ -7,8 +7,8 @@
  * than risking a second, silently-drifting fixture set.
  */
 import type { ConfirmedPcn } from "@/types";
-import { FACT } from "@/lib/questions/facts";
-import type { AnswerMap } from "@/lib/questions/types";
+import { FACT } from "@/lib/facts/facts";
+import type { AnswerMap } from "@/lib/facts/types";
 
 export const BASE = {
   operator_name: "CitySquare Parking Management",

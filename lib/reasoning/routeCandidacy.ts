@@ -1,7 +1,7 @@
 import type { RouteFamily } from "@/types/caseState";
-import { FACT, factStr } from "@/lib/questions/facts";
-import type { KnownFacts } from "@/lib/questions/types";
-import { ROUTE_TRIGGERS } from "@/lib/questions/requirements";
+import { FACT, factStr } from "@/lib/facts/facts";
+import type { KnownFacts } from "@/lib/facts/types";
+import { ROUTE_TRIGGERS } from "@/lib/facts/requirements";
 import {
   classifyAllegation,
   type AllegationClassification,

@@ -26,8 +26,8 @@
  */
 import { loadServiceGraph, type ServiceGraph } from "@/lib/config/adminRepo";
 import { ensureAdminConfigSeeded } from "@/lib/config/seedAdminConfig";
-import type { KnownFacts } from "@/lib/questions/types";
-import { FACT, factStr } from "@/lib/questions/facts";
+import type { KnownFacts } from "@/lib/facts/types";
+import { FACT, factStr } from "@/lib/facts/facts";
 import { hasDb } from "@/lib/db/pool";
 import { classifyAllegation } from "@/lib/reasoning/allegation";
 import { evaluateCondition, type ConditionTrace } from "@/lib/rules/conditions";

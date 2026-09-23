@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
 import { draftAppeal } from "@/lib/drafting/engine";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap } from "@/lib/facts/types";
 import type { ConfirmedPcn } from "@/types";
 
 export const runtime = "nodejs";

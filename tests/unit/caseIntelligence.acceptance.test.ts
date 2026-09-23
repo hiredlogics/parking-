@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { buildCaseIntelligence } from "@/lib/cases/caseIntelligence";
 import { assessPossibleLateNoticeFromDates } from "@/lib/analysis/pofa";
 import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
-import { FACT } from "@/lib/questions/facts";
+import { FACT } from "@/lib/facts/facts";
 
 describe("Case Intelligence — late notice before questions", () => {
   it("date screen flags possible_late_notice from event + issue dates alone", () => {

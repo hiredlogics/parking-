@@ -1,9 +1,9 @@
 import type { ConfirmedPcn } from "@/types";
-import { deriveKnownFacts, FACT, factStr } from "@/lib/questions/facts";
-import { missingMaterialFacts } from "@/lib/questions/missing";
-import { detectOutOfScope } from "@/lib/questions/scope";
+import { deriveKnownFacts, FACT, factStr } from "@/lib/facts/facts";
+import { missingMaterialFacts } from "@/lib/facts/missing";
+import { detectOutOfScope } from "@/lib/facts/scope";
 import { resolveCodeVersion } from "@/lib/kb/seed/codeVersions";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap, FactSource } from "@/lib/facts/types";
 import { analysePofa, type PofaConfig } from "./pofa";
 import { assessRoutes } from "./routes";
 import { computeProhibitedClaims } from "./prohibited";
@@ -34,23 +34,14 @@ export interface AnalysisInput {
   confirmedContentDefects?: string[];
   /** Admin-configured PoFA thresholds; omit to use the statutory defaults. */
   pofaConfig?: Partial<PofaConfig>;
+  /**
+   * Provenance override for specific answer keys — e.g. a value filled
+   * by lib/rules/factDefaults.ts must carry "system_default", not the
+   * "answer" provenance a genuine customer answer gets. See
+   * deriveKnownFacts for why this can never be inferred after the fact.
+   */
+  answerProvenance?: Partial<Record<string, FactSource>>;
 }
-
-/** Facts that came from the notice itself. */
-const DOCUMENT_FACT_KEYS = new Set<string>([
-  FACT.OPERATOR_NAME,
-  FACT.PCN_NUMBER,
-  FACT.VRM,
-  FACT.PARKING_LOCATION,
-  FACT.PARKING_EVENT_DATE,
-  FACT.NOTICE_ISSUE_DATE,
-  FACT.NOTICE_RECEIVED_DATE,
-  FACT.ENTRY_TIME,
-  FACT.EXIT_TIME,
-  FACT.TOTAL_RECORDED_DURATION,
-  FACT.CHARGE_AMOUNT,
-  FACT.ALLEGED_BREACH,
-]);
 
 /**
  * Derive the fact view for a case. Exposed so the retrieval layer can
@@ -61,6 +52,7 @@ export function factsForCase(input: AnalysisInput) {
     confirmed: input.confirmed,
     answers: input.answers,
     evidenceTypes: input.evidenceTypes,
+    answerProvenance: input.answerProvenance,
   });
 }
 
@@ -91,14 +83,16 @@ export function analyseCase(input: AnalysisInput): IssueAnalysis {
   const secondaryRoutes = assessments.slice(1).map((a) => a.route);
 
   // ---- Verified facts with provenance ----
+  // Provenance is carried from deriveKnownFacts, never re-guessed here —
+  // a fact's origin must be recorded at the point it is set, or an
+  // AI-derived or system-default value could end up indistinguishable
+  // from a genuine notice fact or customer answer (see FactSource).
   const verifiedFacts: VerifiedFact[] = Object.entries(facts.values)
     .filter(([k]) => !k.startsWith("__asked:"))
     .map(([field, value]) => ({
       field,
       value,
-      source: DOCUMENT_FACT_KEYS.has(field)
-        ? ("document" as const)
-        : ("customer" as const),
+      source: facts.provenance[field] ?? "answer",
     }));
 
   if (code) {

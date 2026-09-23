@@ -1,4 +1,5 @@
-import type { AnswerMap, Question, QuestionDef } from "./types";
+import type { Question, QuestionDef } from "./types";
+import type { AnswerMap } from "@/lib/facts/types";
 
 /**
  * Bank question helpers.

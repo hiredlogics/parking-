@@ -5,7 +5,7 @@ import type {
   QuestionOrigin,
   QuestionProvenance,
 } from "@/lib/questions/generated";
-import type { ReasonCode, RequirementScope } from "@/lib/questions/requirements";
+import type { ReasonCode, RequirementScope } from "@/lib/facts/requirements";
 
 /**
  * Persisted question journey.

@@ -9,13 +9,13 @@ process.env.USE_ADMIN_ISSUE_ENGINE = "0";
 
 import { describe, expect, it } from "vitest";
 import type { ConfirmedPcn } from "@/types";
-import { FACT, SCENARIO_TAGS } from "@/lib/questions/facts";
+import { FACT, SCENARIO_TAGS } from "@/lib/facts/facts";
 import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
 import { applyAnswerToFact } from "@/lib/questions/applyAnswer";
 import { assessCandidacy } from "@/lib/reasoning/routeCandidacy";
-import { deriveKnownFacts } from "@/lib/questions/facts";
+import { deriveKnownFacts } from "@/lib/facts/facts";
 import { splitMaterialFacts } from "@/lib/cases/sufficiencyResult";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap } from "@/lib/facts/types";
 import type { QuestionProvider } from "@/services/ai/questions";
 
 /**

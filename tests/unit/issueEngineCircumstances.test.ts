@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { evaluateIssues } from "@/lib/engine/issueEngine";
-import { deriveKnownFacts, FACT } from "@/lib/questions/facts";
+import { deriveKnownFacts, FACT } from "@/lib/facts/facts";
 import { vi } from "vitest";
 
 vi.mock("@/lib/config/seedAdminConfig", () => ({

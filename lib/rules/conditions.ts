@@ -22,7 +22,7 @@
  * An absent fact is `false`, never an error: facts arrive progressively
  * as the customer answers, so "not yet known" is a normal state.
  */
-import type { KnownFacts } from "@/lib/questions/types";
+import type { KnownFacts } from "@/lib/facts/types";
 
 /** Comparison operators available to a leaf condition. */
 export const FACT_OPERATORS = [

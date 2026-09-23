@@ -1,5 +1,5 @@
 import type { QuestionDef } from "./types";
-import { FACT, factBool, factStr } from "./facts";
+import { FACT, factBool, factStr } from "@/lib/facts/facts";
 import { classifyAllegation } from "@/lib/reasoning/allegation";
 
 /**
@@ -612,7 +612,7 @@ export const QUESTION_BANK: QuestionDef[] = [
  * Now owned by the requirement map — it is case-analysis data, not
  * question data. Re-exported here so existing importers keep working.
  */
-export { ROUTE_TRIGGERS as TAG_ROUTES } from "./requirements";
+export { ROUTE_TRIGGERS as TAG_ROUTES } from "@/lib/facts/requirements";
 
 /** Keep referenced helpers used by askWhen predicates exported for tests. */
 export { factBool, factStr };

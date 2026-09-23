@@ -13,7 +13,7 @@ import {
   upsertValidationRule,
   insertPromptIfAbsent,
 } from "@/lib/config/adminRepo";
-import { FACT } from "@/lib/questions/facts";
+import { FACT } from "@/lib/facts/facts";
 import { ensureSchema } from "@/lib/db/schema";
 
 const PRIVATE_PARKING = "PRIVATE_PARKING_INITIAL_APPEAL";

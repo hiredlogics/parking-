@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { AnswerValue, Question } from "@/lib/questions/types";
+import type { AnswerValue } from "@/lib/facts/types";
+import type { Question } from "@/lib/questions/types";
 
 /**
  * Generic renderer for one adaptive question.

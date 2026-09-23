@@ -1,6 +1,7 @@
 import { isChoiceType, normaliseAnswerValue } from "./answerContract";
-import { askedFactKey } from "./missing";
-import type { AnswerMap, AnswerValue, Question } from "./types";
+import { askedFactKey } from "@/lib/facts/missing";
+import type { AnswerMap, AnswerValue } from "@/lib/facts/types";
+import type { Question } from "./types";
 
 /**
  * Record an answer against the question the SERVER asked.

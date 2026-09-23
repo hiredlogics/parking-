@@ -19,7 +19,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import type { ConfirmedPcn } from "@/types";
-import { FACT } from "@/lib/questions/facts";
+import { FACT } from "@/lib/facts/facts";
 import type { GeneratedQuestion } from "@/lib/questions/generated";
 import type { QuestionProvider } from "@/services/ai/questions";
 import type { MissingFact } from "@/lib/engine/issueEngine";

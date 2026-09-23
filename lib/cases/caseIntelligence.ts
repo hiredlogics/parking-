@@ -15,8 +15,8 @@
  * Does NOT invent appeal wording. Does NOT add question bank entries.
  */
 import type { ConfirmedPcn } from "@/types";
-import type { AnswerMap } from "@/lib/questions/types";
-import { deriveKnownFacts, FACT, factStr } from "@/lib/questions/facts";
+import type { AnswerMap, FactSource } from "@/lib/facts/types";
+import { deriveKnownFacts, FACT, factStr } from "@/lib/facts/facts";
 import { analyseCase } from "@/lib/analysis/engine";
 import {
   analysePofa,
@@ -165,6 +165,8 @@ export function buildCaseIntelligence(input: {
   evidenceTypes?: string[];
   documentUnderstanding?: DurableDocumentUnderstanding | null;
   suitabilityDetail?: string | null;
+  /** See AnalysisInput.answerProvenance — threaded through to analyseCase. */
+  answerProvenance?: Partial<Record<string, FactSource>>;
 }): CaseIntelligence {
   const answers = input.answers ?? {};
   const evidenceTypes = input.evidenceTypes ?? [];
@@ -172,6 +174,7 @@ export function buildCaseIntelligence(input: {
     confirmed: input.confirmed,
     answers,
     evidenceTypes,
+    answerProvenance: input.answerProvenance,
   });
 
   const flatFacts: Record<string, unknown> = { ...facts.values };
@@ -304,6 +307,7 @@ export function buildCaseIntelligence(input: {
       confirmed: input.confirmed,
       answers,
       evidenceTypes,
+      answerProvenance: input.answerProvenance,
     });
     for (const f of analysis.missingFacts) missing.add(f);
   } catch (err) {

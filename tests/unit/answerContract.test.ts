@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { describe, expect, it } from "vitest";
-import { FACT } from "@/lib/questions/facts";
+import { FACT } from "@/lib/facts/facts";
 import {
   canonicalValuesFor,
   checkAnswerContract,
@@ -12,9 +12,9 @@ import {
 } from "@/lib/questions/answerContract";
 import { applyAnswerToFact, validateAgainstQuestion } from "@/lib/questions/applyAnswer";
 import { validateGeneratedQuestion } from "@/lib/questions/validateGenerated";
-import { allRequirements } from "@/lib/questions/requirements";
+import { allRequirements } from "@/lib/facts/requirements";
 import type { Question } from "@/lib/questions/types";
-import type { KnownFacts } from "@/lib/questions/types";
+import type { KnownFacts } from "@/lib/facts/types";
 import { QUESTION_BANK } from "@/lib/questions/bank";
 
 /**

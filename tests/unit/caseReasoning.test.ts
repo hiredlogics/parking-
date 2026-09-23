@@ -5,8 +5,8 @@ process.env.USE_ADMIN_ISSUE_ENGINE = "0";
 
 import { describe, expect, it } from "vitest";
 import type { ConfirmedPcn } from "@/types";
-import { FACT, deriveKnownFacts } from "@/lib/questions/facts";
-import { askedFactKey, missingRequirements } from "@/lib/questions/missing";
+import { FACT, deriveKnownFacts } from "@/lib/facts/facts";
+import { askedFactKey, missingRequirements } from "@/lib/facts/missing";
 import { classifyAllegation, factsImpliedByAllegation } from "@/lib/reasoning/allegation";
 import {
   deriveFactsFromEvidence,
@@ -18,7 +18,7 @@ import { assessCandidacy } from "@/lib/reasoning/routeCandidacy";
 import { scoreInformationGain } from "@/lib/reasoning/informationGain";
 import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
 import { applyAnswerToFact } from "@/lib/questions/applyAnswer";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap } from "@/lib/facts/types";
 import type { QuestionProvider } from "@/services/ai/questions";
 
 /**

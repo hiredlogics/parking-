@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { toLegacyAnswers } from "@/lib/questions/toLegacyAnswers";
-import { FACT } from "@/lib/questions/facts";
+import { toLegacyAnswers } from "@/lib/facts/toLegacyAnswers";
+import { FACT } from "@/lib/facts/facts";
 import { evaluate } from "@/rules";
 import type { ConfirmedPcn } from "@/types";
 

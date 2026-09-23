@@ -10,7 +10,7 @@ import type {
   OperatorAta,
   RouteFamily,
 } from "@/types/caseState";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap } from "@/lib/facts/types";
 
 /**
  * Services offered.

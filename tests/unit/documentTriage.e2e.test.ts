@@ -5,8 +5,8 @@ import {
 } from "@/lib/triage/deterministic";
 import { triageBlocksAppealJourney } from "@/types/triage";
 import { filterMissingFactsByCircumstances } from "@/lib/questions/caseAssessment";
-import { deriveKnownFacts, FACT } from "@/lib/questions/facts";
-import type { FactRequirement } from "@/lib/questions/requirements";
+import { deriveKnownFacts, FACT } from "@/lib/facts/facts";
+import type { FactRequirement } from "@/lib/facts/requirements";
 import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
 
 describe("document triage — Debt Recovery Plus", () => {

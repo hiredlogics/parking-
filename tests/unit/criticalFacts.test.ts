@@ -5,15 +5,15 @@ process.env.USE_ADMIN_ISSUE_ENGINE = "0";
 
 import { describe, expect, it } from "vitest";
 import type { ConfirmedPcn } from "@/types";
-import { deriveKnownFacts, FACT } from "@/lib/questions/facts";
+import { deriveKnownFacts, FACT } from "@/lib/facts/facts";
 import {
   askedFactKey,
   missingMaterialFacts,
   unresolvedCriticalFacts,
-} from "@/lib/questions/missing";
-import { TRIAGE_REQUIREMENTS } from "@/lib/questions/requirements";
+} from "@/lib/facts/missing";
+import { TRIAGE_REQUIREMENTS } from "@/lib/facts/requirements";
 import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap } from "@/lib/facts/types";
 
 /**
  * Dead-end prevention.

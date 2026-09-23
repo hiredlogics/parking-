@@ -23,9 +23,37 @@ import { analyseCase, factsForCase } from "@/lib/analysis/engine";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
 import { validateDraft } from "@/lib/validation/engine";
 import { validateKeeperSafe } from "@/lib/keeperSafe";
-import { UAT_FIXTURES, byUatId, type UatFixture } from "../fixtures/uatCases";
+import { resolveAnswersWithDefaults } from "@/lib/rules/factDefaults";
+import { UAT_FIXTURES, byUatId, BASE, type UatFixture } from "../fixtures/uatCases";
+import type { ConfirmedPcn } from "@/types";
 
-const POSITIVE_FIXTURES = UAT_FIXTURES.filter((f) => f.id !== "UAT-11");
+/**
+ * UAT-1 is carved out of the "must reach READY" set below. Building this
+ * suite surfaced a real content defect (not an orchestration bug): the
+ * approved Master Pack paragraphs PP-KEY-001 and PP-KEY-002
+ * (paragraphs/library.ts) always co-fire for "payment made + a MINOR VRM
+ * keying error" (rules/rules.ts's KEYING_ROUTE rules), and their second
+ * sentences are near-identical restatements of the same point ("The
+ * existence of a keying error does not alter the fact that a payment was
+ * made..." vs "A payment was nevertheless made..."), which VAL-REPETITION
+ * correctly flags as BLOCKING (0.86 word-overlap, over the 0.85
+ * threshold) wherever this combination is assembled — by the rules
+ * engine or the deterministic KB provider, since both draw on the same
+ * underlying paragraph text.
+ *
+ * Before the fallback-safety fix in lib/generation/engine.ts (landed in
+ * this same change), the post-loop rules-letter fallback shipped this
+ * repeated text as a released "READY" appeal with no validation or
+ * keeper-safety check at all. It now correctly routes to MANUAL_REVIEW
+ * instead — progress, not a regression, since nothing non-compliant is
+ * released — but this specific combination is not auto-releasable today.
+ * Rewriting the paragraph text is a legal-content decision for whoever
+ * owns the Master Pack, not something to do unilaterally here.
+ */
+const KNOWN_CONTENT_GAP_IDS = new Set(["UAT-1"]);
+const POSITIVE_FIXTURES = UAT_FIXTURES.filter(
+  (f) => f.id !== "UAT-11" && !KNOWN_CONTENT_GAP_IDS.has(f.id),
+);
 
 function independentEligibleModuleIds(f: UatFixture): Set<string> {
   const input = {
@@ -121,6 +149,25 @@ describe("Full-pipeline accuracy: released appeals are rule-grounded", () => {
   });
 });
 
+describe("Full-pipeline accuracy: known content gaps stay safe, not silently released", () => {
+  it("UAT-1 (payment + minor keying error) never ships the colliding PP-KEY-001/002 text unvalidated", async () => {
+    const f = byUatId("UAT-1");
+    const result = await generateValidatedAppeal({
+      confirmed: f.confirmed,
+      answers: f.answers,
+      evidenceTypes: f.evidenceTypes,
+    });
+
+    // The known content defect means this does not reach READY today.
+    // The invariant that actually matters: it must never be released
+    // without clearing validation — MANUAL_REVIEW, not a silent ship of
+    // repetitive text, is the only acceptable outcome while the
+    // paragraph collision is unresolved.
+    expect(result.status).toBe("MANUAL_REVIEW");
+    expect(result.reason).toBe("VALIDATION_FAILED");
+  });
+});
+
 describe("Full-pipeline accuracy: the pipeline does not fabricate support", () => {
   /*
    * UAT-11 claims residential parking rights but uploads no tenancy
@@ -150,7 +197,67 @@ describe("Full-pipeline accuracy: the pipeline does not fabricate support", () =
     expect(result.moduleIds).not.toContain("KB-RES-01");
 
     if (result.status === "READY" && result.body) {
-      expect(result.body.toLowerCase()).not.toMatch(/tenanc|lease|residential parking right/);
+      // Word-bounded: "lease" alone would also match inside "please".
+      expect(result.body.toLowerCase()).not.toMatch(/\btenanc\w*|\blease\b|\bresidential parking right/);
     }
+  });
+});
+
+describe("Full-pipeline accuracy: no-questions fast path (customer skips adaptive questions)", () => {
+  /*
+   * Product decision: a customer can go straight from upload/confirmation
+   * to a generated appeal with zero adaptive answers. Without any
+   * defaulting, that has no route to argue at all — this proves the
+   * fast path only works BECAUSE resolveAnswersWithDefaults fills the
+   * same two facts the question engine would otherwise have asked
+   * about, and that the result is the generic, evidence-independent
+   * PoFA/Schedule-4 ground rather than anything scenario-specific.
+   */
+  const confirmed = {
+    ...BASE,
+    alleged_breach: "Overstaying maximum permitted stay",
+  } as ConfirmedPcn;
+
+  it("zero adaptive answers, no defaults applied, cannot be drafted at all", async () => {
+    const result = await generateValidatedAppeal({
+      confirmed,
+      answers: {},
+      evidenceTypes: [],
+    });
+    expect(result.status).toBe("MANUAL_REVIEW");
+  });
+
+  it("the same case, with resolveAnswersWithDefaults applied, reaches READY on generic grounds only", async () => {
+    const { answers, applied } = resolveAnswersWithDefaults(confirmed, {}, []);
+
+    // Both facts the question engine would have asked about are filled.
+    // (Jurisdiction is not a gap here: deriveKnownFacts already infers it
+    // from parking_location before defaults ever run.)
+    expect(applied.map((d) => d.factKey).sort()).toEqual(
+      ["driver_identified", "registered_keeper"].sort(),
+    );
+
+    const result = await generateValidatedAppeal({ confirmed, answers, evidenceTypes: [] });
+
+    expect(result.status, JSON.stringify({ reason: result.reason, detail: result.detail })).toBe(
+      "READY",
+    );
+    const body = result.body as string;
+    expect(body).toBeTruthy();
+    expect(validateKeeperSafe(body).ok).toBe(true);
+
+    // No scenario-specific fact was ever supplied, so only the generic,
+    // evidence-independent keeper-liability ground may have been used.
+    expect(result.moduleIds).toEqual(["KB-POFA-01"]);
+  });
+
+  it("never overwrites a real answer with a default", () => {
+    const { answers, applied } = resolveAnswersWithDefaults(
+      confirmed,
+      { registered_keeper: "NO" },
+      [],
+    );
+    expect(answers.registered_keeper).toBe("NO");
+    expect(applied.some((d) => d.factKey === "registered_keeper")).toBe(false);
   });
 });

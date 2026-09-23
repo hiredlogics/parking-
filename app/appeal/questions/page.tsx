@@ -14,7 +14,7 @@ import {
   submitAnswer,
   type QuestionStep,
 } from "@/features/appeal/caseSync";
-import type { AnswerValue } from "@/lib/questions/types";
+import type { AnswerValue } from "@/lib/facts/types";
 
 type Phase = "pending" | "keeper" | "questions";
 
@@ -165,9 +165,7 @@ export default function QuestionsPage() {
         </div>
       )}
 
-      {loadingQuestion && !state && (
-        <div className="h-40 animate-pulse rounded-2xl bg-brand-pinkPale" />
-      )}
+      {loadingQuestion && !state && <NextQuestionLoading />}
 
       {state?.outOfScope || state?.needsReview ? (
         <div>
@@ -374,6 +372,49 @@ function Shell({ children }: { children: React.ReactNode }) {
       <main className="mx-auto flex w-full max-w-lg flex-1 flex-col px-4 pb-8 pt-6 sm:px-6 sm:pt-8">
         {children}
       </main>
+    </div>
+  );
+}
+
+/**
+ * Working out the next question re-analyses the case and can call an AI
+ * model twice (a rejected first attempt is regenerated once), so this can
+ * genuinely take upwards of a minute. A silent pulsing box for that long
+ * reads as broken, not busy — the copy escalates so a slow-but-working
+ * wait stays legible.
+ */
+function NextQuestionLoading() {
+  const [stage, setStage] = useState(0);
+  useEffect(() => {
+    const t1 = window.setTimeout(() => setStage(1), 8_000);
+    const t2 = window.setTimeout(() => setStage(2), 25_000);
+    return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
+    };
+  }, []);
+
+  const copy = [
+    "Working out what to ask next based on your case...",
+    "Still thinking — checking your situation against the relevant rules...",
+    "Almost there — this one is taking a little longer than usual...",
+  ][stage];
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex h-40 flex-col items-center justify-center gap-3 rounded-2xl bg-brand-pinkPale px-6 text-center"
+    >
+      <svg
+        className="h-6 w-6 animate-spin text-brand-pink"
+        viewBox="0 0 24 24"
+        fill="none"
+      >
+        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+        <path d="M22 12a10 10 0 0 0-10-10" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+      </svg>
+      <p className="text-[14px] font-medium text-brand-text">{copy}</p>
     </div>
   );
 }

@@ -1,16 +1,17 @@
 import type { ConfirmedPcn, EvidenceItem, ExtractionResult } from "@/types";
 import type { SessionData } from "@/lib/auth/session";
-import type { AnswerMap, AnswerValue, Question } from "@/lib/questions/types";
+import type { AnswerMap, AnswerValue } from "@/lib/facts/types";
+import type { Question } from "@/lib/questions/types";
 import { askedKey } from "@/lib/questions/engine";
 import { applyAnswerToFact } from "@/lib/questions/applyAnswer";
 import {
   nextDynamicQuestion,
   type DynamicOutcome,
 } from "@/lib/questions/dynamicEngine";
-import { askedFactKey, missingRequirements } from "@/lib/questions/missing";
+import { askedFactKey, missingRequirements } from "@/lib/facts/missing";
 import * as questionRepo from "./questionRepo";
 import { isFollowUpDue } from "./outcome";
-import { deriveKnownFacts, FACT, factStr } from "@/lib/questions/facts";
+import { deriveKnownFacts, FACT, factStr } from "@/lib/facts/facts";
 import { EVIDENCE_TYPE_LABELS } from "@/types";
 import * as repo from "./repo";
 import { routeLabels } from "./labels";
@@ -256,9 +257,9 @@ export async function confirmFactsForCase(
   // do not ask unless neither source can resolve England/Wales / Scotland / NI.
   {
     const { resolveUkJurisdiction } = await import(
-      "@/lib/questions/jurisdiction"
+      "@/lib/facts/jurisdiction"
     );
-    const { FACT } = await import("@/lib/questions/facts");
+    const { FACT } = await import("@/lib/facts/facts");
     const inferred = resolveUkJurisdiction({
       ukJurisdiction: confirmedWithStage.uk_jurisdiction,
       parkingLocation: confirmedWithStage.parking_location,

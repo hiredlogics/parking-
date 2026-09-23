@@ -3,8 +3,8 @@ import {
   assessNoticeScope,
   detectOutOfScope,
   isHardOutOfScope,
-} from "@/lib/questions/scope";
-import { deriveKnownFacts, FACT } from "@/lib/questions/facts";
+} from "@/lib/facts/scope";
+import { deriveKnownFacts, FACT } from "@/lib/facts/facts";
 
 describe("assessNoticeScope — debt recovery / court", () => {
   it("blocks Debt Recovery Plus Ltd as past appeal stage", () => {

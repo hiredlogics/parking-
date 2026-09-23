@@ -5,9 +5,9 @@ import { describe, expect, it } from "vitest";
 import { QUESTION_BANK, TAG_ROUTES } from "@/lib/questions/bank";
 import { toWireQuestion, countAnswered, askedKey } from "@/lib/questions/engine";
 import { checkBankKeeperSafe } from "@/lib/questions/keeperGuard";
-import { FACT, deriveKnownFacts } from "@/lib/questions/facts";
+import { FACT, deriveKnownFacts } from "@/lib/facts/facts";
 import { bankQuestionsForFact, fallbackQuestionFor } from "@/lib/questions/fallback";
-import { TRIAGE_REQUIREMENTS, ROUTE_REQUIREMENTS } from "@/lib/questions/requirements";
+import { TRIAGE_REQUIREMENTS, ROUTE_REQUIREMENTS } from "@/lib/facts/requirements";
 import type { ConfirmedPcn } from "@/types";
 
 /**
@@ -172,7 +172,7 @@ describe("Question count", () => {
     for (const file of [
       "lib/questions/dynamicEngine.ts",
       "lib/cases/sufficiency.ts",
-      "lib/questions/missing.ts",
+      "lib/facts/missing.ts",
     ]) {
       const src = readFileSync(file, "utf8");
       expect(src, file).not.toMatch(/countAnswered/);

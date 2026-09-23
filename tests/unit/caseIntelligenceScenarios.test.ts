@@ -17,7 +17,7 @@ import {
   resolveSuitability,
 } from "@/lib/cases/caseIntelligence";
 import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
-import { FACT } from "@/lib/questions/facts";
+import { FACT } from "@/lib/facts/facts";
 import { serialiseDraftingContext } from "@/services/ai/drafting/contextSerialiser";
 import type { ConfirmedPcn } from "@/types";
 import type { DraftingContext, DraftResult } from "@/services/ai/types";

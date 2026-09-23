@@ -3,7 +3,8 @@
 import type { ConfirmedPcn, ExtractionResult } from "@/types";
 import type { CustomerCaseState } from "@/lib/cases/types";
 import type { AppealCaseStatus } from "@/types/caseState";
-import type { AnswerValue, Question } from "@/lib/questions/types";
+import type { AnswerValue } from "@/lib/facts/types";
+import type { Question } from "@/lib/questions/types";
 
 /**
  * Client helpers for the server-backed case.

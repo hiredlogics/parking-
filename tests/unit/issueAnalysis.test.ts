@@ -3,8 +3,8 @@ import { analyseCase, factsForCase } from "@/lib/analysis/engine";
 import { addWorkingDays, analysePofa, BOUNDARY_TOLERANCE_DAYS } from "@/lib/analysis/pofa";
 import { ALWAYS_PROHIBITED } from "@/lib/analysis/prohibited";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
-import { deriveKnownFacts, FACT } from "@/lib/questions/facts";
-import type { AnswerMap } from "@/lib/questions/types";
+import { deriveKnownFacts, FACT } from "@/lib/facts/facts";
+import type { AnswerMap } from "@/lib/facts/types";
 import type { ConfirmedPcn } from "@/types";
 
 /**

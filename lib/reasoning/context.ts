@@ -6,11 +6,11 @@ import type {
   OperatorAta,
   RouteFamily,
 } from "@/types/caseState";
-import type { AnswerMap, AnswerValue, KnownFacts } from "@/lib/questions/types";
-import { deriveKnownFacts, FACT, factStr } from "@/lib/questions/facts";
-import { askedFactKey, missingRequirements } from "@/lib/questions/missing";
-import type { FactRequirement } from "@/lib/questions/requirements";
-import { detectOutOfScope, type ScopeDecision } from "@/lib/questions/scope";
+import type { AnswerMap, AnswerValue, KnownFacts } from "@/lib/facts/types";
+import { deriveKnownFacts, FACT, factStr } from "@/lib/facts/facts";
+import { askedFactKey, missingRequirements } from "@/lib/facts/missing";
+import type { FactRequirement } from "@/lib/facts/requirements";
+import { detectOutOfScope, type ScopeDecision } from "@/lib/facts/scope";
 import { resolveCodeVersion } from "@/lib/kb/seed/codeVersions";
 import { analysePofa } from "@/lib/analysis/pofa";
 import { computeProhibitedClaims } from "@/lib/analysis/prohibited";

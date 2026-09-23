@@ -1,5 +1,5 @@
-import { FACT, factNum, factStr } from "@/lib/questions/facts";
-import type { KnownFacts } from "@/lib/questions/types";
+import { FACT, factNum, factStr } from "@/lib/facts/facts";
+import type { KnownFacts } from "@/lib/facts/types";
 import type { PofaAnalysis } from "@/lib/analysis/types";
 import { isGraceGroundSupportable } from "@/lib/appeals/graceSupport";
 

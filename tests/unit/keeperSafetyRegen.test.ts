@@ -46,9 +46,9 @@ vi.mock("@/lib/kb/catalog", async () => {
 });
 
 import { generateValidatedAppeal } from "@/lib/generation/engine";
-import { FACT } from "@/lib/questions/facts";
+import { FACT } from "@/lib/facts/facts";
 import type { ConfirmedPcn } from "@/types";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap } from "@/lib/facts/types";
 
 function confirmed(): ConfirmedPcn {
   return {

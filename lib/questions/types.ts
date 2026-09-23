@@ -1,4 +1,5 @@
 import type { RouteFamily } from "@/types/caseState";
+import type { KnownFacts } from "@/lib/facts/types";
 
 /**
  * Adaptive question contract.
@@ -43,15 +44,6 @@ export interface Question {
   placeholder?: string;
 }
 
-export type AnswerValue =
-  | boolean
-  | string
-  | string[]
-  | number
-  | null;
-
-export type AnswerMap = Record<string, AnswerValue>;
-
 /**
  * Internal question definition. Never sent to the browser — it carries
  * the gating predicate, the facts it establishes and the route it
@@ -89,22 +81,6 @@ export interface QuestionDef {
 
   /** KB modules this question feeds. Used for traceability/audit. */
   supportsModules?: string[];
-}
-
-/**
- * Derived, provenance-flattened view of everything currently
- * established about a case. Values come from confirmed extraction and
- * customer answers only — never from unconfirmed AI output.
- */
-export interface KnownFacts {
-  /** Fact key → value. */
-  values: Record<string, AnswerValue>;
-  /** Fact keys that are established (non-null / non-empty). */
-  known: Set<string>;
-  /** Scenario tags chosen by the customer. */
-  tags: Set<string>;
-  /** Evidence types available on the case. */
-  evidence: Set<string>;
 }
 
 export interface NextQuestionResult {

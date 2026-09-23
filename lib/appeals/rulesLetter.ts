@@ -1,7 +1,7 @@
 import type { ConfirmedPcn, EvidenceItem } from "@/types";
-import type { AnswerMap } from "@/lib/questions/types";
-import { toLegacyAnswers } from "@/lib/questions/toLegacyAnswers";
-import { FACT } from "@/lib/questions/facts";
+import type { AnswerMap } from "@/lib/facts/types";
+import { toLegacyAnswers } from "@/lib/facts/toLegacyAnswers";
+import { FACT } from "@/lib/facts/facts";
 import { evaluate } from "@/rules/engine";
 import { assembleAppeal } from "@/lib/assembly";
 import { getEffectiveParagraphs, getEffectiveRules } from "@/lib/appealLogic";

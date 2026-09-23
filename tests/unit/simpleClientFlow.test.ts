@@ -13,9 +13,9 @@ import { assessDocumentDeterministic } from "@/lib/triage/deterministic";
 import { triageBlocksAppealJourney } from "@/types/triage";
 import { buildCaseIntelligence } from "@/lib/cases/caseIntelligence";
 import { buildRulesBasedLetter } from "@/lib/appeals/rulesLetter";
-import { FACT } from "@/lib/questions/facts";
+import { FACT } from "@/lib/facts/facts";
 import type { ConfirmedPcn } from "@/types";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap } from "@/lib/facts/types";
 
 describe("simple client flow: upload → classify → rules appeal", () => {
   it("payment notice becomes a real rules letter", async () => {

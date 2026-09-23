@@ -10,8 +10,8 @@ import { generateValidatedAppeal } from "@/lib/generation/engine";
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
 import { resetDraftingProvider } from "@/services/ai/drafting";
-import { FACT } from "@/lib/questions/facts";
-import type { AnswerMap } from "@/lib/questions/types";
+import { FACT } from "@/lib/facts/facts";
+import type { AnswerMap } from "@/lib/facts/types";
 import type { ValidatorContext } from "@/lib/validation/context";
 import type { ConfirmedPcn } from "@/types";
 
@@ -185,6 +185,72 @@ describe("VAL-FACT", () => {
   it("blocks the unlawful-penalty argument", () => {
     const run = validateDraft(ctxFor("This charge is an unenforceable penalty."));
     expect(run.byValidator["VAL-FACT"].length).toBeGreaterThan(0);
+  });
+});
+
+describe("VAL-FACT provenance gate", () => {
+  /*
+   * The crux of the anti-fabrication fix: a fact's own provenance now
+   * decides whether VAL-FACT may treat its value as established,
+   * instead of a static per-key guess ("everything not from the
+   * notice is customer-confirmed") that could not tell a genuine
+   * customer answer apart from a provisional system default or a
+   * heuristic guess. A value with disallowed provenance ("inferred" /
+   * "system_default") must be rejected even though the exact same
+   * value with "answer" provenance is accepted.
+   */
+  const CUSTOM_VRM = "ZZ99 XYZ";
+
+  function ctxWithVrmProvenance(source: "answer" | "system_default" | "inferred") {
+    const confirmed = pcn();
+    const input = {
+      confirmed,
+      answers: { ...answers(), custom_vrm_fact: CUSTOM_VRM },
+      evidenceTypes: [] as string[],
+      answerProvenance: { custom_vrm_fact: source },
+    };
+    const analysis = analyseCase(input);
+    const facts = factsForCase(input);
+    const retrieval = retrieveKnowledge({
+      analysis,
+      facts,
+      parkingEventDate: confirmed.parking_event_date,
+      evidenceTypes: [],
+    });
+    return {
+      body: `The other vehicle registration ${CUSTOM_VRM} was involved.`,
+      analysis,
+      modules: retrieval.modules,
+      sources: retrieval.sources,
+      facts,
+      evidence: new Set<string>(),
+      variables: {
+        vrm: confirmed.vrm ?? "",
+        pcn_number: confirmed.pcn_number ?? "",
+        operator_name: confirmed.operator_name ?? "",
+      },
+    } satisfies ValidatorContext;
+  }
+
+  it("accepts a value carried with genuine 'answer' provenance", () => {
+    const run = validateDraft(ctxWithVrmProvenance("answer"));
+    expect(
+      run.byValidator["VAL-FACT"].some((i) => i.message.includes("vehicle registration")),
+    ).toBe(false);
+  });
+
+  it("rejects the identical value when its provenance is a system default", () => {
+    const run = validateDraft(ctxWithVrmProvenance("system_default"));
+    expect(
+      run.byValidator["VAL-FACT"].some((i) => i.message.includes("vehicle registration")),
+    ).toBe(true);
+  });
+
+  it("rejects the identical value when its provenance is an inferred guess", () => {
+    const run = validateDraft(ctxWithVrmProvenance("inferred"));
+    expect(
+      run.byValidator["VAL-FACT"].some((i) => i.message.includes("vehicle registration")),
+    ).toBe(true);
   });
 });
 

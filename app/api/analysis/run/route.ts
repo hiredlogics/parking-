@@ -4,7 +4,7 @@ import { analyseCase, factsForCase } from "@/lib/analysis/engine";
 import { loadPofaConfig } from "@/lib/config/pofaConfig";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
 import { KbCatalogError, loadKbCatalog } from "@/lib/kb/catalog";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap } from "@/lib/facts/types";
 import type { ConfirmedPcn } from "@/types";
 
 export const runtime = "nodejs";

@@ -18,8 +18,10 @@
  * is a row, not a branch in facts.ts/bank.ts/issueEngine.ts (which is
  * where this exact default lived four separate times before).
  */
-import type { KnownFacts } from "@/lib/questions/types";
+import type { AnswerMap, FactSource, KnownFacts } from "@/lib/facts/types";
+import type { ConfirmedPcn } from "@/types";
 import { evaluateCondition } from "@/lib/rules/conditions";
+import { deriveKnownFacts } from "@/lib/facts/facts";
 
 export const SYSTEM_SAFE_DEFAULT = "SYSTEM_SAFE_DEFAULT" as const;
 
@@ -127,3 +129,47 @@ export const BUILT_IN_FACT_DEFAULTS: FactDefaultRule[] = [
     priority: 20,
   },
 ];
+
+export interface AnswersWithDefaults {
+  /** Original answers with any missing fact filled from a default. */
+  answers: AnswerMap;
+  applied: AppliedDefault[];
+  /**
+   * Provenance override for the keys `applied` filled — pass to
+   * deriveKnownFacts (via AnalysisInput.answerProvenance) so a default
+   * is never indistinguishable from a genuine customer answer to
+   * VAL-FACT's anti-fabrication check.
+   */
+  answerProvenance: Partial<Record<string, FactSource>>;
+}
+
+/**
+ * Fill gaps in a customer's answers with the same safe defaults the
+ * question engine already uses to decide what NOT to ask — for a case
+ * that skips (or never reaches) the adaptive question step and is
+ * generated from document classification alone.
+ *
+ * Never overwrites a real answer. A fact the customer actually answered
+ * (or that adaptive questioning already established) is untouched; this
+ * only fills what neither the document nor the customer ever supplied.
+ * Callers should surface `applied` to whoever reviews the case — an
+ * appeal built on defaults is necessarily more generic than one built on
+ * the customer's actual circumstances, and that should not be silent.
+ */
+export function resolveAnswersWithDefaults(
+  confirmed: ConfirmedPcn | null | undefined,
+  answers: AnswerMap,
+  evidenceTypes: string[],
+  rules: FactDefaultRule[] = BUILT_IN_FACT_DEFAULTS,
+): AnswersWithDefaults {
+  const facts = deriveKnownFacts({ confirmed, answers, evidenceTypes });
+  const { applied } = applyFactDefaults(facts, rules);
+  if (applied.length === 0) return { answers, applied, answerProvenance: {} };
+  const merged: AnswerMap = { ...answers };
+  const answerProvenance: Partial<Record<string, FactSource>> = {};
+  for (const d of applied) {
+    merged[d.factKey] = d.value as AnswerMap[string];
+    answerProvenance[d.factKey] = "system_default";
+  }
+  return { answers: merged, applied, answerProvenance };
+}

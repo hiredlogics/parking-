@@ -1,10 +1,10 @@
 import type { RouteFamily } from "@/types/caseState";
-import type { KnownFacts } from "@/lib/questions/types";
+import type { KnownFacts } from "@/lib/facts/types";
 import {
   ROUTE_REQUIREMENTS,
   type FactRequirement,
-} from "@/lib/questions/requirements";
-import { isRequirementActive } from "@/lib/questions/missing";
+} from "@/lib/facts/requirements";
+import { isRequirementActive } from "@/lib/facts/missing";
 import { factsImpliedByAllegation, type AllegationCategory } from "./allegation";
 import { routeStrength } from "@/lib/analysis/routes";
 
@@ -227,6 +227,7 @@ function countGatedBy(
     const probe: KnownFacts = {
       values: { ...facts.values, [fact]: probeValue },
       known: new Set([...facts.known, fact]),
+      provenance: { ...facts.provenance, [fact]: "answer" },
       tags: facts.tags,
       evidence: facts.evidence,
     };

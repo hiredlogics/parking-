@@ -6,8 +6,8 @@ import {
   sourcesForRetrieval,
 } from "@/lib/kb/catalog";
 import { moduleAllowed } from "@/lib/retrieval/gates";
-import type { KnownFacts } from "@/lib/questions/types";
-import type { FactRequirement } from "@/lib/questions/requirements";
+import type { KnownFacts } from "@/lib/facts/types";
+import type { FactRequirement } from "@/lib/facts/requirements";
 import type { PofaAnalysis } from "@/lib/analysis/types";
 
 /**

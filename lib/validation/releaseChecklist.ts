@@ -1,4 +1,4 @@
-import { FACT, factStr } from "@/lib/questions/facts";
+import { FACT, factStr } from "@/lib/facts/facts";
 import type { ValidatorContext } from "./context";
 
 /**

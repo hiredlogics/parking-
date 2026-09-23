@@ -26,10 +26,10 @@ import {
 import { analyseCase } from "@/lib/analysis/engine";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
 import { transformToKeeperSafe, validateKeeperSafe } from "@/lib/keeperSafe";
-import { FACT } from "@/lib/questions/facts";
+import { FACT } from "@/lib/facts/facts";
 import { buildVariableMap } from "@/lib/variables";
-import { toLegacyAnswers } from "@/lib/questions/toLegacyAnswers";
-import type { AnswerMap } from "@/lib/questions/types";
+import { toLegacyAnswers } from "@/lib/facts/toLegacyAnswers";
+import type { AnswerMap } from "@/lib/facts/types";
 import type { ConfirmedPcn } from "@/types";
 
 /**

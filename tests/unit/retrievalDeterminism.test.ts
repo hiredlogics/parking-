@@ -3,14 +3,14 @@
  */
 import { describe, expect, it } from "vitest";
 import type { ConfirmedPcn } from "@/types";
-import { FACT, deriveKnownFacts } from "@/lib/questions/facts";
+import { FACT, deriveKnownFacts } from "@/lib/facts/facts";
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
 import { retrieveForQuestion } from "@/lib/reasoning/questionKnowledge";
 import { ALL_KB_MODULES } from "@/lib/kb/seed";
 import { LEGAL_SOURCES } from "@/lib/kb/seed/sources";
 import { buildAllDraftingBlocks } from "@/lib/kb/seed/blocks";
-import { TRIAGE_REQUIREMENTS, ROUTE_REQUIREMENTS } from "@/lib/questions/requirements";
+import { TRIAGE_REQUIREMENTS, ROUTE_REQUIREMENTS } from "@/lib/facts/requirements";
 import { BASE, TRIAGE, UAT_FIXTURES, type UatFixture } from "../fixtures/uatCases";
 
 /**

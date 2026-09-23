@@ -1,8 +1,9 @@
 import { QUESTION_BANK } from "./bank";
 import { toWireQuestion } from "./engine";
 import { assertQuestionKeeperSafe } from "./keeperGuard";
-import type { KnownFacts, Question, QuestionDef } from "./types";
-import type { FactRequirement } from "./requirements";
+import type { Question, QuestionDef } from "./types";
+import type { KnownFacts } from "@/lib/facts/types";
+import type { FactRequirement } from "@/lib/facts/requirements";
 
 /**
  * Controlled fallback.

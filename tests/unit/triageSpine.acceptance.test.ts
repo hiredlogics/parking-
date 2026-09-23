@@ -19,9 +19,9 @@ import {
 } from "@/lib/cases/documentUnderstanding";
 import { evaluateIssues } from "@/lib/engine/issueEngine";
 import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
-import { deriveKnownFacts, FACT } from "@/lib/questions/facts";
+import { deriveKnownFacts, FACT } from "@/lib/facts/facts";
 import { filterMissingFactsByCircumstances } from "@/lib/questions/caseAssessment";
-import type { FactRequirement } from "@/lib/questions/requirements";
+import type { FactRequirement } from "@/lib/facts/requirements";
 import type { ExtractionResult } from "@/types";
 
 describe("spine — Debt Recovery Plus", () => {

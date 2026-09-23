@@ -18,10 +18,10 @@ import {
 } from "@/lib/kb/catalog";
 import { ALL_KB_MODULES, LEGAL_SOURCES, buildAllDraftingBlocks } from "@/lib/kb/seed";
 import type { KbModule } from "@/lib/kb/types";
-import { FACT } from "@/lib/questions/facts";
+import { FACT } from "@/lib/facts/facts";
 import type { ConfirmedPcn } from "@/types";
-import type { AnswerMap } from "@/lib/questions/types";
-import type { FactRequirement } from "@/lib/questions/requirements";
+import type { AnswerMap } from "@/lib/facts/types";
+import type { FactRequirement } from "@/lib/facts/requirements";
 
 function cloneModule(id: string, over: Partial<KbModule> = {}): KbModule {
   const base = ALL_KB_MODULES.find((m) => m.moduleId === id);

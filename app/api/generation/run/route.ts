@@ -4,7 +4,7 @@ import { hasDb } from "@/lib/db/pool";
 import { generateValidatedAppeal } from "@/lib/generation/engine";
 import { insertAuditEvent } from "@/lib/kb/audit";
 import { openManualReview } from "@/lib/generation/manualReview";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap } from "@/lib/facts/types";
 import type { ConfirmedPcn } from "@/types";
 
 export const runtime = "nodejs";

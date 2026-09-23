@@ -3,7 +3,7 @@ import { ensureSchema } from "@/lib/db/schema";
 import { nextPublicCaseId } from "./publicId";
 import type { AppealCase, CaseDocument, ServiceType, SufficiencyStatus } from "./types";
 import type { ConfirmedPcn, ExtractionResult } from "@/types";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap } from "@/lib/facts/types";
 import {
   understandingFromTriage,
   isServiceNotSupported,

@@ -5,11 +5,23 @@ import { hardenOutboundConnections } from "@/lib/net/bootstrap";
 /**
  * Postgres client.
  *
- * - Neon / remote URLs → `@neondatabase/serverless` (HTTP)
- * - localhost / 127.0.0.1 → `pg` TCP pool (local PostgreSQL)
+ * Every route in this app declares `runtime = "nodejs"` (there is no
+ * edge runtime anywhere) and it deploys as a single long-running Docker
+ * container, not a serverless/edge function — so a real TCP connection
+ * pool (`pg`) is always available and always preferable to an
+ * HTTP-per-query driver: a request that issues N sequential queries
+ * (schema setup alone is ~90 statements on a cold database) pays N
+ * network round trips either way, but a pooled TCP connection keeps
+ * those round trips to the DB's actual latency, while an HTTP driver
+ * adds a full HTTPS request/response on top of every single one.
  *
- * Callers use `sql.query(text, params)` and accept either a row array
- * or `{ rows }` — see `lib/db/repos.ts`.
+ * `pg` is therefore the default for ANY connection string, including a
+ * remote Neon host — Neon's own `sslmode=require` query param is parsed
+ * by `pg-connection-string` into the right TLS config automatically, no
+ * extra setup needed. The HTTP driver (`@neondatabase/serverless`) is
+ * kept only as an explicit opt-out (`DB_HTTP_DRIVER=1`) for a genuinely
+ * edge/serverless deployment target with no TCP access, which this
+ * project is not.
  */
 
 export type SqlClient = {
@@ -27,14 +39,9 @@ export function hasDb(): boolean {
   return readUrl() !== null;
 }
 
-function isLocalPostgres(url: string): boolean {
-  try {
-    const u = new URL(url);
-    const host = u.hostname.toLowerCase();
-    return host === "localhost" || host === "127.0.0.1" || host === "::1";
-  } catch {
-    return /@(localhost|127\.0\.0\.1)[:/]/i.test(url);
-  }
+/** Explicit opt-out for a deployment target with no TCP access. */
+function wantsHttpDriver(): boolean {
+  return (process.env.DB_HTTP_DRIVER ?? "").trim() === "1";
 }
 
 /** Connect-level failures worth one more attempt. */
@@ -76,8 +83,8 @@ function withRetry(queryFn: SqlClient["query"]): SqlClient["query"] {
   };
 }
 
-function createLocalPgClient(url: string): SqlClient {
-  const pool = new PgPool({ connectionString: url });
+function createPooledPgClient(url: string): SqlClient {
+  const pool = new PgPool({ connectionString: url, max: 10 });
   const query: SqlClient["query"] = async (text, params) => {
     const result = await pool.query(text, params as unknown[] | undefined);
     return { rows: result.rows };
@@ -102,8 +109,6 @@ export function getSql(): SqlClient {
       "No Postgres connection string is set. Set POSTGRES_URL (local or Neon) or DATABASE_URL.",
     );
   }
-  cachedSql = isLocalPostgres(url)
-    ? createLocalPgClient(url)
-    : createNeonClient(url);
+  cachedSql = wantsHttpDriver() ? createNeonClient(url) : createPooledPgClient(url);
   return cachedSql;
 }

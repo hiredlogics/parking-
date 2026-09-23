@@ -165,8 +165,14 @@ export default function ConfirmPage() {
       hydrateFromCase(saved.data.case);
     }
 
-    setStep("questions");
-    router.push("/appeal/questions");
+    /*
+     * No adaptive questions: generation falls back to safe, provenance
+     * -tracked defaults (lib/rules/factDefaults.ts) instead of asking.
+     * The resulting appeal is generic (evidence-independent grounds
+     * only) rather than tailored to the customer's specific answers.
+     */
+    setStep("evidence");
+    router.push("/appeal/evidence");
   };
 
   return (

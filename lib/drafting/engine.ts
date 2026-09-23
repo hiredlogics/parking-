@@ -7,8 +7,8 @@ import { getDraftingProvider } from "@/services/ai/drafting";
 import { TransportError } from "@/services/ai/transport";
 import type { DraftResult, DraftingContext } from "@/services/ai/types";
 import type { IssueAnalysis } from "@/lib/analysis/types";
-import type { AnswerMap } from "@/lib/questions/types";
-import { toLegacyAnswers } from "@/lib/questions/toLegacyAnswers";
+import type { AnswerMap } from "@/lib/facts/types";
+import { toLegacyAnswers } from "@/lib/facts/toLegacyAnswers";
 import { buildVariableMap } from "@/lib/variables";
 
 export const DRAFTING_ENGINE_VERSION = "drafting-v1";

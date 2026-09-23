@@ -12,9 +12,9 @@ import {
   type WorkflowStep,
 } from "@/lib/workflow/config";
 import { assessSufficiency } from "@/lib/cases/sufficiency";
-import { FACT } from "@/lib/questions/facts";
+import { FACT } from "@/lib/facts/facts";
 import type { AppealCase } from "@/lib/cases/types";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap } from "@/lib/facts/types";
 import type { ConfirmedPcn } from "@/types";
 
 /**

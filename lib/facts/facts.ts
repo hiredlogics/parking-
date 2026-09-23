@@ -1,5 +1,5 @@
 import type { ConfirmedPcn } from "@/types";
-import type { AnswerMap, AnswerValue, KnownFacts } from "./types";
+import type { AnswerMap, AnswerValue, FactSource, KnownFacts } from "./types";
 import { resolveUkJurisdiction } from "./jurisdiction";
 
 /**
@@ -159,8 +159,17 @@ export function deriveKnownFacts(input: {
   confirmed?: ConfirmedPcn | null;
   answers?: AnswerMap;
   evidenceTypes?: string[];
+  /**
+   * Override the provenance a specific answer key is recorded with —
+   * e.g. a system default filled by lib/rules/factDefaults.ts must be
+   * tagged "system_default", not the "answer" every other AnswerMap
+   * key gets by default. Never used to claim "notice" or "document";
+   * those are set structurally below, not by caller override.
+   */
+  answerProvenance?: Partial<Record<string, FactSource>>;
 }): KnownFacts {
   const values: Record<string, AnswerValue> = {};
+  const provenance: Record<string, FactSource> = {};
 
   const c = input.confirmed;
   if (c) {
@@ -184,13 +193,23 @@ export function deriveKnownFacts(input: {
       [FACT.ALLEGED_BREACH, c.alleged_breach ?? null],
     ];
     for (const [k, v] of fromNotice) {
-      if (isEstablished(v)) values[k] = v as AnswerValue;
+      if (isEstablished(v)) {
+        values[k] = v as AnswerValue;
+        provenance[k] = "notice";
+      }
     }
   }
 
-  // Answers override / add to notice facts.
+  // Answers override / add to notice facts. Provenance defaults to
+  // "answer" (a genuine customer answer) unless the caller overrides a
+  // specific key — e.g. a system default filled in because nothing
+  // established the real value must never be indistinguishable from
+  // one the customer actually gave.
   for (const [k, v] of Object.entries(input.answers ?? {})) {
-    if (isEstablished(v)) values[k] = v;
+    if (isEstablished(v)) {
+      values[k] = v;
+      provenance[k] = input.answerProvenance?.[k] ?? "answer";
+    }
   }
 
   // Prefer AI-extracted uk_jurisdiction from the notice, then location /
@@ -222,8 +241,10 @@ export function deriveKnownFacts(input: {
     });
     if (inferred) {
       values[FACT.JURISDICTION] = inferred;
+      provenance[FACT.JURISDICTION] = "inferred";
     } else if (isEstablished(locationText)) {
       values[FACT.JURISDICTION] = "ENGLAND_WALES";
+      provenance[FACT.JURISDICTION] = "inferred";
     }
   }
 
@@ -232,7 +253,7 @@ export function deriveKnownFacts(input: {
   const tags = new Set<string>(Array.isArray(rawTags) ? rawTags : []);
   const evidence = new Set<string>(input.evidenceTypes ?? []);
 
-  return { values, known, tags, evidence };
+  return { values, known, provenance, tags, evidence };
 }
 
 /** Read a fact with a typed default. */

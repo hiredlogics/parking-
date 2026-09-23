@@ -1,6 +1,6 @@
 import type { RouteFamily } from "@/types/caseState";
-import { FACT, factNum, factStr } from "@/lib/questions/facts";
-import type { KnownFacts } from "@/lib/questions/types";
+import { FACT, factNum, factStr } from "@/lib/facts/facts";
+import type { KnownFacts } from "@/lib/facts/types";
 import { pofaCanLead } from "./pofa";
 import type { PofaAnalysis, RouteAssessment } from "./types";
 import { isGraceGroundSupportable } from "@/lib/appeals/graceSupport";

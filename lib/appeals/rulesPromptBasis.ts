@@ -1,5 +1,5 @@
 import type { ConfirmedPcn } from "@/types";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap } from "@/lib/facts/types";
 import { buildRulesBasedLetter } from "@/lib/appeals/rulesLetter";
 import { RULES } from "@/rules";
 

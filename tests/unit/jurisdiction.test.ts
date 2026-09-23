@@ -3,8 +3,8 @@ import {
   extractPostcodeArea,
   inferUkJurisdiction,
   resolveUkJurisdiction,
-} from "@/lib/questions/jurisdiction";
-import { deriveKnownFacts, FACT } from "@/lib/questions/facts";
+} from "@/lib/facts/jurisdiction";
+import { deriveKnownFacts, FACT } from "@/lib/facts/facts";
 
 describe("inferUkJurisdiction", () => {
   it("infers England/Wales from a London location", () => {

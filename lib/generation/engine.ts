@@ -15,7 +15,7 @@ import {
   type ReleaseChecklist,
 } from "@/lib/validation/releaseChecklist";
 import { getDraftingProvider } from "@/services/ai/drafting";
-import type { AnswerMap } from "@/lib/questions/types";
+import type { AnswerMap, FactSource } from "@/lib/facts/types";
 import type { IssueAnalysis } from "@/lib/analysis/types";
 import type { RouteFamily } from "@/types/caseState";
 import {
@@ -153,6 +153,8 @@ export interface GenerateInput {
   intelligence?:
     | import("@/lib/cases/caseIntelligence").CaseIntelligence
     | null;
+  /** See AnalysisInput.answerProvenance — threaded through to analyseCase. */
+  answerProvenance?: Partial<Record<string, FactSource>>;
 }
 
 export async function generateValidatedAppeal(
@@ -165,6 +167,7 @@ export async function generateValidatedAppeal(
     evidenceTypes,
     evidenceRefs: input.evidenceRefs ?? [],
     pofaConfig: await loadPofaConfig(),
+    answerProvenance: input.answerProvenance,
   };
 
   const analysis = input.analysis ?? analyseCase(analysisInput);

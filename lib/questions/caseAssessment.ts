@@ -1,6 +1,6 @@
-import type { KnownFacts } from "@/lib/questions/types";
-import { FACT, factStr } from "@/lib/questions/facts";
-import type { FactRequirement } from "@/lib/questions/requirements";
+import type { KnownFacts } from "@/lib/facts/types";
+import { FACT, factStr } from "@/lib/facts/facts";
+import type { FactRequirement } from "@/lib/facts/requirements";
 
 /**
  * AI case assessment — filters the engine's missing-fact list to what

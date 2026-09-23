@@ -1,6 +1,6 @@
 import type { RouteFamily } from "@/types/caseState";
 import type { QuestionOption, QuestionType } from "./types";
-import type { ReasonCode, RequirementScope } from "./requirements";
+import type { ReasonCode, RequirementScope } from "@/lib/facts/requirements";
 
 /**
  * Contract for an AI-generated question.

@@ -12,7 +12,7 @@ import {
   sourcesForRetrieval,
 } from "@/lib/kb/catalog";
 import type { IssueAnalysis } from "@/lib/analysis/types";
-import type { KnownFacts } from "@/lib/questions/types";
+import type { KnownFacts } from "@/lib/facts/types";
 import { blockAllowed, moduleAllowed, type GateInput } from "./gates";
 
 export const RETRIEVAL_VERSION = "retrieval-v1";

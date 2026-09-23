@@ -1,4 +1,5 @@
-import type { KnownFacts, Question } from "./types";
+import type { Question } from "./types";
+import type { KnownFacts } from "@/lib/facts/types";
 import { checkAnswerContract } from "./answerContract";
 import type { GeneratedQuestion } from "./generated";
 import { GENERATABLE_TYPES } from "./generated";
@@ -7,8 +8,8 @@ import {
   isPermittedFact,
   requirementsForFact,
   type FactRequirement,
-} from "./requirements";
-import { isRequirementActive } from "./missing";
+} from "@/lib/facts/requirements";
+import { isRequirementActive } from "@/lib/facts/missing";
 import {
   checkGeneratedTextSafe,
   checkQuestionKeeperSafe,

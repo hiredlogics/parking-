@@ -13,8 +13,8 @@ import type {
   ScenarioTag,
 } from "@/types";
 import { EMPTY_ANSWERS } from "@/types";
-import { toLegacyAnswers } from "@/lib/questions/toLegacyAnswers";
-import type { AnswerMap } from "@/lib/questions/types";
+import { toLegacyAnswers } from "@/lib/facts/toLegacyAnswers";
+import type { AnswerMap } from "@/lib/facts/types";
 
 /**
  * Client-side appeal session store.
