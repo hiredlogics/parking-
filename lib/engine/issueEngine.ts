@@ -176,6 +176,16 @@ export async function evaluateIssues(input: {
     for (const f of issue.facts) {
       if (f.factKey === FACT.SCENARIOS && scenariosAnswered) continue;
 
+      // Jurisdiction is often clear from the notice location/postcode —
+      // never force the nation question when already resolved on facts.
+      if (
+        f.factKey === FACT.JURISDICTION &&
+        (factResolved(input.facts, FACT.JURISDICTION) ||
+          factStr(input.facts, FACT.JURISDICTION))
+      ) {
+        continue;
+      }
+
       if (
         (f.factKey === FACT.DEPARTURE_DELAY ||
           f.factKey === FACT.EXIT_DELAY_REASON) &&

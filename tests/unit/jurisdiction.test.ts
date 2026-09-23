@@ -22,6 +22,20 @@ describe("inferUkJurisdiction", () => {
     expect(inferUkJurisdiction("Belfast BT1 5GS")).toBe("NORTHERN_IRELAND");
   });
 
+  it("infers England/Wales from Solihull postcode without asking", () => {
+    expect(
+      inferUkJurisdiction(
+        "SEARS RETAIL PARK, SHIRLEY, SOLIHULL, B90 4QY",
+      ),
+    ).toBe("ENGLAND_WALES");
+  });
+
+  it("infers England/Wales from Solihull place name alone", () => {
+    expect(inferUkJurisdiction("Sears Retail Park, Solihull")).toBe(
+      "ENGLAND_WALES",
+    );
+  });
+
   it("returns null when unsure", () => {
     expect(inferUkJurisdiction("Unknown retail park")).toBeNull();
   });

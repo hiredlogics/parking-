@@ -252,6 +252,30 @@ export async function confirmFactsForCase(
 
   await repo.saveConfirmed(caseId, confirmedWithStage);
 
+  // Seed jurisdiction from the notice location when clear — do not ask
+  // the customer unless inference cannot resolve England/Wales / Scotland / NI.
+  {
+    const { inferUkJurisdiction } = await import("@/lib/questions/jurisdiction");
+    const { FACT } = await import("@/lib/questions/facts");
+    const inferred = inferUkJurisdiction(
+      confirmedWithStage.parking_location,
+      confirmedWithStage.alleged_breach,
+      confirmedWithStage.operator_name,
+    );
+    if (inferred) {
+      const existing = access.appealCase.adaptiveAnswers ?? {};
+      if (!existing[FACT.JURISDICTION]) {
+        await repo.saveAnswers(caseId, {
+          adaptiveAnswers: { ...existing, [FACT.JURISDICTION]: inferred },
+          askedQuestionIds: access.appealCase.askedQuestionIds ?? [],
+          questioningComplete: access.appealCase.questioningComplete,
+          missingFacts: access.appealCase.missingFacts ?? [],
+          candidateRoutes: access.appealCase.candidateRoutes ?? [],
+        });
+      }
+    }
+  }
+
   // Case Intelligence — technical analysis BEFORE questions.
   const understanding = {
     documentType: access.appealCase.documentType,
