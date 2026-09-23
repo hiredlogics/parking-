@@ -563,7 +563,11 @@ describe("Appendix C release checklist", () => {
   it("passes a clean keeper-route draft", () => {
     const c = runReleaseChecklist(ctxFor(CLEAN_BODY));
     expect(c.passed).toBe(true);
-    expect(c.items.length).toBe(12);
+    // 12 from Appendix C, plus JUDGE_DECISION_RECORDED. With no judge in
+    // the context that item passes: the deterministic path is accounted
+    // for by the retrieval trace.
+    expect(c.items.length).toBe(13);
+    expect(c.items.at(-1)?.id).toBe("JUDGE_DECISION_RECORDED");
   });
 
   it("fails when the Code version cannot be resolved", () => {

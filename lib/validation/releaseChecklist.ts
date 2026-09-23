@@ -145,6 +145,40 @@ export function runReleaseChecklist(ctx: ValidatorContext): ReleaseChecklist {
     `${paragraphs.length} paragraphs, ${words} words`,
   );
 
+  /*
+   * 13. The grounds decision is accounted for.
+   *
+   * When a judge decided which grounds to argue, that decision must
+   * exist, must not be a failure, must have selected something, and must
+   * have been written to `retrieval_runs`. Otherwise the letter argues
+   * grounds no stored record explains — which is precisely the situation
+   * the audit trail exists to prevent.
+   *
+   * No judge configured is a pass, not a failure: the deterministic path
+   * is fully accounted for by the retrieval trace, and an unset env var
+   * must never block a release.
+   */
+  const judge = ctx.judge;
+  const judgeOk =
+    !judge ||
+    (judge.failure === null &&
+      judge.moduleIds.length > 0 &&
+      judge.recorded);
+  add(
+    "JUDGE_DECISION_RECORDED",
+    "Grounds decision is recorded and accountable",
+    judgeOk,
+    judge
+      ? judge.failure
+        ? `Judge failed: ${judge.failure}`
+        : judge.moduleIds.length === 0
+          ? "Judge selected no grounds."
+          : judge.recorded
+            ? `${judge.providerId} selected ${judge.moduleIds.length} ground(s).`
+            : "Judge decision was not written to retrieval_runs."
+      : "Deterministic grounds; accounted for by the retrieval trace.",
+  );
+
   const failedIds = items.filter((i) => !i.passed).map((i) => i.id);
   return { passed: failedIds.length === 0, items, failedIds };
 }

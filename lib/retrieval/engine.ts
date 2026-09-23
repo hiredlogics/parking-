@@ -34,12 +34,17 @@ export const RETRIEVAL_VERSION = "retrieval-v1";
  *
  * Filters applied, in order:
  *   1. status = ACTIVE
- *   2. route family in the analysis
- *   3. module effective dates vs parking event date
- *   4. source status — no non-binding source may support a proposition
- *   5. evidence availability (modules needing evidence we don't have are
- *      dropped where the evidence is essential)
+ *   2. judge selection, on a second pass only (see `judgeSelection`)
+ *   3. route family in the analysis
+ *   4. module effective dates vs parking event date
+ *   5. source status — no non-binding source may support a proposition
  *   6. do_not_use_when exclusions vs prohibited claims
+ *   7. evidence availability (modules needing evidence we don't have are
+ *      dropped where the evidence is essential)
+ *   8. use_when fact gate
+ *
+ * On a judge-selection pass, 3 and 8 are skipped because the judge has
+ * superseded them. 1, 4, 5, 6 and 7 always apply.
  */
 
 export interface RetrievalInput {
@@ -57,11 +62,65 @@ export interface RetrievalInput {
   modules?: KbModule[];
   sources?: LegalSource[];
   blocks?: DraftingBlock[];
+  /**
+   * Final module selection from the grounds judge (lib/judge/).
+   *
+   * Set only on a SECOND pass, after the judge has decided. Retrieval
+   * then retains exactly this selection and skips the two filters the
+   * judge supersedes — the use_when fact gate and route-in-play — while
+   * every hard filter still applies. Running it back through this
+   * function rather than filtering the first result is what keeps block
+   * gating, source collection and the prohibition check in one
+   * implementation: a judge decision narrows WHICH grounds are argued,
+   * it never changes how approved wording is guarded.
+   */
+  judgeSelection?: string[];
 }
+
+/**
+ * Why a module was kept or dropped, as a code rather than prose.
+ *
+ * The grounds judge needs to know WHICH filter rejected a module, not
+ * merely that one did. Two of these filters are derived from the same
+ * answer-starved facts the judge exists to replace, so they are the only
+ * ones a judge decision may override:
+ *
+ *   FACT_GATE  the module's use_when closure in gates.ts. This is the
+ *              filter that collapsed retrieval to a single module once
+ *              questions stopped being asked.
+ *   ROUTE      route-in-play, computed by assessRoutes from those same
+ *              facts. Under a judge, routes derive FROM the selection,
+ *              so filtering on the pre-judge route set is stale by
+ *              construction.
+ *
+ * Every other code is a hard refusal and stays hard: status, effective
+ * dates, source binding, prohibited claims and essential evidence are
+ * either legal governance or the fabrication guard, and no model verdict
+ * may reopen them. See lib/judge/select.ts.
+ */
+export type RetrievalRejectionCode =
+  | "ELIGIBLE"
+  | "GOVERNANCE"
+  | "STATUS"
+  | "ROUTE"
+  | "EFFECTIVE_DATES"
+  | "SOURCE_NON_BINDING"
+  | "PROHIBITED"
+  | "EVIDENCE_MISSING"
+  | "FACT_GATE"
+  /** Second pass only: eligible, but the judge did not select it. */
+  | "NOT_SELECTED";
+
+/** The only rejections a grounds judge may overturn. */
+export const JUDGE_OVERRIDABLE_CODES: readonly RetrievalRejectionCode[] = [
+  "FACT_GATE",
+  "ROUTE",
+] as const;
 
 export interface RetrievalTraceEntry {
   moduleId: string;
   eligible: boolean;
+  code: RetrievalRejectionCode;
   reason: string;
 }
 
@@ -155,6 +214,12 @@ export function retrieveKnowledge(input: RetrievalInput): RetrievalResult {
     ...analysis.secondaryRoutes,
   ]);
 
+  // Judge-selection pass: the judge has replaced the fact gate and the
+  // route filter. Nothing else relaxes.
+  const selection = input.judgeSelection
+    ? new Set(input.judgeSelection)
+    : null;
+
   // Prohibited claims → module exclusions.
   const excludedByProhibition = new Set<string>();
   for (const claim of analysis.prohibitedClaims) {
@@ -172,6 +237,7 @@ export function retrieveKnowledge(input: RetrievalInput): RetrievalResult {
       trace.push({
         moduleId: m.moduleId,
         eligible: false,
+        code: "GOVERNANCE",
         reason: "Governance rule — applied by the system, not retrieved for drafting.",
       });
       continue;
@@ -182,32 +248,46 @@ export function retrieveKnowledge(input: RetrievalInput): RetrievalResult {
       trace.push({
         moduleId: m.moduleId,
         eligible: false,
+        code: "STATUS",
         reason: `Module status is ${m.status}.`,
       });
       continue;
     }
 
-    // 2. route
-    if (!routesInPlay.has(m.routeFamily)) {
+    // 2. judge selection, when one has been made
+    if (selection && !selection.has(m.moduleId)) {
       trace.push({
         moduleId: m.moduleId,
         eligible: false,
+        code: "NOT_SELECTED",
+        reason: "The grounds judge did not select this module.",
+      });
+      continue;
+    }
+
+    // 3. route — superseded by the judge, which derives routes itself
+    if (!selection && !routesInPlay.has(m.routeFamily)) {
+      trace.push({
+        moduleId: m.moduleId,
+        eligible: false,
+        code: "ROUTE",
         reason: `Route ${m.routeFamily} is not in play for this case.`,
       });
       continue;
     }
 
-    // 3. effective dates
+    // 4. effective dates
     if (!withinEffectiveDates(m, input.parkingEventDate)) {
       trace.push({
         moduleId: m.moduleId,
         eligible: false,
+        code: "EFFECTIVE_DATES",
         reason: "Module effective dates do not cover the parking event date.",
       });
       continue;
     }
 
-    // 4. source status — a non-binding source cannot support a proposition
+    // 5. source status — a non-binding source cannot support a proposition
     const nonBinding = m.sourceIds
       .map((id) => sourceById.get(id))
       .filter((s): s is LegalSource => Boolean(s))
@@ -216,6 +296,7 @@ export function retrieveKnowledge(input: RetrievalInput): RetrievalResult {
       trace.push({
         moduleId: m.moduleId,
         eligible: false,
+        code: "SOURCE_NON_BINDING",
         reason: `All supporting sources are non-binding (${nonBinding
           .map((s) => s.status)
           .join(", ")}).`,
@@ -223,32 +304,35 @@ export function retrieveKnowledge(input: RetrievalInput): RetrievalResult {
       continue;
     }
 
-    // 5. prohibited claims
+    // 6. prohibited claims
     if (excludedByProhibition.has(m.moduleId)) {
       trace.push({
         moduleId: m.moduleId,
         eligible: false,
+        code: "PROHIBITED",
         reason: "The claim this module would support is prohibited on these facts.",
       });
       continue;
     }
 
-    // 6. essential evidence
+    // 7. essential evidence
     const essential = EVIDENCE_ESSENTIAL[m.moduleId];
     if (essential && !essential.some((e) => evidence.has(e))) {
       trace.push({
         moduleId: m.moduleId,
         eligible: false,
+        code: "EVIDENCE_MISSING",
         reason: "Module requires supporting evidence that is not available.",
       });
       continue;
     }
 
-    // 7. use_when / do_not_use_when fact gate
-    if (gate && !moduleAllowed(m.moduleId, gate)) {
+    // 8. use_when / do_not_use_when fact gate — superseded by the judge
+    if (!selection && gate && !moduleAllowed(m.moduleId, gate)) {
       trace.push({
         moduleId: m.moduleId,
         eligible: false,
+        code: "FACT_GATE",
         reason: "Case facts do not satisfy the module's use_when conditions.",
       });
       continue;
@@ -258,6 +342,7 @@ export function retrieveKnowledge(input: RetrievalInput): RetrievalResult {
     trace.push({
       moduleId: m.moduleId,
       eligible: true,
+      code: "ELIGIBLE",
       reason: `Eligible for route ${m.routeFamily}.`,
     });
   }

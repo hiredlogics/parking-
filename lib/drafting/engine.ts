@@ -55,6 +55,13 @@ export interface DraftAppealInput {
   intelligence?: import("@/lib/cases/caseIntelligence").CaseIntelligence | null;
   /** Validator feedback from a rejected attempt, for regeneration. */
   feedback?: string;
+  /**
+   * Module ids the grounds judge selected, from
+   * lib/generation/engine.ts. When set, retrieval retains exactly these
+   * and skips the two filters the judge supersedes. Absent means the
+   * deterministic path decided.
+   */
+  judgeSelection?: string[];
   /** Canonical catalog from loadKbCatalog() — required in production. */
   modules?: import("@/lib/kb/types").KbModule[];
   sources?: import("@/lib/kb/types").LegalSource[];
@@ -94,15 +101,19 @@ const IDENTIFIER_PATTERNS: RegExp[] = [
 export async function draftAppeal(
   input: DraftAppealInput,
 ): Promise<DraftAppealResult> {
-  const analysis =
-    input.analysis ??
-    analyseCase({
-      confirmed: input.confirmed,
-      answers: input.answers,
-      evidenceTypes: input.evidenceTypes ?? [],
-      evidenceRefs: input.evidenceRefs ?? [],
-      pofaConfig: await loadPofaConfig(),
-    });
+  // Copied, not aliased: in `llm` mode the judge rewrites primaryRoute
+  // and secondaryRoutes, and a caller that passed its own analysis in
+  // must not find it mutated underneath.
+  const analysis: IssueAnalysis = {
+    ...(input.analysis ??
+      analyseCase({
+        confirmed: input.confirmed,
+        answers: input.answers,
+        evidenceTypes: input.evidenceTypes ?? [],
+        evidenceRefs: input.evidenceRefs ?? [],
+        pofaConfig: await loadPofaConfig(),
+      })),
+  };
 
   const warnings: string[] = [];
 
@@ -135,18 +146,29 @@ export async function draftAppeal(
     };
   }
 
+  const facts = factsForCase({
+    confirmed: input.confirmed,
+    answers: input.answers,
+    evidenceTypes: input.evidenceTypes ?? [],
+  });
+
+  /*
+   * `judgeSelection` is decided upstream in lib/generation/engine.ts,
+   * which is where the grounds judge runs. It is threaded through rather
+   * than re-judged here so the modules this function drafts from are
+   * exactly the ones the validation pass and the release checklist see —
+   * this engine and the orchestrator both retrieve, and a judge running
+   * in only one of them would let the two diverge silently.
+   */
   const retrieval = retrieveKnowledge({
     analysis,
-    facts: factsForCase({
-      confirmed: input.confirmed,
-      answers: input.answers,
-      evidenceTypes: input.evidenceTypes ?? [],
-    }),
+    facts,
     parkingEventDate: input.confirmed.parking_event_date ?? null,
     evidenceTypes: input.evidenceTypes ?? [],
     modules: input.modules,
     sources: input.sources,
     blocks: input.blocks,
+    judgeSelection: input.judgeSelection,
   });
 
   if (retrieval.modules.length === 0) {

@@ -1,6 +1,7 @@
 import { NON_BINDING_STATUSES, type ValidationIssue } from "@/lib/kb/types";
 import { validateKeeperSafe } from "@/lib/keeperSafe";
 import { FACT, factStr } from "@/lib/facts/facts";
+import { ASSERTABLE_PROVENANCE } from "@/lib/facts/types";
 import type { VerifiedFact } from "@/lib/analysis/types";
 import { findAll, issue, type Validator, type ValidatorContext } from "./context";
 
@@ -94,17 +95,12 @@ function normaliseToken(s: string): string {
 
 /**
  * Provenance a fact must carry to license a concrete value in the
- * draft. Deliberately excludes "system_default" and "inferred" — a
- * provisional assumption filled because nothing established the real
- * value must never become its own permission to assert that value as
- * fact (see FactSource, lib/questions/types.ts).
+ * draft. Defined in lib/facts/types.ts because the grounds judge
+ * enforces the same rule when checking a ground's grounding facts, and
+ * the two must not be able to drift apart.
  */
-const ALLOWED_VALUE_PROVENANCE = new Set<VerifiedFact["source"]>([
-  "notice",
-  "answer",
-  "document",
-  "computed",
-]);
+const ALLOWED_VALUE_PROVENANCE: ReadonlySet<VerifiedFact["source"]> =
+  ASSERTABLE_PROVENANCE;
 
 /** Build the set of concrete values the draft is permitted to state. */
 function allowedValues(ctx: ValidatorContext): Set<string> {

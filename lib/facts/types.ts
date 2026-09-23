@@ -53,6 +53,32 @@ export type FactSource =
   | "inferred";
 
 /**
+ * Provenance a fact must carry before anything may rest on its value.
+ *
+ * Deliberately excludes "system_default" and "inferred": a provisional
+ * assumption filled because nothing established the real value must
+ * never become its own permission to assert that value as fact.
+ *
+ * This lives here, rather than beside either consumer, because two
+ * layers enforce the same rule and must not be able to drift apart:
+ *
+ *   VAL-FACT (lib/validation/validators.ts) — which concrete values the
+ *   draft is permitted to state.
+ *   The grounds judge (lib/judge/select.ts) — which facts a ground may
+ *   be grounded in.
+ *
+ * A fact good enough to argue from is exactly a fact good enough to
+ * state. If that ever stops being true, it should stop being true in
+ * one place, on purpose.
+ */
+export const ASSERTABLE_PROVENANCE: ReadonlySet<FactSource> = new Set<FactSource>([
+  "notice",
+  "answer",
+  "document",
+  "computed",
+]);
+
+/**
  * Derived, provenance-flattened view of everything currently
  * established about a case. Values come from confirmed extraction and
  * customer answers only — never from unconfirmed AI output.

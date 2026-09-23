@@ -2,6 +2,8 @@ import type { ConfirmedPcn } from "@/types";
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
 import { loadPofaConfig } from "@/lib/config/pofaConfig";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
+import { groundsMode, judgeGrounds } from "@/lib/judge";
+import { persistRetrievalRun } from "@/lib/retrieval/persistRun";
 import { KbCatalogError, loadKbCatalog } from "@/lib/kb/catalog";
 import { draftAppeal, type DraftAppealResult } from "@/lib/drafting/engine";
 import {
@@ -170,7 +172,14 @@ export async function generateValidatedAppeal(
     answerProvenance: input.answerProvenance,
   };
 
-  const analysis = input.analysis ?? analyseCase(analysisInput);
+  /*
+   * Copied, not aliased. In `llm` mode the grounds judge rewrites
+   * primaryRoute and secondaryRoutes in place so `base`, the validation
+   * context and the release checklist all see the routes the letter was
+   * actually built from. A caller that passed its own analysis in (Case
+   * Intelligence does) must not find it rewritten underneath.
+   */
+  const analysis: IssueAnalysis = { ...(input.analysis ?? analyseCase(analysisInput)) };
   const facts = factsForCase(analysisInput);
   const warnings: string[] = [];
   const attempts: GenerationAttempt[] = [];
@@ -233,7 +242,7 @@ export async function generateValidatedAppeal(
     throw err;
   }
 
-  const retrieval = retrieveKnowledge({
+  const retrievalArgs = {
     analysis,
     facts,
     parkingEventDate: input.confirmed.parking_event_date ?? null,
@@ -241,7 +250,114 @@ export async function generateValidatedAppeal(
     modules: catalog.modules,
     sources: catalog.sources,
     blocks: catalog.blocks,
-  });
+  };
+
+  let retrieval = retrieveKnowledge(retrievalArgs);
+  const deterministicModuleIds = retrieval.modules.map((m) => m.moduleId);
+
+  /*
+   * ---- The grounds judge ----
+   *
+   * Runs here, in the orchestrator, because this is where retrieval, the
+   * validation context and the release checklist are all built. A judge
+   * that ran inside draftAppeal would narrow the modules the letter is
+   * written from while the validator and the checklist still saw the
+   * wide set — the two would diverge with nothing reporting it.
+   *
+   * `shadow` records the decision and drafts the deterministic result
+   * anyway, which is how agreement is measured before authority is
+   * handed over. `llm` re-runs retrieval restricted to the selection,
+   * which re-applies every hard filter and re-derives the approved
+   * blocks for the narrowed set.
+   */
+  const mode = groundsMode();
+  const judge =
+    mode === "deterministic"
+      ? null
+      : await judgeGrounds({
+          analysis,
+          facts,
+          retrieval,
+          allModules: catalog.modules,
+          caseId: input.caseId ?? null,
+        });
+
+  if (judge && mode === "llm" && judge.failure) {
+    /*
+     * MANUAL_REVIEW, never FAILED — the customer has paid, and a judge
+     * outage is our problem. Deliberately NOT a silent fallback to the
+     * deterministic set: a judge that quietly stops judging is exactly
+     * the failure that produced identical letters in the first place,
+     * and it must be visible rather than absorbed.
+     */
+    await persistRetrievalRun({
+      caseId: input.caseId ?? null,
+      retrieval,
+      judge,
+      mode,
+      deterministicModuleIds,
+    });
+    return {
+      ...base,
+      status: "MANUAL_REVIEW",
+      body: null,
+      reason: judge.failure,
+      detail: `The grounds decision could not be completed (${judge.caseUnderstanding}). This case needs a person to review it.`,
+      warnings: withRulesLetterAvailable(warnings, rulesLetter),
+    };
+  }
+
+  if (judge && mode === "llm") {
+    retrieval = retrieveKnowledge({
+      ...retrievalArgs,
+      judgeSelection: judge.moduleIds,
+    });
+    // Routes derive FROM the judge, so the labels the PDF prints follow
+    // the selection rather than the pre-judge assessment.
+    analysis.primaryRoute = judge.primaryRoute;
+    analysis.secondaryRoutes = judge.secondaryRoutes;
+    if (judge.overrides.length > 0) {
+      warnings.push(
+        `[judge] admitted ${judge.overrides.length} module(s) the fact gate had refused: ${judge.overrides.join(", ")}.`,
+      );
+    }
+  }
+
+  /*
+   * Awaited, not fire-and-forget: JUDGE_DECISION_RECORDED checks that
+   * the run reached `retrieval_runs`, and the checklist cannot assert
+   * that about a promise nobody waited for. persistRetrievalRun swallows
+   * its own errors and returns null, so an audit-store outage still
+   * cannot throw a customer's appeal away — it fails the checklist
+   * instead, which is the correct place for it to surface.
+   */
+  const retrievalRunId =
+    mode === "deterministic"
+      ? null
+      : await persistRetrievalRun({
+          caseId: input.caseId ?? null,
+          retrieval,
+          judge,
+          mode,
+          deterministicModuleIds,
+        });
+
+  /*
+   * Only in `llm` mode does the judge's decision gate release. In
+   * `shadow` the deterministic path is what ships, so a judge failure is
+   * an observation to record rather than a reason to hold a letter —
+   * making shadow mode block releases would make it unusable for
+   * measuring agreement, which is its only purpose.
+   */
+  const judgeCtx =
+    judge && mode === "llm"
+      ? {
+          failure: judge.failure,
+          moduleIds: judge.moduleIds,
+          providerId: judge.providerId,
+          recorded: retrievalRunId !== null,
+        }
+      : null;
 
   if (retrieval.modules.length === 0) {
     warnings.push(
@@ -318,6 +434,9 @@ export async function generateValidatedAppeal(
       caseId: input.caseId ?? null,
       analysis,
       intelligence: input.intelligence ?? null,
+      // The judge's selection, so drafting narrows to exactly the
+      // grounds the validator and the checklist will see.
+      judgeSelection: judge && mode === "llm" ? judge.moduleIds : undefined,
       // Pass the same catalog so drafting does not re-load seed defaults.
       modules: catalog.modules,
       sources: catalog.sources,
@@ -392,6 +511,7 @@ export async function generateValidatedAppeal(
       evidence: new Set(evidenceTypes),
       variables: draft.variables,
       ruleConfig,
+      judge: judgeCtx,
     };
 
     const validation = validateDraft(ctx);
@@ -484,6 +604,7 @@ export async function generateValidatedAppeal(
     evidence: new Set(evidenceTypes),
     variables: {},
     ruleConfig,
+    judge: judgeCtx,
   };
   const rulesLetterFinallyReleasable =
     !isAppealBodyTooThin(rulesLetter.body) &&

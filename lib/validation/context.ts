@@ -28,6 +28,23 @@ export interface ValidatorContext {
    * its hard-coded severity" — the historical, still-safe behaviour.
    */
   ruleConfig?: Map<string, { status: string; severity: ValidationIssue["severity"] }>;
+  /**
+   * The grounds-judge decision for this case, when the judge is in
+   * force. Absent means the deterministic path decided the grounds,
+   * which the checklist treats as a pass — the judge is opt-in per
+   * environment and an unset env var must not fail release.
+   *
+   * Present-but-failed, or present-with-no-selection, is a hard
+   * checklist failure: a letter whose grounds nobody can account for
+   * must not reach a customer. See JUDGE_DECISION_RECORDED.
+   */
+  judge?: {
+    failure: string | null;
+    moduleIds: string[];
+    providerId: string;
+    /** Set once the run has been written to `retrieval_runs`. */
+    recorded: boolean;
+  } | null;
 }
 
 export interface Validator {
