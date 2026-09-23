@@ -13,7 +13,9 @@ import {
   upsertValidationRule,
   insertPromptIfAbsent,
 } from "@/lib/config/adminRepo";
+import { upsertFactRegistryEntry } from "@/lib/config/factRegistryRepo";
 import { FACT } from "@/lib/facts/facts";
+import { FACT_REGISTRY } from "@/lib/facts/registry";
 import { ensureSchema } from "@/lib/db/schema";
 
 const PRIVATE_PARKING = "PRIVATE_PARKING_INITIAL_APPEAL";
@@ -237,6 +239,38 @@ export async function ensureAdminConfigSeeded(): Promise<void> {
       status: "ACTIVE",
       seedOnly: true,
     });
+
+    /*
+     * Fact vocabulary. Mirrors lib/facts/registry.ts into
+     * `case_facts_registry` so an admin can widen a value space without
+     * a deploy. seedOnly, because the loader unions these rows with the
+     * code floor at read time — a stale row can therefore never narrow
+     * the live vocabulary, and an admin's additions are never clobbered.
+     */
+    const evidenceByFact = new Map<string, string[]>();
+    for (const seed of ISSUE_SEEDS) {
+      for (const f of seed.facts) {
+        if (f.evidenceTypes?.length) evidenceByFact.set(f.factKey, f.evidenceTypes);
+      }
+    }
+    for (const entry of FACT_REGISTRY) {
+      await upsertFactRegistryEntry({
+        factKey: entry.factKey,
+        label: entry.label,
+        valueType: entry.valueType,
+        allowedValues: entry.allowedValues,
+        guidance: entry.guidance,
+        source: entry.source,
+        evidenceTypes: evidenceByFact.get(entry.factKey) ?? [],
+        // Keeper safety is enforced by lib/questions/keeperGuard.ts on
+        // wording, and every fact seeded here comes from a bank proven
+        // keeper-safe by checkBankKeeperSafe. Nothing is flagged here;
+        // the column exists for facts an admin adds later.
+        driverIdentifying: false,
+        status: "ACTIVE",
+        seedOnly: true,
+      });
+    }
 
     for (const seed of ISSUE_SEEDS) {
       const issue = await upsertIssue({
