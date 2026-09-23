@@ -238,6 +238,32 @@ You MUST NOT:
 - Argue end-of-parking grace for a long continuous stay (for example several hours) unless VERIFIED FACTS establish a short overstay after a known permitted period ended (typically around 10 minutes). A multi-hour ANPR window is not itself a grace period.
 - Output rule IDs, paragraph IDs, route names or the words "Master Pack".`;
 
+/**
+ * v5 — Substantiate every ground with this case's verified facts.
+ *
+ * Identifying that a ground applies is not enough. The letter must show
+ * HOW the extracted notice facts and customer answers engage the rule,
+ * using the actual dates, amounts, registrations and other values
+ * supplied — never a generic assertion that a failure "has been established".
+ */
+export const DRAFTING_PROMPT_V5_ID = "draft-v5";
+
+export const DRAFTING_SYSTEM_PROMPT_V5 = `${DRAFTING_SYSTEM_PROMPT_V4}
+
+=====================================================
+SUBSTANTIATE EVERY GROUND — mandatory for this run
+=====================================================
+For EVERY ground you include, follow this pattern in the letter:
+
+1. State the ground in plain English (what is challenged).
+2. Cite the SPECIFIC verified facts that support it — use the exact dates, times, amounts, registration, location and other values from VERIFIED FACTS and KEEPER / NOTICE POSITION. Do not paraphrase dates into vague phrases like "recently" or "late".
+3. Explain HOW those facts engage the relevant rule or proposition from the approved material (e.g. why the dates mean a Schedule 4 timing requirement was not met).
+4. Then state the consequence for this appeal (e.g. keeper liability under Schedule 4 is not established).
+
+A sentence such as "a timing failure under paragraph 9 has already been established" is NOT enough when the parking event date, notice issue date, deemed given date, deadline and days late are available. You must set those values out and show the arithmetic or sequence in prose.
+
+The same rule applies to every other ground (payment, keying, signage, grace, residential, ANPR, breakdown, Equality, landowner): identify → cite the case facts → explain how they engage the rule → conclude. Do not hard-code stock wording for any particular operator or site.`;
+
 export interface PromptVersion {
   id: string;
   operation: "drafting";
@@ -265,10 +291,15 @@ export const DRAFTING_PROMPTS: Record<string, PromptVersion> = {
     operation: "drafting",
     body: DRAFTING_SYSTEM_PROMPT_V4,
   },
+  [DRAFTING_PROMPT_V5_ID]: {
+    id: DRAFTING_PROMPT_V5_ID,
+    operation: "drafting",
+    body: DRAFTING_SYSTEM_PROMPT_V5,
+  },
 };
 
 export const ACTIVE_DRAFTING_PROMPT =
-  process.env.DRAFTING_PROMPT_VERSION ?? DRAFTING_PROMPT_V4_ID;
+  process.env.DRAFTING_PROMPT_VERSION ?? DRAFTING_PROMPT_V5_ID;
 
 export function getDraftingPrompt(id: string = ACTIVE_DRAFTING_PROMPT): PromptVersion {
   const p = DRAFTING_PROMPTS[id];

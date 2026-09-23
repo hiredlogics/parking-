@@ -23,6 +23,15 @@ function displayValue(field: string, value: unknown): string {
   return JSON.stringify(value);
 }
 
+function factDisplay(
+  facts: Array<{ field: string; value: unknown }>,
+  field: string,
+): string | null {
+  const hit = facts.find((f) => f.field === field);
+  if (!hit || hit.value == null || hit.value === "") return null;
+  return displayValue(field, hit.value);
+}
+
 /**
  * Serialise the approved drafting context into the user-message payload.
  *
@@ -77,12 +86,68 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
     `pofa_timing: ${a.pofa.timingStatus}` +
       (a.pofa.paragraph ? ` (paragraph ${a.pofa.paragraph})` : ""),
   );
+
+  const parkingEvent =
+    factDisplay(a.verifiedFacts, "parking_event_date") ??
+    (ctx.variables.parking_event_date
+      ? formatUkDate(ctx.variables.parking_event_date) ??
+        ctx.variables.parking_event_date
+      : null);
+  const noticeIssue =
+    factDisplay(a.verifiedFacts, "notice_issue_date") ??
+    (ctx.variables.notice_issue_date
+      ? formatUkDate(ctx.variables.notice_issue_date) ??
+        ctx.variables.notice_issue_date
+      : null);
+  const noticeRoute =
+    factDisplay(a.verifiedFacts, "notice_route") ??
+    ctx.variables.notice_route ??
+    null;
+
+  if (parkingEvent) lines.push(`parking_event_date: ${parkingEvent}`);
+  if (noticeIssue) lines.push(`notice_issue_date: ${noticeIssue}`);
+  if (noticeRoute) lines.push(`notice_route: ${noticeRoute}`);
+
   if (a.pofa.timingStatus === "FAILED") {
     const given =
       formatUkDate(a.pofa.noticeGivenDate) ?? a.pofa.noticeGivenDate;
     const deadline = formatUkDate(a.pofa.deadline) ?? a.pofa.deadline;
     lines.push(
-      `An established timing failure may be relied upon: notice treated as given ${given}, deadline ${deadline}.`,
+      `TIMING FAILURE ESTABLISHED — you MUST substantiate it in the letter using these exact values (do not merely assert that a timing failure exists):`,
+    );
+    if (a.pofa.paragraph) {
+      lines.push(
+        `Schedule 4 paragraph engaged: ${a.pofa.paragraph} (${
+          a.pofa.paragraph === "9"
+            ? "postal Notice to Keeper — 14-day period from the parking event"
+            : "Notice to Keeper following a Notice to Driver — 28-day period"
+        }).`,
+      );
+    }
+    if (parkingEvent) {
+      lines.push(`Parking event date (from the notice): ${parkingEvent}.`);
+    }
+    if (noticeIssue) {
+      lines.push(`Notice issue / printed date (from the notice): ${noticeIssue}.`);
+    }
+    if (given) {
+      lines.push(
+        `Date the notice is treated as given (deemed delivery applied): ${given}.`,
+      );
+    }
+    if (deadline) {
+      lines.push(`Statutory deadline for giving the notice: ${deadline}.`);
+    }
+    if (typeof a.pofa.daysLate === "number") {
+      lines.push(
+        `Days after the deadline the notice is treated as given: ${a.pofa.daysLate}.`,
+      );
+    }
+    for (const r of a.pofa.reasons) {
+      lines.push(`Analysis note: ${r}`);
+    }
+    lines.push(
+      "In the letter: set out the parking event date and the notice dates, explain the sequence and why the timing requirement was not met, then conclude that keeper liability under Schedule 4 is not established. Do not write only that a timing failure 'has already been established'.",
     );
   } else {
     lines.push(
@@ -92,6 +157,12 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
   if (a.codeVersion) {
     lines.push(`applicable_code_version: ${a.codeVersion}`);
   }
+
+  lines.push("");
+  lines.push("=== SUBSTANTIATION REQUIREMENT ===");
+  lines.push(
+    "For each ground you include: (1) name the ground, (2) cite the exact VERIFIED FACTS that support it, (3) explain how those facts engage the approved rule/proposition, (4) state the consequence. Generic assertions without this case's dates, amounts or other values are not acceptable.",
+  );
 
   lines.push("");
   lines.push("=== APPROVED KNOWLEDGE MODULES ===");

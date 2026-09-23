@@ -306,16 +306,30 @@ describe("Drafting context", () => {
       modules: retrieval.modules,
       blocks: retrieval.blocks,
       sources: retrieval.sources,
-      variables: {},
+      variables: {
+        parking_event_date: confirmed.parking_event_date ?? "",
+        notice_issue_date: confirmed.notice_issue_date ?? "",
+      },
       availableEvidence: [],
     });
-    expect(text).toMatch(/An established timing failure may be relied upon/);
-    // Customer-facing prose — never raw ISO next to "4 May 2026".
-    expect(text).toMatch(/notice treated as given \d{1,2} \w+ \d{4}/);
-    expect(text).toMatch(/deadline \d{1,2} \w+ \d{4}/);
-    expect(text).not.toMatch(
-      /notice treated as given \d{4}-\d{2}-\d{2}/,
+    expect(text).toMatch(/TIMING FAILURE ESTABLISHED/i);
+    expect(text).toMatch(/MUST substantiate/i);
+    expect(text).toMatch(/SUBSTANTIATION REQUIREMENT/);
+    // Customer-facing prose — never raw ISO for deemed given / deadline.
+    expect(text).toMatch(
+      /Date the notice is treated as given \(deemed delivery applied\): \d{1,2} \w+ \d{4}/,
     );
+    expect(text).toMatch(/Statutory deadline for giving the notice: \d{1,2} \w+ \d{4}/);
+    expect(text).not.toMatch(
+      /treated as given \(deemed delivery applied\): \d{4}-\d{2}-\d{2}/,
+    );
+  });
+
+  it("active prompt requires substantiating grounds with case facts", () => {
+    const p = getDraftingPrompt();
+    expect(p.id).toBe("draft-v5");
+    expect(p.body).toMatch(/SUBSTANTIATE EVERY GROUND/i);
+    expect(p.body).toMatch(/exact dates/i);
   });
 });
 
