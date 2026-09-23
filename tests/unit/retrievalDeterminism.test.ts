@@ -6,11 +6,9 @@ import type { ConfirmedPcn } from "@/types";
 import { FACT, deriveKnownFacts } from "@/lib/facts/facts";
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
-import { retrieveForQuestion } from "@/lib/reasoning/questionKnowledge";
 import { ALL_KB_MODULES } from "@/lib/kb/seed";
 import { LEGAL_SOURCES } from "@/lib/kb/seed/sources";
 import { buildAllDraftingBlocks } from "@/lib/kb/seed/blocks";
-import { TRIAGE_REQUIREMENTS, ROUTE_REQUIREMENTS } from "@/lib/facts/requirements";
 import { BASE, TRIAGE, UAT_FIXTURES, type UatFixture } from "../fixtures/uatCases";
 
 /**
@@ -269,89 +267,132 @@ describe("Effective-date and Code-version isolation", () => {
   });
 });
 
-/* ============ Question-time retrieval must not contaminate ============ */
+/* ========== A second retrieval pass must not contaminate the first ========== */
 
-describe("Question retrieval cannot contaminate drafting retrieval", () => {
-  function questionRetrieveAll(f: Fixture) {
+/*
+ * This section used to drive `retrieveForQuestion` — the question
+ * engine's own retrieval entry point — because a UAT run had shown the
+ * same fixture producing three modules alone and none inside a batch.
+ * That entry point went with the question engine, but the alarm it
+ * raised is still worth keeping: retrieval is pure code, so any
+ * difference between two identical calls means shared state.
+ *
+ * The second caller is now the grounds judge, which re-runs
+ * `retrieveKnowledge` restricted to its own selection. So the tests
+ * point there instead, which is a closer guard than before: it is the
+ * pass that actually runs on every generated appeal.
+ */
+describe("Judge-restricted retrieval cannot contaminate drafting retrieval", () => {
+  function judgeRetrieveAll(f: Fixture) {
     const input = {
       confirmed: f.confirmed,
       answers: f.answers,
       evidenceTypes: f.evidenceTypes,
+      evidenceRefs: f.evidenceTypes,
     };
     const analysis = analyseCase(input);
-    const facts = deriveKnownFacts(input);
-    const reqs = [
-      ...TRIAGE_REQUIREMENTS,
-      ...Object.values(ROUTE_REQUIREMENTS).flatMap((r) => r ?? []),
-    ];
-    for (const requirement of reqs) {
-      retrieveForQuestion({
-        requirement,
+    const facts = factsForCase(input);
+    const wide = retrieveKnowledge({
+      analysis,
+      facts,
+      parkingEventDate: f.confirmed.parking_event_date ?? null,
+      evidenceTypes: f.evidenceTypes,
+    });
+    // Every non-empty prefix of the eligible set, so the selection gate
+    // is exercised at more than one width.
+    const ids = wide.modules.map((m) => m.moduleId);
+    for (let n = 1; n <= ids.length; n++) {
+      retrieveKnowledge({
+        analysis,
         facts,
-        evidenceTypes: f.evidenceTypes,
         parkingEventDate: f.confirmed.parking_event_date ?? null,
-        pofa: analysis.pofa,
+        evidenceTypes: f.evidenceTypes,
+        judgeSelection: ids.slice(0, n),
       });
     }
   }
 
-  it("drafting retrieval is unchanged by prior question retrieval", () => {
+  it("drafting retrieval is unchanged by a prior judge pass", () => {
     const clean = snapshot(byId("UAT-1"));
-    questionRetrieveAll(byId("UAT-1"));
+    judgeRetrieveAll(byId("UAT-1"));
     expect(snapshot(byId("UAT-1"))).toBe(clean);
   });
 
-  it("case A question retrieval does not contaminate case B drafting", () => {
+  it("case A judge retrieval does not contaminate case B drafting", () => {
     const b = snapshot(byId("UAT-3"));
-    questionRetrieveAll(byId("UAT-1"));
+    judgeRetrieveAll(byId("UAT-1"));
     expect(snapshot(byId("UAT-3"))).toBe(b);
   });
 
-  it("question retrieval across every fixture leaves the catalogue intact", () => {
+  it("judge retrieval across every fixture leaves the catalogue intact", () => {
     const before = ALL_KB_MODULES.map((m) => `${m.moduleId}:${m.status}`).join(",");
-    for (const f of FIXTURES) questionRetrieveAll(f);
+    for (const f of FIXTURES) judgeRetrieveAll(f);
     expect(ALL_KB_MODULES.map((m) => `${m.moduleId}:${m.status}`).join(",")).toBe(before);
   });
 
-  it("drafting retrieval does not contaminate later question retrieval", () => {
-    const first = JSON.stringify(
-      retrieveForQuestion({
-        requirement: ROUTE_REQUIREMENTS.PAYMENT![0],
-        facts: deriveKnownFacts({
-          confirmed: byId("UAT-1").confirmed,
-          answers: byId("UAT-1").answers,
-          evidenceTypes: byId("UAT-1").evidenceTypes,
-        }),
-        evidenceTypes: byId("UAT-1").evidenceTypes,
-        parkingEventDate: "2026-07-12",
-        pofa: analyseCase({
-          confirmed: byId("UAT-1").confirmed,
-          answers: byId("UAT-1").answers,
-          evidenceTypes: byId("UAT-1").evidenceTypes,
-        }).pofa,
-      }),
-    );
+  it("drafting retrieval does not contaminate a later judge pass", () => {
+    const f = byId("UAT-1");
+    const input = {
+      confirmed: f.confirmed,
+      answers: f.answers,
+      evidenceTypes: f.evidenceTypes,
+      evidenceRefs: f.evidenceTypes,
+    };
+    const analysis = analyseCase(input);
+    const facts = factsForCase(input);
+    const selection = retrieveKnowledge({
+      analysis,
+      facts,
+      parkingEventDate: f.confirmed.parking_event_date ?? null,
+      evidenceTypes: f.evidenceTypes,
+    }).modules.map((m) => m.moduleId);
 
-    for (const f of FIXTURES) snapshot(f);
+    const restricted = () =>
+      JSON.stringify(
+        retrieveKnowledge({
+          analysis,
+          facts,
+          parkingEventDate: f.confirmed.parking_event_date ?? null,
+          evidenceTypes: f.evidenceTypes,
+          judgeSelection: selection,
+        }).modules.map((m) => m.moduleId),
+      );
 
-    const again = JSON.stringify(
-      retrieveForQuestion({
-        requirement: ROUTE_REQUIREMENTS.PAYMENT![0],
-        facts: deriveKnownFacts({
-          confirmed: byId("UAT-1").confirmed,
-          answers: byId("UAT-1").answers,
-          evidenceTypes: byId("UAT-1").evidenceTypes,
-        }),
-        evidenceTypes: byId("UAT-1").evidenceTypes,
-        parkingEventDate: "2026-07-12",
-        pofa: analyseCase({
-          confirmed: byId("UAT-1").confirmed,
-          answers: byId("UAT-1").answers,
-          evidenceTypes: byId("UAT-1").evidenceTypes,
-        }).pofa,
-      }),
-    );
-    expect(again).toBe(first);
+    const first = restricted();
+    for (const g of FIXTURES) snapshot(g);
+    expect(restricted()).toBe(first);
+  });
+
+  it("a restricted pass returns exactly the selection it was given", () => {
+    // Not a determinism check but the property the judge depends on: if
+    // the second pass could widen the set, the letter would argue a
+    // ground the judge did not select.
+    const f = byId("UAT-1");
+    const input = {
+      confirmed: f.confirmed,
+      answers: f.answers,
+      evidenceTypes: f.evidenceTypes,
+      evidenceRefs: f.evidenceTypes,
+    };
+    const analysis = analyseCase(input);
+    const facts = factsForCase(input);
+    const wide = retrieveKnowledge({
+      analysis,
+      facts,
+      parkingEventDate: f.confirmed.parking_event_date ?? null,
+      evidenceTypes: f.evidenceTypes,
+    }).modules.map((m) => m.moduleId);
+
+    const one = wide.slice(0, 1);
+    const got = retrieveKnowledge({
+      analysis,
+      facts,
+      parkingEventDate: f.confirmed.parking_event_date ?? null,
+      evidenceTypes: f.evidenceTypes,
+      judgeSelection: one,
+    }).modules.map((m) => m.moduleId);
+
+    for (const id of got) expect(one).toContain(id);
   });
 });
 

@@ -249,8 +249,8 @@ export default function ReviewPage() {
               ))}
             </ul>
           ) : null}
-          <Link href="/appeal/questions" className="mt-3 inline-block font-semibold text-brand-pink">
-            Continue questions
+          <Link href="/appeal/evidence" className="mt-3 inline-block font-semibold text-brand-pink">
+            Add supporting evidence
           </Link>
         </div>
       )}

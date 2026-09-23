@@ -1,15 +1,9 @@
 import type { ConfirmedPcn, EvidenceItem, ExtractionResult } from "@/types";
 import type { SessionData } from "@/lib/auth/session";
-import type { AnswerMap, AnswerValue } from "@/lib/facts/types";
-import type { Question } from "@/lib/questions/types";
-import { askedKey } from "@/lib/questions/engine";
-import { applyAnswerToFact } from "@/lib/questions/applyAnswer";
-import {
-  nextDynamicQuestion,
-  type DynamicOutcome,
-} from "@/lib/questions/dynamicEngine";
-import { askedFactKey, missingRequirements } from "@/lib/facts/missing";
-import * as questionRepo from "./questionRepo";
+import type { AnswerMap } from "@/lib/facts/types";
+import { missingRequirements } from "@/lib/facts/missing";
+import { openRoutes } from "@/lib/facts/requirements";
+import { detectOutOfScope } from "@/lib/facts/scope";
 import { isFollowUpDue } from "./outcome";
 import { deriveKnownFacts, FACT, factStr } from "@/lib/facts/facts";
 import { EVIDENCE_TYPE_LABELS } from "@/types";
@@ -345,295 +339,92 @@ export async function confirmFactsForCase(
 }
 
 /**
- * One step of the adaptive journey, as the customer sees it.
+ * The result of writing a fact onto a case.
  *
- * Deliberately free of route identifiers, reason codes and requirement
- * internals — those are persisted for audit, not shown.
+ * It used to carry the next question to put to the customer. There is
+ * no next question: the pipeline derives its facts from the notice and
+ * the uploaded evidence, so all a writer returns is the updated answer
+ * map.
  */
-export interface QuestionStep {
-  questioningComplete: boolean;
-  question: Question | null;
-  answered: number;
-  outstandingCount: number;
-  outOfScope: { detail: string } | null;
-  needsReview: { detail: string } | null;
-}
-
 export interface AnswerOutcome {
   ok: true;
-  next: QuestionStep;
   adaptiveAnswers: AnswerMap;
 }
-
 /**
- * Resolve the next question and persist it.
+ * Recompute and persist everything the case derives from its facts.
  *
- * Called after every answer, and on every page load. The case is
- * re-analysed from scratch each time — routes re-derived, outstanding
- * requirements recomputed — so there is no pre-generated sequence and
- * a fact that stops mattering is never asked.
+ * This used to be driven by a `DynamicOutcome` — the question engine
+ * told the case which routes were open, what was outstanding and whether
+ * the customer was still being questioned. With the questions gone the
+ * facts themselves are the only input, which is the better arrangement
+ * anyway: the engine's opinion and the facts could previously disagree.
+ *
+ *   candidateRoutes  openRoutes(facts) — the same function the question
+ *                    engine called, now called directly.
+ *   missingFacts     still recorded, because a fact nobody can supply is
+ *                    exactly what the release checklist and the operator
+ *                    dashboard need to see. Nothing asks the customer
+ *                    for them any more.
+ *   questioningComplete
+ *                    always true once the notice is confirmed. There is
+ *                    no questioning left to complete, and the workflow
+ *                    gate and sufficiency check both read this to decide
+ *                    whether the journey may proceed.
+ *   outOfScope       from `detectOutOfScope`, which the question engine
+ *                    wrapped rather than owned.
  */
-async function resolveNextStep(
-  appealCase: AppealCase,
-  answers: AnswerMap,
-): Promise<{ step: QuestionStep; outcome: DynamicOutcome }> {
-  const caseId = appealCase.id;
-  const evidenceTypes = (
-    await repo.listCaseDocuments(caseId, "EVIDENCE")
-  ).map((d) => d.evidenceType ?? "other");
-
-  const history = await questionRepo.listCaseQuestions(caseId);
-  const answeredCount = history.filter((h) => h.answeredAt).length;
-
-  // Heal mid-journey cases: if the notice already resolves UK nation,
-  // seed the answer and drop any pending jurisdiction question.
-  answers = await ensureJurisdictionSeeded(appealCase, answers);
-
-  // An unanswered question is served again rather than regenerated, so
-  // a refresh does not produce different wording or burn an AI call.
-  const pending = await questionRepo.findPendingQuestion(caseId);
-  if (pending) {
-    const stillNeeded = await isStillMaterial(
-      appealCase, answers, evidenceTypes, history, pending.targetFact,
-    );
-    if (stillNeeded) {
-      return {
-        step: {
-          questioningComplete: false,
-          question: pending.question,
-          answered: answeredCount,
-          outstandingCount: appealCase.missingFacts.length,
-          outOfScope: null,
-          needsReview: null,
-        },
-        outcome: {
-          status: "QUESTION_REQUIRED",
-          question: pending.question,
-          targetFact: pending.targetFact,
-          requirement: {
-            fact: pending.targetFact,
-            reasonCode: pending.reasonCode,
-            route: pending.route,
-            priority: 0,
-            rationale: "",
-            kbModules: [],
-          },
-          provenance: {
-            origin: pending.origin,
-            providerId: pending.providerId ?? "unknown",
-            model: pending.model,
-            promptVersion: pending.promptVersion,
-            rejections: pending.rejections,
-          },
-          eligibleRoutes: appealCase.candidateRoutes,
-          missingFacts: appealCase.missingFacts,
-        },
-      };
-    }
-    // The fact stopped being material — drop it rather than hold the
-    // customer up with a question that no longer matters.
-    await questionRepo.discardPendingQuestion(caseId);
-  }
-
-  // Suitability gate — an unsuitable document never enters questioning.
-  // Case Intelligence is the authority; see resolveSuitability.
-  const { SERVICE_NOT_SUITABLE_DETAIL } = await import(
-    "@/lib/cases/documentUnderstanding"
-  );
-  const { resolveSuitability } = await import("@/lib/cases/caseIntelligence");
-  const triage = appealCase.extraction?.triage;
-  const suitability = resolveSuitability({
-    caseIntelligence: appealCase.caseIntelligence,
-    serviceDecision: appealCase.serviceDecision,
-    triageServiceDecision: triage?.serviceDecision ?? null,
-    triageDetail: triage?.detail ?? null,
-    outOfScopeDetail: appealCase.outOfScopeDetail,
-  });
-  if (suitability.decision === "NOT_SUPPORTED") {
-    const detail = suitability.detail ?? SERVICE_NOT_SUITABLE_DETAIL;
-    const scope = {
-      reason:
-        appealCase.outOfScopeReason ??
-        suitability.reasonCode ??
-        triage?.reasonCode ??
-        "SERVICE_NOT_SUPPORTED",
-      detail,
-      action: "OUT_OF_SCOPE" as const,
-    };
-    return {
-      step: {
-        questioningComplete: true,
-        question: null,
-        answered: answeredCount,
-        outstandingCount: 0,
-        outOfScope: { detail },
-        needsReview: null,
-      },
-      outcome: {
-        status: "OUT_OF_SCOPE",
-        scope,
-        eligibleRoutes: [],
-        missingFacts: [],
-      },
-    };
-  }
-
-  const outcome = await nextDynamicQuestion({
-    caseId,
-    confirmed: appealCase.confirmed,
-    answers,
-    evidenceTypes,
-    triage: appealCase.extraction?.triage ?? null,
-    caseIntelligence: appealCase.caseIntelligence,
-    // The operator's allegation opens routes on its own.
-    allegedBreach:
-      appealCase.confirmed?.alleged_breach ??
-      appealCase.extraction?.raw?.alleged_breach ??
-      null,
-    askedFacts: history.map((h) => h.targetFact),
-    askedLabels: history.map((h) => h.label),
-  });
-
-  if (outcome.status === "QUESTION_REQUIRED") {
-    await questionRepo.recordAskedQuestion({
-      caseId,
-      targetFact: outcome.targetFact,
-      reasonCode: outcome.requirement.reasonCode,
-      route: outcome.requirement.route,
-      question: outcome.question,
-      provenance: outcome.provenance,
-    });
-  }
-
-  return { step: toStep(outcome, answeredCount), outcome };
-}
-
-/** Is the pending question's fact still outstanding after re-analysis? */
-async function isStillMaterial(
-  appealCase: AppealCase,
-  answers: AnswerMap,
-  evidenceTypes: string[],
-  history: questionRepo.CaseQuestionRow[],
-  fact: string,
-): Promise<boolean> {
-  const facts = deriveKnownFacts({
-    confirmed: appealCase.confirmed,
-    answers,
-    evidenceTypes,
-  });
-  for (const h of history) {
-    if (h.answeredAt) facts.values[askedFactKey(h.targetFact)] = true;
-  }
-  // Prefer admin issue engine when available so pending checks match
-  // what nextDynamicQuestion will ask — especially jurisdiction.
-  if (fact === FACT.JURISDICTION && factStr(facts, FACT.JURISDICTION)) {
-    return false;
-  }
-  return missingRequirements(facts).some((r) => r.fact === fact);
-}
-
-/**
- * Persist jurisdiction when the notice already resolves it (AI extraction
- * or location/postcode). Keeps mid-journey cases from re-asking.
- */
-async function ensureJurisdictionSeeded(
-  appealCase: AppealCase,
-  answers: AnswerMap,
-): Promise<AnswerMap> {
-  if (answers[FACT.JURISDICTION]) return answers;
-  const facts = deriveKnownFacts({
-    confirmed: appealCase.confirmed,
-    answers,
-  });
-  const resolved = factStr(facts, FACT.JURISDICTION);
-  if (!resolved) return answers;
-  const next = { ...answers, [FACT.JURISDICTION]: resolved };
-  await repo.saveAnswers(appealCase.id, {
-    adaptiveAnswers: next,
-    askedQuestionIds: appealCase.askedQuestionIds ?? [],
-    questioningComplete: appealCase.questioningComplete,
-    missingFacts: appealCase.missingFacts ?? [],
-    candidateRoutes: appealCase.candidateRoutes ?? [],
-  });
-  return next;
-}
-
-function toStep(outcome: DynamicOutcome, answered: number): QuestionStep {
-  switch (outcome.status) {
-    case "QUESTION_REQUIRED":
-      return {
-        questioningComplete: false,
-        question: outcome.question,
-        answered,
-        outstandingCount: outcome.missingFacts.length,
-        outOfScope: null,
-        needsReview: null,
-      };
-    case "OUT_OF_SCOPE":
-      return {
-        questioningComplete: true,
-        question: null,
-        answered,
-        outstandingCount: 0,
-        outOfScope: { detail: outcome.scope.detail },
-        needsReview: null,
-      };
-    case "MANUAL_REVIEW":
-      return {
-        questioningComplete: true,
-        question: null,
-        answered,
-        outstandingCount: outcome.missingFacts.length,
-        outOfScope: null,
-        needsReview: { detail: outcome.detail },
-      };
-    case "SUFFICIENT_INFORMATION":
-      return {
-        questioningComplete: true,
-        question: null,
-        answered,
-        outstandingCount: 0,
-        outOfScope: null,
-        needsReview: null,
-      };
-  }
-}
-
-/** Persist derived case state after a step. */
-async function persistStepState(
+async function persistDerivedState(
   caseId: string,
   appealCase: AppealCase,
   answers: AnswerMap,
-  outcome: DynamicOutcome,
 ): Promise<void> {
   const evidenceTypes = (
     await repo.listCaseDocuments(caseId, "EVIDENCE")
   ).map((d) => d.evidenceType ?? "other");
-  const facts = deriveKnownFacts({
+  let facts = deriveKnownFacts({
     confirmed: appealCase.confirmed,
     answers,
     evidenceTypes,
   });
-  const history = await questionRepo.listCaseQuestions(caseId);
+
+  /*
+   * Pin the jurisdiction the notice already resolves.
+   *
+   * `deriveKnownFacts` works it out from the location or the postcode on
+   * every call, but it is not written down anywhere, so a later change
+   * to the notice could silently move the case between legal regimes
+   * after the appeal was drafted. Writing it into the answer map fixes
+   * it to what was true when the case was assessed. This used to happen
+   * in the question engine, to stop it re-asking; it is kept because the
+   * reason it mattered was never the question.
+   */
+  if (!answers[FACT.JURISDICTION]) {
+    const resolved = factStr(facts, FACT.JURISDICTION);
+    if (resolved) {
+      answers = { ...answers, [FACT.JURISDICTION]: resolved };
+      facts = deriveKnownFacts({
+        confirmed: appealCase.confirmed,
+        answers,
+        evidenceTypes,
+      });
+    }
+  }
+
+  const scope = detectOutOfScope(facts);
 
   await repo.saveAnswers(caseId, {
     adaptiveAnswers: answers,
-    askedQuestionIds: history.map((h) => h.targetFact),
-    questioningComplete: outcome.status !== "QUESTION_REQUIRED",
-    missingFacts: outcome.status === "QUESTION_REQUIRED" ? outcome.missingFacts : [],
-    candidateRoutes: outcome.eligibleRoutes,
+    askedQuestionIds: [],
+    questioningComplete: true,
+    missingFacts: missingRequirements(facts).map((m) => m.fact),
+    candidateRoutes: openRoutes(facts),
     driverStatus:
       factStr(facts, FACT.DRIVER_IDENTIFIED) === "YES"
         ? "IDENTIFIED"
         : factStr(facts, FACT.DRIVER_IDENTIFIED) === "NO"
           ? "UNIDENTIFIED"
           : "UNKNOWN",
-    outOfScope:
-      outcome.status === "OUT_OF_SCOPE"
-        ? { reason: outcome.scope.reason, detail: outcome.scope.detail }
-        : outcome.status === "MANUAL_REVIEW"
-          ? { reason: outcome.reason, detail: outcome.detail }
-          : null,
+    outOfScope: scope ? { reason: scope.reason, detail: scope.detail } : null,
   });
 
   if (appealCase.confirmed) {
@@ -657,8 +448,12 @@ async function persistStepState(
 }
 
 /**
- * Let the customer correct "I am not the registered keeper" so the
- * automated question chain can continue.
+ * Let the customer correct "I am not the registered keeper".
+ *
+ * Kept after the question engine's removal because it is a correction to
+ * a fact the NOTICE asserted, not an answer to a question we asked. A
+ * keeper wrongly recorded as someone else stops the appeal dead, and the
+ * notice is the thing that was wrong.
  */
 export async function correctRegisteredKeeperForCase(
   caseId: string,
@@ -703,10 +498,9 @@ export async function correctRegisteredKeeperForCase(
   });
 
   const updated: AppealCase = { ...appealCase, adaptiveAnswers: answers };
-  const { step, outcome } = await resolveNextStep(updated, answers);
-  await persistStepState(caseId, updated, answers, outcome);
+  await persistDerivedState(caseId, updated, answers);
 
-  return { ok: true, next: step, adaptiveAnswers: answers };
+  return { ok: true, adaptiveAnswers: answers };
 }
 
 /**
@@ -786,121 +580,6 @@ export async function saveKeeperProfileForCase(
  * The answer is validated against the question the SERVER asked, read
  * from the pending row — so the client cannot write a fact that was
  * never put to the customer.
- */
-export async function recordAnswerForCase(
-  caseId: string,
-  session: SessionData,
-  questionId: string,
-  value: AnswerValue,
-): Promise<AnswerOutcome | AccessFailure | { ok: false; status: 400; code: string; message: string }> {
-  const access = await requireCaseAccess(caseId, session, "write");
-  if (!access.ok) return access;
-  const appealCase = access.appealCase;
-
-  if (!appealCase.confirmed) {
-    return {
-      ok: false,
-      status: 400,
-      code: "CONFIRMATION_REQUIRED",
-      message: "Confirm the notice details before answering questions.",
-    };
-  }
-
-  const pending = await questionRepo.findPendingQuestion(caseId);
-  if (!pending) {
-    return {
-      ok: false,
-      status: 400,
-      code: "NO_PENDING_QUESTION",
-      message: "There is no question awaiting an answer.",
-    };
-  }
-  // A stale tab must not answer a question that has since been replaced.
-  if (questionId && questionId !== pending.question.questionId) {
-    return {
-      ok: false,
-      status: 400,
-      code: "STALE_QUESTION",
-      message: "That question has moved on. Please refresh to continue.",
-    };
-  }
-
-  const applied = applyAnswerToFact(
-    appealCase.adaptiveAnswers,
-    pending.question,
-    pending.targetFact,
-    value,
-  );
-  if (!applied.ok) {
-    return {
-      ok: false,
-      status: 400,
-      code: "INVALID_ANSWER",
-      message: applied.error ?? "Invalid answer.",
-    };
-  }
-
-  await questionRepo.recordAnswer(pending.id, value);
-  await repo.recordCaseAnswer({
-    caseId,
-    questionId: pending.targetFact,
-    answer: value,
-  });
-  await repo.addCaseEvent({
-    caseId,
-    eventType: "QUESTION_ANSWERED",
-    actorId: session.userId ?? null,
-    payload: {
-      targetFact: pending.targetFact,
-      reasonCode: pending.reasonCode,
-      route: pending.route,
-      origin: pending.origin,
-    },
-  });
-
-  // Re-analyse from scratch with the new answer included.
-  const updated: AppealCase = { ...appealCase, adaptiveAnswers: applied.answers };
-  const { step, outcome } = await resolveNextStep(updated, applied.answers);
-  await persistStepState(caseId, updated, applied.answers, outcome);
-
-  return { ok: true, next: step, adaptiveAnswers: applied.answers };
-}
-
-/** Serve the next question, generating one if none is pending. */
-export async function nextQuestionForCase(
-  caseId: string,
-  session: SessionData,
-): Promise<
-  | { ok: true; next: QuestionStep }
-  | AccessFailure
-  | { ok: false; status: 400; code: string; message: string }
-> {
-  // Write access: serving a question persists it.
-  const access = await requireCaseAccess(caseId, session, "write");
-  if (!access.ok) return access;
-  const appealCase = access.appealCase;
-
-  if (!appealCase.confirmed) {
-    return {
-      ok: false,
-      status: 400,
-      code: "CONFIRMATION_REQUIRED",
-      message: "Confirm the notice details before answering questions.",
-    };
-  }
-
-  const { step, outcome } = await resolveNextStep(
-    appealCase,
-    appealCase.adaptiveAnswers,
-  );
-  await persistStepState(caseId, appealCase, appealCase.adaptiveAnswers, outcome);
-  return { ok: true, next: step };
-}
-
-/**
- * Evidence upload lives in `lib/cases/evidence.ts`, which validates the
- * bytes and writes them to storage itself. There is deliberately no
- * function here that attaches a caller-supplied storage key.
  */
 export async function removeEvidenceFromCase(
   caseId: string,
@@ -1128,4 +807,3 @@ export function evidenceLabel(type: string): string {
   );
 }
 
-export { askedKey };

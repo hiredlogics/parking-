@@ -12,7 +12,6 @@ import {
   unresolvedCriticalFacts,
 } from "@/lib/facts/missing";
 import { TRIAGE_REQUIREMENTS } from "@/lib/facts/requirements";
-import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
 import type { AnswerMap } from "@/lib/facts/types";
 
 /**
@@ -97,30 +96,6 @@ describe("Critical fact requirements", () => {
 });
 
 describe("Dead-end prevention", () => {
-  it("routes to review when NO viable route could be identified", async () => {
-    // Driver already identified removes the PoFA line, the allegation
-    // is unrecognised, and no fact or evidence opens anything. There is
-    // genuinely nothing to argue.
-    const out = await nextDynamicQuestion({
-      confirmed: { ...CONFIRMED, alleged_breach: "Contravention occurred" },
-      allegedBreach: "Contravention occurred",
-      answers: {
-        [FACT.JURISDICTION]: "ENGLAND_WALES",
-        [FACT.VEHICLE_HIRE_STATUS]: "PRIVATE",
-        [FACT.REGISTERED_KEEPER]: "YES",
-        [FACT.DRIVER_IDENTIFIED]: "YES",
-        [askedFactKey(FACT.SCENARIOS)]: true,
-      },
-      askedFacts: [FACT.SCENARIOS],
-      provider: null,
-    });
-    // Previously this returned SUFFICIENT_INFORMATION and dead-ended.
-    expect(out.status).toBe("MANUAL_REVIEW");
-    if (out.status === "MANUAL_REVIEW") {
-      expect(out.reason).toBe("NO_VIABLE_ROUTE");
-    }
-  });
-
   it("does NOT dead-end a keeper case just because the description is empty", () => {
     // The PoFA line is always available on an unidentified-driver
     // keeper route, so an empty description is survivable now.
@@ -128,53 +103,4 @@ describe("Dead-end prevention", () => {
     expect(unresolvedCriticalFacts(facts(answers))).toHaveLength(0);
   });
 
-  it("does not loop by re-asking a fact already put to the customer", async () => {
-    const out = await nextDynamicQuestion({
-      confirmed: CONFIRMED,
-      answers: { ...TRIAGE_DONE, [askedFactKey(FACT.SCENARIOS)]: true },
-      askedFacts: [FACT.SCENARIOS],
-      provider: null,
-    });
-    if (out.status === "QUESTION_REQUIRED") {
-      expect(out.targetFact).not.toBe(FACT.SCENARIOS);
-    }
-  });
-
-  it("gives the customer an actionable message, not internal wording", async () => {
-    const out = await nextDynamicQuestion({
-      confirmed: { ...CONFIRMED, alleged_breach: "Contravention occurred" },
-      allegedBreach: "Contravention occurred",
-      answers: {
-        [FACT.JURISDICTION]: "ENGLAND_WALES",
-        [FACT.VEHICLE_HIRE_STATUS]: "PRIVATE",
-        [FACT.REGISTERED_KEEPER]: "YES",
-        [FACT.DRIVER_IDENTIFIED]: "YES",
-        [askedFactKey(FACT.SCENARIOS)]: true,
-      },
-      askedFacts: [FACT.SCENARIOS],
-      provider: null,
-    });
-    if (out.status !== "MANUAL_REVIEW") throw new Error("expected review");
-    expect(out.detail).not.toMatch(/\bmodule\b|reason_code|target_fact/i);
-    expect(out.detail.length).toBeGreaterThan(40);
-  });
-
-  it("still asks the grounds question when nothing else has opened a route", async () => {
-    const out = await nextDynamicQuestion({
-      confirmed: CONFIRMED,
-      answers: TRIAGE_DONE,
-      provider: null,
-    });
-    expect(out.status).toBe("QUESTION_REQUIRED");
-  });
-
-  it("proceeds normally once a ground is selected", async () => {
-    const out = await nextDynamicQuestion({
-      confirmed: CONFIRMED,
-      answers: { ...TRIAGE_DONE, [FACT.SCENARIOS]: ["payment_made"] },
-      askedFacts: [FACT.SCENARIOS],
-      provider: null,
-    });
-    expect(out.status).toBe("QUESTION_REQUIRED");
-  });
 });

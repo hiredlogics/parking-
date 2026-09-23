@@ -64,7 +64,6 @@ export interface AppealSessionState {
   currentStep:
     | "upload"
     | "confirm"
-    | "questions"
     | "evidence"
     | "review"
     | "result";

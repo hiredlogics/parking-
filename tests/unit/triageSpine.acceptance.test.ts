@@ -18,9 +18,8 @@ import {
   understandingFromTriage,
 } from "@/lib/cases/documentUnderstanding";
 import { evaluateIssues } from "@/lib/engine/issueEngine";
-import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
 import { deriveKnownFacts, FACT } from "@/lib/facts/facts";
-import { filterMissingFactsByCircumstances } from "@/lib/questions/caseAssessment";
+import { filterMissingFactsByCircumstances } from "@/lib/facts/circumstances";
 import type { FactRequirement } from "@/lib/facts/requirements";
 import type { ExtractionResult } from "@/types";
 
@@ -88,31 +87,6 @@ describe("spine — Debt Recovery Plus", () => {
     const applied = applyTriageToExtraction(extraction, triage);
     expect(applied.raw.operator_name).toBeUndefined();
     expect(applied.triage?.senderName).toMatch(/Debt Recovery Plus/i);
-  });
-
-  it("stops questioning before any fact is asked", async () => {
-    const triage = assessDocumentDeterministic({
-      operatorName: "Debt Recovery Plus Ltd",
-    });
-    const out = await nextDynamicQuestion({
-      confirmed: {
-        operator_name: undefined,
-        pcn_number: "3438817",
-        vrm: "KJ24FRV",
-        parking_location: "SEARS RETAIL PARK",
-        parking_event_date: "2026-05-04",
-        charge_amount: 170,
-        case_stage: "DEBT_RECOVERY",
-        confirmedAt: new Date().toISOString(),
-      },
-      answers: {},
-      provider: null,
-      triage,
-    });
-    expect(out.status).toBe("OUT_OF_SCOPE");
-    if (out.status === "OUT_OF_SCOPE") {
-      expect(out.scope.detail).toBe(SERVICE_NOT_SUITABLE_DETAIL);
-    }
   });
 
   it("deterministic NOT_SUPPORTED overrides AI saying OK", () => {

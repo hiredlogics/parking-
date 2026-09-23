@@ -47,7 +47,6 @@ export function publicUrl(path: string): string {
 export const paths = {
   upload: "/appeal/upload",
   confirm: "/appeal/confirm",
-  questions: "/appeal/questions",
   evidence: "/appeal/evidence",
   review: "/appeal/review",
   result: "/appeal/result",

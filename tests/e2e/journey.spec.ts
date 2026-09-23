@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 import {
-  answerAllQuestions,
+  fillKeeperDetailsIfAsked,
   createAccount,
   portalDocumentUrls,
   uploadPcn,
@@ -51,35 +51,51 @@ test.describe("Private parking appeal — continuous journey", () => {
     await expect(page.getByTestId("confirm-continue")).toBeVisible();
   });
 
-  test("3. confirming the notice moves on to questions", async () => {
+  test("3. confirming the notice goes straight to evidence", async () => {
+    // No questions step: the classifier and the uploaded documents are
+    // what establish the facts now.
     await page.getByTestId("confirm-continue").click();
-    await page.waitForURL("**/appeal/questions", { timeout: 30_000 });
+    await page.waitForURL("**/appeal/evidence", { timeout: 30_000 });
   });
 
-  test("4. the adaptive questions can be answered to sufficiency", async () => {
-    const asked = await answerAllQuestions(page);
-
-    // The engine must actually ask something before declaring sufficiency.
-    expect(asked.length).toBeGreaterThan(0);
-
+  test("4. the customer is never asked who was driving", async () => {
     /*
-     * Keeper safety, asserted against what was ASKED rather than the
-     * whole page: the page legitimately carries the reassurance banner
-     * "We never ask who was driving", which would match a body scan.
+     * The keeper-safety guarantee, which used to be asserted against the
+     * questions actually asked. Nothing is asked any more, so it is
+     * asserted against every word of input the journey still presents:
+     * the labels, placeholders and headings on the evidence page.
+     *
+     * The page legitimately carries the reassurance banner "We never ask
+     * who was driving", so the scan is limited to the form controls
+     * rather than the whole body -- a body scan would match the
+     * reassurance and pass for the wrong reason.
      */
-    for (const question of asked) {
-      const q = question.toLowerCase();
-      expect(q, question).not.toContain("who was driving");
-      expect(q, question).not.toContain("were you driving");
-      expect(q, question).not.toContain("who drove");
-      expect(q, question).not.toContain("name of the driver");
-    }
+    const labels = await page
+      .locator("label, input[placeholder], h1, h2")
+      .evaluateAll((els) =>
+        els.map((el) =>
+          [
+            el.textContent ?? "",
+            el.getAttribute("placeholder") ?? "",
+          ].join(" "),
+        ),
+      );
 
-    await expect(page.getByTestId("questions-complete-continue")).toBeVisible({
-      timeout: 30_000,
-    });
-    await page.getByTestId("questions-complete-continue").click();
-    await page.waitForURL("**/appeal/evidence", { timeout: 30_000 });
+    expect(labels.length).toBeGreaterThan(0);
+    for (const text of labels) {
+      const t = text.toLowerCase();
+      expect(t, text).not.toContain("who was driving");
+      expect(t, text).not.toContain("were you driving");
+      expect(t, text).not.toContain("who drove");
+      expect(t, text).not.toContain("name of the driver");
+    }
+  });
+
+  test("4b. keeper details are collected when the notice lacks them", async () => {
+    // The one remaining piece of typed input, and the letter has no
+    // sender without it.
+    await fillKeeperDetailsIfAsked(page);
+    await expect(page.getByTestId("keeper-details-form")).toBeHidden();
   });
 
   test("5. evidence can be skipped and review reached", async () => {

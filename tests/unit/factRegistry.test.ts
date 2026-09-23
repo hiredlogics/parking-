@@ -1,22 +1,24 @@
 /**
  * @vitest-environment node
  *
- * The fact vocabulary must survive the question engine.
+ * The fact vocabulary survived the question engine.
  *
- * `lib/questions/bank.ts` is currently the only statement of what values
- * a fact accepts, via `answerContract.canonicalValuesFor`. Deleting it
- * would strand every consumer that validates a fact value, so the
- * vocabulary was extracted into `lib/facts/registry.ts`. These tests are
- * the proof that the extraction is faithful — they will keep passing
- * once the bank is gone, and they fail loudly if the two drift apart
- * while both still exist.
+ * `lib/questions/bank.ts` was the only statement of what values a fact
+ * accepts. Deleting it would have stranded every consumer that validates
+ * a fact value, so the vocabulary was extracted into
+ * `lib/facts/registry.ts` first and the two were asserted equal while
+ * both existed.
+ *
+ * The bank is now gone. The comparison did not go with it: what it said
+ * is frozen in tests/fixtures/bankVocabulary.ts, dumped from the last
+ * commit that had it, so these tests still compare the registry against
+ * the vocabulary that was actually signed off rather than against
+ * itself. A deliberate vocabulary change updates the fixture in the same
+ * commit.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FACT, SCENARIO_TAGS } from "@/lib/facts/facts";
-import {
-  canonicalValuesFor,
-  hasFixedVocabulary,
-} from "@/lib/questions/answerContract";
+import { FROZEN_BANK_VOCABULARY } from "../fixtures/bankVocabulary";
 import {
   FACT_REGISTRY,
   factRegistryEntry,
@@ -31,6 +33,15 @@ import {
 const DELIBERATE_WIDENINGS = new Set<string>([FACT.SCENARIOS]);
 
 describe("fact registry: faithful extraction from the question bank", () => {
+  it("has a frozen entry for every fact key, so no comparison silently passes", () => {
+    // Without this, a missing fixture entry would make the comparisons
+    // below compare null against null and report success.
+    const missing = Object.values(FACT).filter(
+      (k) => FROZEN_BANK_VOCABULARY[k] === undefined,
+    );
+    expect(missing).toEqual([]);
+  });
+
   it("covers every fact key in the FACT registry", () => {
     const registered = new Set(FACT_REGISTRY.map((e) => e.factKey));
     const missing = Object.values(FACT).filter((k) => !registered.has(k));
@@ -46,7 +57,7 @@ describe("fact registry: faithful extraction from the question bank", () => {
   it("reproduces the bank's vocabulary exactly for every enumerated fact", () => {
     for (const fact of Object.values(FACT)) {
       if (DELIBERATE_WIDENINGS.has(fact)) continue;
-      const bank = canonicalValuesFor(fact);
+      const bank = FROZEN_BANK_VOCABULARY[fact]?.values ?? null;
       const registry = factRegistryValues(fact);
       expect(registry, `vocabulary for "${fact}"`).toEqual(bank);
     }
@@ -56,7 +67,7 @@ describe("fact registry: faithful extraction from the question bank", () => {
     const registry = factRegistryValues(FACT.SCENARIOS) ?? [];
     expect(registry).toEqual([...SCENARIO_TAGS].sort());
     // The widening is real, not cosmetic: the bank offered strictly fewer.
-    const bank = canonicalValuesFor(FACT.SCENARIOS) ?? [];
+    const bank = FROZEN_BANK_VOCABULARY[FACT.SCENARIOS]?.values ?? [];
     expect(bank.length).toBeLessThan(registry.length);
     for (const v of bank) expect(registry).toContain(v);
   });
@@ -65,7 +76,9 @@ describe("fact registry: faithful extraction from the question bank", () => {
     for (const fact of Object.values(FACT)) {
       if (DELIBERATE_WIDENINGS.has(fact)) continue;
       const enumerated = (factRegistryValues(fact) ?? []).length > 0;
-      expect(enumerated, `"${fact}" enumerated?`).toBe(hasFixedVocabulary(fact));
+      expect(enumerated, `"${fact}" enumerated?`).toBe(
+        FROZEN_BANK_VOCABULARY[fact]?.enumerated ?? false,
+      );
     }
   });
 

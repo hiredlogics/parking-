@@ -16,7 +16,6 @@ import { sessionPassword } from "@/lib/auth/sessionConfig";
 import { getStorageProvider, resetStorageProvider } from "@/services/storage";
 import { getPaymentService, resetPaymentService } from "@/lib/payments";
 import { getDraftingProvider, resetDraftingProvider } from "@/services/ai/drafting";
-import { getQuestionProvider, resetQuestionProvider } from "@/services/ai/questions";
 
 /**
  * Production configuration guard.
@@ -55,7 +54,6 @@ afterEach(() => {
   resetStorageProvider();
   resetPaymentService();
   resetDraftingProvider();
-  resetQuestionProvider();
 });
 
 /** A configuration with nothing wrong. */
@@ -363,19 +361,4 @@ describe("Factories refuse unsafe defaults on their own", () => {
     expect(() => getDraftingProvider()).not.toThrow();
   });
 
-  it("question generation refuses to fall back to the bank in production", () => {
-    process.env.APP_ENV = "production";
-    delete process.env.OPENAI_API_KEY;
-    delete process.env.QUESTION_PROVIDER;
-    resetQuestionProvider();
-    expect(() => getQuestionProvider()).toThrow(ProductionConfigError);
-  });
-
-  it("question generation allows the bank when chosen explicitly", () => {
-    process.env.APP_ENV = "production";
-    delete process.env.OPENAI_API_KEY;
-    process.env.QUESTION_PROVIDER = "bank";
-    resetQuestionProvider();
-    expect(getQuestionProvider()).toBeNull();
-  });
 });

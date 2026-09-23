@@ -16,7 +16,6 @@ import {
   buildCaseIntelligence,
   resolveSuitability,
 } from "@/lib/cases/caseIntelligence";
-import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
 import { FACT } from "@/lib/facts/facts";
 import { serialiseDraftingContext } from "@/services/ai/drafting/contextSerialiser";
 import type { ConfirmedPcn } from "@/types";
@@ -259,19 +258,6 @@ describe("Scenario B — Debt Recovery Plus letter", () => {
     }
   });
 
-  it("asks nothing — questioning stops before the first fact", async () => {
-    const out = await nextDynamicQuestion({
-      confirmed: drpCase,
-      answers: {},
-      provider: null,
-      caseIntelligence: buildCaseIntelligence({
-        confirmed: drpCase,
-        answers: {},
-        documentUnderstanding: drpUnderstanding,
-      }),
-    });
-    expect(out.status).not.toBe("QUESTION_REQUIRED");
-  });
 });
 
 describe("Scenario C — grace period only", () => {
@@ -289,28 +275,6 @@ describe("Scenario C — grace period only", () => {
     [FACT.REGISTERED_KEEPER]: "YES",
     [FACT.DRIVER_IDENTIFIED]: "NO",
   };
-
-  it("does not ask for permission, occupier status or a lease", async () => {
-    const ci = buildCaseIntelligence({
-      confirmed: graceCase,
-      answers: graceAnswers,
-    });
-
-    const out = await nextDynamicQuestion({
-      confirmed: graceCase,
-      answers: graceAnswers,
-      provider: null,
-      caseIntelligence: ci,
-    });
-
-    if (out.status === "QUESTION_REQUIRED") {
-      // The whole outstanding plan, not just the next question.
-      for (const fact of UNSUPPORTED_FACTS) {
-        expect(out.missingFacts).not.toContain(fact);
-      }
-      expect(UNSUPPORTED_FACTS).not.toContain(out.targetFact);
-    }
-  });
 
   it("does not list residential or permission facts as outstanding", () => {
     const ci = buildCaseIntelligence({

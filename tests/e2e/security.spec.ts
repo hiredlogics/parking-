@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import {
-  answerAllQuestions,
+  fillKeeperDetailsIfAsked,
   completePaidAppeal,
   createAccount,
   fetchFromPage,
@@ -117,11 +117,8 @@ test.describe("Payment entitlement", () => {
     await page.waitForURL("**/appeal/confirm", { timeout: 60_000 });
     await page.getByTestId("confirm-continue").click();
 
-    await page.waitForURL("**/appeal/questions", { timeout: 30_000 });
-    await answerAllQuestions(page);
-    await page.getByTestId("questions-complete-continue").click();
-
     await page.waitForURL("**/appeal/evidence", { timeout: 30_000 });
+    await fillKeeperDetailsIfAsked(page);
     await page.getByTestId("evidence-continue").click();
     await page.waitForURL("**/appeal/review", { timeout: 30_000 });
 

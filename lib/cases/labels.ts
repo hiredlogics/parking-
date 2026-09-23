@@ -124,7 +124,10 @@ export function caseNextStep(
     case "AWAITING_CONFIRMATION":
       return { label: "Check your details", href: () => "/appeal/confirm" };
     case "QUESTIONING":
-      return { label: "Continue questions", href: () => "/appeal/questions" };
+      // A status only historical cases carry — nothing sets it now that
+      // the questions are gone. Resuming one must still land somewhere
+      // that exists, and evidence is the step that replaced it.
+      return { label: "Add your evidence", href: () => "/appeal/evidence" };
     case "AWAITING_PAYMENT":
     case "READY_PREVIEW":
       return { label: "Continue to checkout", href: (id) => `/checkout/${id}` };

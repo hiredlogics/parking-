@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/auth/require-admin";
 import { fail, ok } from "@/lib/api/envelope";
 import { findCase, listCaseDocuments, listCaseEvents } from "@/lib/cases/repo";
-import { listCaseQuestions } from "@/lib/cases/questionRepo";
+import { listArchivedQuestions } from "@/lib/cases/questionHistory";
 import { listDraftsForCase } from "@/lib/cases/draftRepo";
 import { findPaymentForCase } from "@/lib/payments/repo";
 import { findCurrentAppeal } from "@/lib/appeals/repo";
@@ -27,7 +27,7 @@ export async function GET(
     await Promise.all([
       listCaseDocuments(id),
       listCaseEvents(id),
-      listCaseQuestions(id),
+      listArchivedQuestions(id),
       listDraftsForCase(id),
       findPaymentForCase(id),
       findCurrentAppeal(id),
@@ -37,6 +37,12 @@ export async function GET(
     case: appealCase,
     documents,
     events,
+    /*
+     * Historical only. Nothing has written a question since the engine
+     * was removed, so this is empty for any recent case -- it is kept
+     * because operators handling a live dispute need the record of what
+     * the customer was asked and answered.
+     */
     questions: questions.map((q) => ({
       seq: q.seq,
       label: q.label,

@@ -22,7 +22,6 @@ import {
   type DerivedFact,
 } from "@/lib/facts/fromEvidence";
 import { assessCandidacy, type RouteCandidacy } from "./routeCandidacy";
-import { scoreInformationGain, type GainScore } from "./informationGain";
 import type { AppealCase, CaseDocument, ServiceType } from "@/lib/cases/types";
 
 /**
@@ -93,8 +92,6 @@ export interface CaseReasoningContext {
 
   resolvedMaterialFacts: string[];
   missingMaterialFacts: string[];
-  /** Outstanding requirements ranked by information gain. */
-  rankedMissing: GainScore[];
 
   /* ---------- Deterministic legal state ---------- */
   pofa: PofaAnalysis;
@@ -165,16 +162,6 @@ export function buildCaseReasoningContext(
     candidacy.candidates,
   );
 
-  const rankedMissing = scoreInformationGain({
-    facts,
-    candidateRoutes: candidacy.candidates,
-    missing,
-    allegationCategory: candidacy.allegation.category,
-    needsConfirmation,
-    establishedFromEvidence: Object.keys(established),
-    routeProvenance: candidacy.provenance,
-  });
-
   // Deterministic legal state — never delegated to a model (§M).
   const evidenceSet = new Set(evidenceTypes);
   // PoFA reads the flattened facts, which already carry the confirmed
@@ -227,7 +214,6 @@ export function buildCaseReasoningContext(
 
     resolvedMaterialFacts: resolved,
     missingMaterialFacts: missing.map((m) => m.fact),
-    rankedMissing,
 
     pofa,
     codeVersionId: code?.id ?? null,

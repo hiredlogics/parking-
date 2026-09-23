@@ -10,7 +10,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
-import { retrieveForQuestion } from "@/lib/reasoning/questionKnowledge";
 import {
   invalidateKbCatalog,
   KbCatalogError,
@@ -62,6 +61,8 @@ function paymentAnswers(extra: AnswerMap = {}): AnswerMap {
 function retrievePayment(
   modules: KbModule[],
   eventDate = "2026-05-04",
+  /** Restrict to a judge selection, as the second retrieval pass does. */
+  judgeSelection?: string[],
 ) {
   const c = confirmed({ parking_event_date: eventDate });
   const input = {
@@ -78,6 +79,7 @@ function retrievePayment(
     modules,
     sources: LEGAL_SOURCES,
     blocks: buildAllDraftingBlocks(),
+    judgeSelection,
   });
 }
 
@@ -186,73 +188,39 @@ describe("Effective dates and historic versions", () => {
   });
 });
 
-describe("Question-time and drafting use the same repository rules", () => {
-  it("DISABLED module is excluded from both retrieveKnowledge and retrieveForQuestion", () => {
+/*
+ * These two used to check that the question engine's own retrieval
+ * (`retrieveForQuestion`) honoured an administrator's module status, the
+ * point being that governance must apply on every path and not only the
+ * one that writes the letter. The question path is gone; the judge's
+ * restricted second pass is the other path now, so that is what is
+ * checked.
+ */
+describe("Both retrieval passes honour the same repository rules", () => {
+  it("a DISABLED module is invisible to the wide pass and to a judge-restricted pass", () => {
     const modules = [cloneModule("KB-PAY-01", { status: "DISABLED" })];
     const drafting = retrievePayment(modules);
 
-    const c = confirmed();
-    const input = {
-      confirmed: c,
-      answers: paymentAnswers(),
-      evidenceTypes: ["receipt"] as string[],
-    };
-    const analysis = analyseCase(input);
-    const requirement = {
-      fact: "payment_method",
-      reasonCode: "TEST",
-      route: "PAYMENT",
-      rationale: "test",
-      kbModules: ["KB-PAY-01"],
-      priority: 1,
-    } as unknown as FactRequirement;
-
-    const questioning = retrieveForQuestion({
-      requirement,
-      facts: factsForCase(input),
-      evidenceTypes: ["receipt"],
-      parkingEventDate: "2026-05-04",
-      pofa: analysis.pofa,
-      modules,
-      sources: LEGAL_SOURCES,
-    });
+    // Even asked for by name, a withdrawn module must not come back:
+    // otherwise a judge selection made before an administrator disabled
+    // it would resurrect it.
+    const restricted = retrievePayment(modules, "2026-05-04", ["KB-PAY-01"]);
 
     expect(drafting.modules.map((m) => m.moduleId)).not.toContain("KB-PAY-01");
-    expect(questioning).toHaveLength(0);
+    expect(restricted.modules.map((m) => m.moduleId)).not.toContain("KB-PAY-01");
   });
 
-  it("ACTIVE module with matching dates is visible to both paths", () => {
+  it("an ACTIVE module with matching dates is visible to both passes", () => {
     const modules = [cloneModule("KB-PAY-01", { status: "ACTIVE" })];
     const drafting = retrievePayment(modules);
-
-    const c = confirmed();
-    const input = {
-      confirmed: c,
-      answers: paymentAnswers(),
-      evidenceTypes: ["receipt"] as string[],
-    };
-    const analysis = analyseCase(input);
-    const requirement = {
-      fact: "payment_method",
-      reasonCode: "TEST",
-      route: "PAYMENT",
-      rationale: "test",
-      kbModules: ["KB-PAY-01"],
-      priority: 1,
-    } as unknown as FactRequirement;
-    const questioning = retrieveForQuestion({
-      requirement,
-      facts: factsForCase(input),
-      evidenceTypes: ["receipt"],
-      parkingEventDate: "2026-05-04",
-      pofa: analysis.pofa,
-      modules,
-      sources: LEGAL_SOURCES,
-    });
+    const restricted = retrievePayment(modules, "2026-05-04", ["KB-PAY-01"]);
 
     expect(drafting.modules.map((m) => m.moduleId)).toContain("KB-PAY-01");
-    expect(questioning.length).toBeGreaterThan(0);
-    expect(questioning[0]?.proposition).toBe(
+    expect(restricted.modules.map((m) => m.moduleId)).toContain("KB-PAY-01");
+    // Same module version, so the same approved wording on both paths.
+    expect(
+      restricted.modules.find((m) => m.moduleId === "KB-PAY-01")?.coreProposition,
+    ).toBe(
       drafting.modules.find((m) => m.moduleId === "KB-PAY-01")?.coreProposition,
     );
   });

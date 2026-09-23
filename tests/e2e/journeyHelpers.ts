@@ -78,84 +78,28 @@ export async function uploadPcn(page: Page): Promise<void> {
 }
 
 /**
- * Answer adaptive questions until the engine reports sufficiency.
+ * Supply the registered keeper's details if the page asks for them.
  *
- * Picks the first offered option for choice questions and types a
- * plausible value for free-text ones. The point is to exercise the
- * loop and the transitions, not to steer the case down a chosen route.
- *
- * Returns the label of every question actually put to the customer, so
- * callers can assert on what was asked.
+ * The adaptive questions are gone; this is the only customer-typed input
+ * left in the journey, and it appears on the evidence page only when the
+ * notice does not already carry the keeper (a windscreen ticket, or one
+ * the classifier could not place). Returns whether the form was shown,
+ * so a caller can assert on it either way.
  */
-export async function answerAllQuestions(page: Page, limit = 30): Promise<string[]> {
-  const done = page.getByTestId("questions-complete-continue");
-  const card = page.getByTestId("adaptive-question");
-  const label = page.getByTestId("question-label");
-  const submit = page.getByTestId("question-continue");
-  const asked: string[] = [];
+export async function fillKeeperDetailsIfAsked(page: Page): Promise<boolean> {
+  const form = page.getByTestId("keeper-details-form");
+  if (!(await form.isVisible().catch(() => false))) return false;
 
-  for (let i = 0; i < limit; i++) {
-    if (await done.isVisible().catch(() => false)) break;
+  await page.locator("#keeper_name").fill("Playwright Keeper");
+  await page.locator("#keeper_address_line1").fill("12 High Street");
+  await page.locator("#keeper_town").fill("Leeds");
+  await page.locator("#keeper_postcode").fill("LS1 2AB");
+  await page.getByTestId("keeper-details-continue").click();
 
-    // Wait for a question that is actually ready to accept an answer.
-    // The submit button is disabled and shows "Saving…" mid-flight, and
-    // the card is replaced wholesale when the next question arrives.
-    try {
-      await card.waitFor({ state: "visible", timeout: 20_000 });
-      await expect(submit).toBeEnabled({ timeout: 20_000 });
-    } catch {
-      if (await done.isVisible().catch(() => false)) break;
-      throw new Error("no answerable question and no completion state");
-    }
-
-    const current = await label.innerText();
-    asked.push(current.trim());
-
-    // Choice options render as aria-pressed buttons inside the card.
-    const options = card.locator("button[aria-pressed]");
-    if ((await options.count()) > 0) {
-      await options.first().click();
-    } else {
-      const text = card.locator(
-        "input[type='text'], input[type='date'], input[type='time'], input[type='number'], textarea",
-      );
-      if ((await text.count()) > 0) {
-        const field = text.first();
-        const type = await field.getAttribute("type");
-        await field.fill(
-          type === "date"
-            ? "2026-07-12"
-            : type === "time"
-              ? "10:42"
-              : type === "number"
-                ? "2"
-                : "KT19 RPI",
-        );
-      }
-    }
-
-    await submit.click();
-
-    /*
-     * Wait for the server to move the case on, rather than guessing at
-     * a delay: either a different question is now showing, or
-     * questioning is complete.
-     */
-    await Promise.race([
-      page
-        .waitForFunction(
-          (prev) =>
-            document.querySelector('[data-testid="question-label"]')?.textContent?.trim() !==
-            prev,
-          current.trim(),
-          { timeout: 30_000 },
-        )
-        .catch(() => null),
-      done.waitFor({ state: "visible", timeout: 30_000 }).catch(() => null),
-    ]);
-  }
-
-  return asked;
+  // The form disappears once the details are saved and the page re-reads
+  // them from the server.
+  await form.waitFor({ state: "hidden", timeout: 30_000 }).catch(() => null);
+  return true;
 }
 
 /** Walk a fresh customer all the way to a paid, generated appeal. */
@@ -169,11 +113,9 @@ export async function completePaidAppeal(
   await page.waitForURL("**/appeal/confirm", { timeout: 60_000 });
   await page.getByTestId("confirm-continue").click();
 
-  await page.waitForURL("**/appeal/questions", { timeout: 30_000 });
-  await answerAllQuestions(page);
-  await page.getByTestId("questions-complete-continue").click();
-
+  // Confirm now goes straight to evidence: there is no questions step.
   await page.waitForURL("**/appeal/evidence", { timeout: 30_000 });
+  await fillKeeperDetailsIfAsked(page);
   await page.getByTestId("evidence-continue").click();
 
   await page.waitForURL("**/appeal/review", { timeout: 30_000 });

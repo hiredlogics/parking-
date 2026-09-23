@@ -265,7 +265,7 @@ export default function EvidencePage() {
           </p>
 
           <div className="mt-8 flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Link href="/appeal/questions" className="btn-brand-ghost">
+            <Link href="/appeal/confirm" className="btn-brand-ghost">
               Back
             </Link>
             <button

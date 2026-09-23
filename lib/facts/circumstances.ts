@@ -3,11 +3,25 @@ import { FACT, factStr } from "@/lib/facts/facts";
 import type { FactRequirement } from "@/lib/facts/requirements";
 
 /**
- * AI case assessment — filters the engine's missing-fact list to what
- * is genuinely needed given the notice + customer circumstances.
+ * Circumstance filtering — narrows a missing-fact list to what the
+ * customer's actual situation makes material.
  *
- * The AI may ONLY remove or re-order facts from the sanctioned list.
- * It may never invent new fact keys.
+ * MOVED HERE from lib/questions/caseAssessment.ts when the question
+ * engine was deleted, and deliberately not deleted with it. It is not
+ * question logic: it decides which facts MATTER given the notice and the
+ * circumstances, which is reasoning about the case. That reasoning now
+ * serves the grounds judge and the operator's outstanding-facts view
+ * rather than a questionnaire.
+ *
+ * The rule it encodes is narrow on purpose. Only three groups are
+ * suppressed when the customer's circumstances do not include them:
+ * permission/residential, and breakdown. Facts that the notice's own
+ * allegation opened -- payment, grace, signage -- are never suppressed,
+ * because an allegation-led line of investigation must not be closed by
+ * the absence of a circumstance tag.
+ *
+ * Nothing here may add a fact key. It filters and reorders a sanctioned
+ * list, never extends it.
  */
 
 /** Facts that are circumstance-led: skip unless the customer selected a matching situation. */

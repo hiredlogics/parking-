@@ -2,12 +2,16 @@ import Link from "next/link";
 
 /**
  * Customer journey steps — matches the client design (5 steps).
- * Internal routes still map to confirm / questions / etc.
+ *
+ * "Your situation" used to be the adaptive questions page, with the
+ * evidence page mapped onto the same position in the chrome because it
+ * was not a step of its own. The questions are gone; evidence is now
+ * that step in its own right, which is also what the customer actually
+ * experiences.
  */
 export type StepKey =
   | "upload"
   | "confirm"
-  | "questions"
   | "evidence"
   | "review"
   | "result";
@@ -15,14 +19,12 @@ export type StepKey =
 const STEPS: { key: StepKey; label: string; href: string }[] = [
   { key: "upload", label: "Upload", href: "/appeal/upload" },
   { key: "confirm", label: "Check details", href: "/appeal/confirm" },
-  { key: "questions", label: "Your situation", href: "/appeal/questions" },
+  { key: "evidence", label: "Your situation", href: "/appeal/evidence" },
   { key: "review", label: "Payment", href: "/appeal/review" },
   { key: "result", label: "Download", href: "/appeal/result" },
 ];
 
-/** Map legacy evidence step onto "Your situation" in the 5-step chrome. */
 function visualIndex(current: StepKey): number {
-  if (current === "evidence") return 2;
   const i = STEPS.findIndex((s) => s.key === current);
   return i >= 0 ? i : 0;
 }

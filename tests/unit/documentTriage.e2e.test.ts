@@ -4,10 +4,9 @@ import {
   mergeTriageResults,
 } from "@/lib/triage/deterministic";
 import { triageBlocksAppealJourney } from "@/types/triage";
-import { filterMissingFactsByCircumstances } from "@/lib/questions/caseAssessment";
+import { filterMissingFactsByCircumstances } from "@/lib/facts/circumstances";
 import { deriveKnownFacts, FACT } from "@/lib/facts/facts";
 import type { FactRequirement } from "@/lib/facts/requirements";
-import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
 
 describe("document triage — Debt Recovery Plus", () => {
   it("classifies DRP letter as wrong-stage debt recovery", () => {
@@ -131,28 +130,3 @@ describe("circumstance assessment filter — grace only", () => {
   });
 });
 
-describe("dynamicEngine + triage gate", () => {
-  it("stops questioning when triage says wrong stage", async () => {
-    const out = await nextDynamicQuestion({
-      confirmed: {
-        operator_name: "Debt Recovery Plus Ltd",
-        pcn_number: "3438817",
-        vrm: "KJ24FRV",
-        parking_location: "SEARS RETAIL PARK",
-        parking_event_date: "2026-05-04",
-        charge_amount: 170,
-        case_stage: "INITIAL_OPERATOR_APPEAL",
-        confirmedAt: new Date().toISOString(),
-      },
-      answers: {},
-      provider: null,
-      triage: assessDocumentDeterministic({
-        operatorName: "Debt Recovery Plus Ltd",
-      }),
-    });
-    expect(out.status).toBe("OUT_OF_SCOPE");
-    if (out.status === "OUT_OF_SCOPE") {
-      expect(out.scope.detail).toMatch(/not suitable|later stage/i);
-    }
-  });
-});

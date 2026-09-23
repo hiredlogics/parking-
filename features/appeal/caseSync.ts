@@ -3,8 +3,6 @@
 import type { ConfirmedPcn, ExtractionResult } from "@/types";
 import type { CustomerCaseState } from "@/lib/cases/types";
 import type { AppealCaseStatus } from "@/types/caseState";
-import type { AnswerValue } from "@/lib/facts/types";
-import type { Question } from "@/lib/questions/types";
 
 /**
  * Client helpers for the server-backed case.
@@ -149,47 +147,14 @@ export function confirmCase(caseId: string, confirmed: ConfirmedPcn) {
   });
 }
 
-export interface QuestionStep {
-  questioningComplete: boolean;
-  question: Question | null;
-  answered: number;
-  outstandingCount: number;
-  outOfScope: { detail: string } | null;
-  /** Set when the case needs a person rather than more questions. */
-  needsReview: { detail: string } | null;
-}
-
 /**
- * Ask the server for the next question.
+ * Save the registered keeper's name and address, or another profile
+ * field collected directly from the customer.
  *
- * POST because resolving one can call the model and always writes a
- * row. Still idempotent — an unanswered question is served again.
+ * The only remaining write of customer-typed facts. `fetchNextQuestion`,
+ * `submitAnswer` and `correctRegisteredKeeper` went with the question
+ * engine; their endpoints no longer exist.
  */
-export function fetchNextQuestion(caseId: string) {
-  return call<QuestionStep>(`/api/cases/${caseId}/questions/next`, {
-    method: "POST",
-  });
-}
-
-export function submitAnswer(
-  caseId: string,
-  questionId: string,
-  value: AnswerValue,
-) {
-  return call<QuestionStep>(`/api/cases/${caseId}/answers`, {
-    method: "POST",
-    body: JSON.stringify({ questionId, value }),
-  });
-}
-
-/** Fix a mistaken "not the registered keeper" answer and continue. */
-export function correctRegisteredKeeper(caseId: string) {
-  return call<QuestionStep>(`/api/cases/${caseId}/answers/correct-keeper`, {
-    method: "POST",
-  });
-}
-
-/** Save registered-keeper name + address (windscreen form) or other profile fields. */
 export function saveKeeperProfile(
   caseId: string,
   profile: {

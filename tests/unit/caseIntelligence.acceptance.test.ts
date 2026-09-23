@@ -7,7 +7,6 @@
 import { describe, expect, it } from "vitest";
 import { buildCaseIntelligence } from "@/lib/cases/caseIntelligence";
 import { assessPossibleLateNoticeFromDates } from "@/lib/analysis/pofa";
-import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
 import { FACT } from "@/lib/facts/facts";
 
 describe("Case Intelligence — late notice before questions", () => {
@@ -58,52 +57,6 @@ describe("Case Intelligence — late notice before questions", () => {
     });
     expect(issue.missingFacts.length).toBeGreaterThan(0);
     expect(intelligence.knowledgeRefs.length).toBeGreaterThan(0);
-  });
-
-  it("question engine receives intelligence and prioritises late-notice clarifications", async () => {
-    const confirmed = {
-      operator_name: "ParkingEye Ltd",
-      pcn_number: "PE123",
-      vrm: "AB12CDE",
-      parking_location: "Retail Park",
-      parking_event_date: "2026-05-01",
-      notice_issue_date: "2026-05-20",
-      notice_route: "POSTAL" as const,
-      case_stage: "INITIAL_OPERATOR_APPEAL" as const,
-      confirmedAt: new Date().toISOString(),
-    };
-    const intelligence = buildCaseIntelligence({ confirmed, answers: {} });
-    expect(
-      intelligence.identifiedIssues.some((i) => i.code === "possible_late_notice"),
-    ).toBe(true);
-
-    const out = await nextDynamicQuestion({
-      confirmed,
-      answers: {},
-      provider: null,
-      caseIntelligence: intelligence,
-    });
-
-    // Must ask something — clarifications for the late-notice ground — not skip.
-    expect(out.status).toBe("QUESTION_REQUIRED");
-    if (out.status === "QUESTION_REQUIRED") {
-      expect(out.eligibleRoutes).toContain("POFA");
-      // First questions should include keeper/driver/jurisdiction-style facts,
-      // not residential permission.
-      expect([
-        FACT.REGISTERED_KEEPER,
-        FACT.DRIVER_IDENTIFIED,
-        FACT.JURISDICTION,
-        FACT.VEHICLE_HIRE_STATUS,
-        FACT.NOTICE_ROUTE,
-        FACT.SCENARIOS,
-      ]).toContain(out.targetFact);
-      expect([
-        FACT.PERMISSION_HELD,
-        FACT.OCCUPIER_STATUS,
-        FACT.AGREEMENT_UPLOADED,
-      ]).not.toContain(out.targetFact);
-    }
   });
 
   it("timely notice does not invent possible_late_notice", () => {
