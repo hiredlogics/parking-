@@ -6,7 +6,7 @@ import {
   classifyAllegation,
   type AllegationClassification,
 } from "./allegation";
-import { routesFromEvidence, type DerivedFact } from "./evidenceFacts";
+import { routesFromEvidence, type DerivedFact } from "@/lib/facts/fromEvidence";
 
 /**
  * Route candidacy.

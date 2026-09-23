@@ -1,6 +1,11 @@
 import type { ConfirmedPcn } from "@/types";
 import type { AnswerMap, AnswerValue, FactSource, KnownFacts } from "./types";
 import { resolveUkJurisdiction } from "./jurisdiction";
+import {
+  deriveFactsFromEvidence,
+  establishedFacts,
+  tagsFromEvidence,
+} from "./fromEvidence";
 
 /**
  * Material fact keys.
@@ -200,6 +205,24 @@ export function deriveKnownFacts(input: {
     }
   }
 
+  /*
+   * Facts the uploaded evidence establishes.
+   *
+   * Applied BEFORE answers so a real answer always wins on conflict:
+   * a customer who says no payment was made outranks a receipt that
+   * happens to be on the case. These carry provenance "document", which
+   * VAL-FACT admits — the document is the grounding.
+   */
+  const evidenceTypes = input.evidenceTypes ?? [];
+  if (evidenceTypes.length > 0) {
+    const fromDocs = establishedFacts(deriveFactsFromEvidence(evidenceTypes));
+    for (const [k, v] of Object.entries(fromDocs)) {
+      if (!isEstablished(v)) continue;
+      values[k] = v;
+      provenance[k] = "document";
+    }
+  }
+
   // Answers override / add to notice facts. Provenance defaults to
   // "answer" (a genuine customer answer) unless the caller overrides a
   // specific key — e.g. a system default filled in because nothing
@@ -209,6 +232,26 @@ export function deriveKnownFacts(input: {
     if (isEstablished(v)) {
       values[k] = v;
       provenance[k] = input.answerProvenance?.[k] ?? "answer";
+    }
+  }
+
+  /*
+   * Scenario tags the evidence establishes, unioned with any the
+   * customer selected. Unioned rather than overriding, because a tag is
+   * a line of enquiry being open, not a value to be replaced — and the
+   * customer's own selections must never be narrowed by a derivation.
+   */
+  if (evidenceTypes.length > 0) {
+    const derivedTags = tagsFromEvidence(evidenceTypes);
+    if (derivedTags.length > 0) {
+      const existing = Array.isArray(values[FACT.SCENARIOS])
+        ? (values[FACT.SCENARIOS] as string[])
+        : [];
+      const union = [...new Set([...existing, ...derivedTags])].sort();
+      values[FACT.SCENARIOS] = union;
+      // Only claim "document" when nothing else had set the fact; a
+      // customer selection that we merely added to stays theirs.
+      if (existing.length === 0) provenance[FACT.SCENARIOS] = "document";
     }
   }
 

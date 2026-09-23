@@ -20,7 +20,7 @@ import {
   establishedFacts,
   factsNeedingConfirmation,
   type DerivedFact,
-} from "./evidenceFacts";
+} from "@/lib/facts/fromEvidence";
 import { assessCandidacy, type RouteCandidacy } from "./routeCandidacy";
 import { scoreInformationGain, type GainScore } from "./informationGain";
 import type { AppealCase, CaseDocument, ServiceType } from "@/lib/cases/types";

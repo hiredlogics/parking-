@@ -17,7 +17,7 @@ import {
   deriveFactsFromEvidence,
   establishedFacts,
   factsNeedingConfirmation,
-} from "@/lib/reasoning/evidenceFacts";
+} from "@/lib/facts/fromEvidence";
 import { fallbackQuestionFor } from "./fallback";
 import {
   summariseFailures,

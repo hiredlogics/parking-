@@ -13,7 +13,7 @@ import {
   establishedFacts,
   factsNeedingConfirmation,
   routesFromEvidence,
-} from "@/lib/reasoning/evidenceFacts";
+} from "@/lib/facts/fromEvidence";
 import { assessCandidacy } from "@/lib/reasoning/routeCandidacy";
 import { scoreInformationGain } from "@/lib/reasoning/informationGain";
 import { nextDynamicQuestion } from "@/lib/questions/dynamicEngine";
