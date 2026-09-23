@@ -247,7 +247,6 @@ describe("Admin issue engine parity", () => {
     ["RESIDENTIAL", "residential", FACT.OCCUPIER_STATUS, "KB-RES-01"],
     ["AUTHORISATION", "permit", FACT.PERMISSION_HELD, "KB-AUTH-01"],
     ["EQUALITY", "equality", FACT.ADDITIONAL_TIME_NEEDED, "KB-EQ-01"],
-    ["POFA", "keeper", FACT.REGISTERED_KEEPER, "KB-POFA-01"],
   ] as const)(
     "%s activates from tag and exposes required fact + knowledge",
     async (code, tag, factKey, moduleId) => {
@@ -259,6 +258,25 @@ describe("Admin issue engine parity", () => {
       expect(r.applicableModuleIds).toContain(moduleId);
     },
   );
+
+  it("POFA activates from tag and resolves keeper facts via SYSTEM_SAFE_DEFAULT, asking no question", async () => {
+    const r = await evaluateIssues({
+      facts: facts({ [FACT.SCENARIOS]: ["keeper"] }, ["keeper"]),
+    });
+    expect(r.activeIssues.map((i) => i.code)).toContain("POFA");
+    expect(r.applicableModuleIds).toContain("KB-POFA-01");
+    // The zero-question path: registered keeper / driver-not-identified are
+    // the product default, not a customer-asked question — so neither is
+    // reported missing, and their provenance is explicit and overridable.
+    expect(r.missingFacts.map((m) => m.factKey)).not.toContain(FACT.REGISTERED_KEEPER);
+    expect(r.missingFacts.map((m) => m.factKey)).not.toContain(FACT.DRIVER_IDENTIFIED);
+    expect(r.appliedDefaults).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ factKey: FACT.REGISTERED_KEEPER, reasonCode: "SYSTEM_SAFE_DEFAULT" }),
+        expect.objectContaining({ factKey: FACT.DRIVER_IDENTIFIED, reasonCode: "SYSTEM_SAFE_DEFAULT" }),
+      ]),
+    );
+  });
 
   it("is sufficient only when active issue facts are resolved", async () => {
     const r = await evaluateIssues({

@@ -9,6 +9,8 @@ import { OUTCOME_STATEMENTS } from "./outcomeSchema";
 import { USAGE_STATEMENTS } from "./usageSchema";
 import { ADMIN_CONFIG_STATEMENTS } from "./adminConfigSchema";
 import { PASSWORD_RESET_STATEMENTS } from "./passwordResetSchema";
+import { RULE_GRAPH_STATEMENTS, VECTOR_STATEMENTS } from "./ruleGraphSchema";
+import { AI_CONFIG_STATEMENTS } from "./aiConfigSchema";
 
 /**
  * Idempotent DDL. Runs on demand from ensureSchema(); safe to call from
@@ -287,6 +289,10 @@ const STATEMENTS = [
   /* Admin-driven config + first-class case_appeals + email outbox. */
   ...ADMIN_CONFIG_STATEMENTS,
   ...PASSWORD_RESET_STATEMENTS,
+  /* Admin-managed rule graph: conditions, fact registry, traceability. */
+  ...RULE_GRAPH_STATEMENTS,
+  /* Live AI provider/model configuration. */
+  ...AI_CONFIG_STATEMENTS,
 ];
 
 let ensured: Promise<void> | null = null;
@@ -326,11 +332,13 @@ const SENTINEL_COLUMN = {
  * `CREATE ... IF NOT EXISTS`) and runs once per version bump, on new
  * and existing databases alike. Bump SCHEMA_VERSION when you append.
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 5;
 
 const ADDITIVE_STATEMENTS: string[] = [
   ...CASE_V2_STATEMENTS,
   ...PASSWORD_RESET_STATEMENTS,
+  ...RULE_GRAPH_STATEMENTS,
+  ...AI_CONFIG_STATEMENTS,
 ];
 
 const SCHEMA_META_DDL = `CREATE TABLE IF NOT EXISTS schema_meta (
@@ -394,6 +402,22 @@ export async function ensureSchema(): Promise<void> {
       }
     } else {
       return;
+    }
+
+    /*
+     * pgvector last, and never fatal. `CREATE EXTENSION` needs a
+     * privilege some hosts withhold; losing semantic retrieval is
+     * recoverable, losing the rest of the schema is not.
+     */
+    for (const stmt of VECTOR_STATEMENTS) {
+      try {
+        await sql.query(stmt);
+      } catch (err) {
+        console.warn(
+          "[schema] optional vector object skipped:",
+          err instanceof Error ? err.message : String(err),
+        );
+      }
     }
 
     await sql.query(

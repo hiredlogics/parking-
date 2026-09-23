@@ -45,6 +45,16 @@ export interface IssueRow {
   sortOrder: number;
   triggerTags: string[];
   version: number;
+  /**
+   * Declarative applicability, evaluated by lib/rules/conditions.ts.
+   * NULL means "not yet migrated" — the engine falls back to
+   * trigger_tags matching so an unconfigured issue never goes dark.
+   */
+  applicabilityCondition: unknown;
+  /** Matching this excludes the issue even if applicability matched. */
+  exclusionCondition: unknown;
+  /** Per-issue tunables (e.g. POFA day-count thresholds). */
+  configJson: Record<string, unknown>;
 }
 
 export interface IssueFactRow {
@@ -55,6 +65,12 @@ export interface IssueFactRow {
   priority: number;
   evidenceTypes: string[];
   status: string;
+  /** Fact is required only when this matches. NULL = always (once active). */
+  requiredWhen: unknown;
+  /** Fact is never asked when this matches, even if required_when holds. */
+  skipWhen: unknown;
+  /** True = strengthens the appeal but never blocks sufficiency/payment. */
+  optional: boolean;
 }
 
 export interface IssueKnowledgeRow {
@@ -144,6 +160,23 @@ export async function upsertService(input: {
   return row;
 }
 
+function rowToIssue(r: Row): IssueRow {
+  return {
+    id: r.id as string,
+    serviceId: r.service_id as string,
+    code: r.code as string,
+    label: r.label as string,
+    description: (r.description as string | null) ?? null,
+    status: r.status as string,
+    sortOrder: Number(r.sort_order ?? 100),
+    triggerTags: asArray(r.trigger_tags),
+    version: Number(r.version ?? 1),
+    applicabilityCondition: r.applicability_json ?? null,
+    exclusionCondition: r.exclusion_json ?? null,
+    configJson: (r.config_json as Record<string, unknown>) ?? {},
+  };
+}
+
 export async function listIssues(
   serviceId: string,
   onlyActive = true,
@@ -155,17 +188,7 @@ export async function listIssues(
     `SELECT * FROM issues ${where} ORDER BY sort_order, code`,
     [serviceId],
   );
-  return rows.map((r) => ({
-    id: r.id as string,
-    serviceId: r.service_id as string,
-    code: r.code as string,
-    label: r.label as string,
-    description: (r.description as string | null) ?? null,
-    status: r.status as string,
-    sortOrder: Number(r.sort_order ?? 100),
-    triggerTags: asArray(r.trigger_tags),
-    version: Number(r.version ?? 1),
-  }));
+  return rows.map(rowToIssue);
 }
 
 export async function upsertIssue(input: {
@@ -214,18 +237,111 @@ export async function upsertIssue(input: {
     `SELECT * FROM issues WHERE service_id = $1 AND code = $2`,
     [input.serviceId, input.code],
   );
-  const r = rows[0]!;
-  return {
-    id: r.id as string,
-    serviceId: r.service_id as string,
-    code: r.code as string,
-    label: r.label as string,
-    description: (r.description as string | null) ?? null,
-    status: r.status as string,
-    sortOrder: Number(r.sort_order ?? 100),
-    triggerTags: asArray(r.trigger_tags),
-    version: Number(r.version ?? 1),
-  };
+  return rowToIssue(rows[0]!);
+}
+
+/**
+ * Set an issue's declarative applicability/exclusion/config — the
+ * columns that make it Admin-driven rather than TypeScript-driven.
+ *
+ * Archives the previous state into `issue_revisions` first, so a
+ * "change a rule" test can restore the exact prior condition, and so a
+ * completed appeal's snapshot never has to guess what the rule looked
+ * like when it ran.
+ */
+export async function setIssueApplicability(input: {
+  issueId: string;
+  applicabilityCondition?: unknown;
+  exclusionCondition?: unknown;
+  configJson?: Record<string, unknown>;
+  changeNote?: string | null;
+  changedBy?: string | null;
+}): Promise<IssueRow> {
+  const now = new Date().toISOString();
+  const current = await q(`SELECT * FROM issues WHERE id = $1`, [
+    input.issueId,
+  ]);
+  if (!current[0]) throw new Error(`issue not found: ${input.issueId}`);
+  const before = current[0];
+
+  await q(
+    `INSERT INTO issue_revisions (issue_id, version, snapshot_json, archived_at, archived_by, change_note)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     ON CONFLICT (issue_id, version) DO NOTHING`,
+    [
+      input.issueId,
+      Number(before.version ?? 1),
+      JSON.stringify(before),
+      now,
+      input.changedBy ?? null,
+      input.changeNote ?? null,
+    ],
+  );
+
+  const sets: string[] = [];
+  const params: unknown[] = [input.issueId];
+  if (input.applicabilityCondition !== undefined) {
+    params.push(JSON.stringify(input.applicabilityCondition));
+    sets.push(`applicability_json = $${params.length}`);
+  }
+  if (input.exclusionCondition !== undefined) {
+    params.push(JSON.stringify(input.exclusionCondition));
+    sets.push(`exclusion_json = $${params.length}`);
+  }
+  if (input.configJson !== undefined) {
+    params.push(JSON.stringify(input.configJson));
+    sets.push(`config_json = $${params.length}`);
+  }
+  params.push(input.changeNote ?? null);
+  sets.push(`change_note = $${params.length}`);
+  params.push(input.changedBy ?? null);
+  sets.push(`created_by = $${params.length}`);
+  params.push(now);
+  sets.push(`updated_at = $${params.length}`, `version = version + 1`);
+
+  await q(`UPDATE issues SET ${sets.join(", ")} WHERE id = $1`, params);
+  await invalidateServiceGraphCache();
+
+  const rows = await q(`SELECT * FROM issues WHERE id = $1`, [input.issueId]);
+  return rowToIssue(rows[0]!);
+}
+
+/** Restore an issue to a prior archived version (undo a rule change). */
+export async function restoreIssueRevision(
+  issueId: string,
+  version: number,
+): Promise<IssueRow> {
+  const rows = await q(
+    `SELECT snapshot_json FROM issue_revisions WHERE issue_id = $1 AND version = $2`,
+    [issueId, version],
+  );
+  if (!rows[0]) {
+    throw new Error(`no archived version ${version} for issue ${issueId}`);
+  }
+  const snap = rows[0].snapshot_json as Record<string, unknown>;
+  const now = new Date().toISOString();
+  await q(
+    `UPDATE issues SET
+       label = $2, description = $3, status = $4, sort_order = $5,
+       trigger_tags = $6, applicability_json = $7, exclusion_json = $8,
+       config_json = $9, updated_at = $10, version = version + 1
+     WHERE id = $1`,
+    [
+      issueId,
+      snap.label,
+      snap.description ?? null,
+      snap.status,
+      snap.sort_order ?? 100,
+      JSON.stringify(asArray(snap.trigger_tags)),
+      JSON.stringify(snap.applicability_json ?? null),
+      JSON.stringify(snap.exclusion_json ?? null),
+      JSON.stringify(snap.config_json ?? {}),
+      now,
+    ],
+  );
+  await invalidateServiceGraphCache();
+  const rows2 = await q(`SELECT * FROM issues WHERE id = $1`, [issueId]);
+  return rowToIssue(rows2[0]!);
 }
 
 export async function listIssueFacts(
@@ -247,6 +363,9 @@ export async function listIssueFacts(
     priority: Number(r.priority ?? 100),
     evidenceTypes: asArray(r.evidence_types),
     status: r.status as string,
+    requiredWhen: r.required_when ?? null,
+    skipWhen: r.skip_when ?? null,
+    optional: Boolean(r.optional),
   }));
 }
 
@@ -257,6 +376,9 @@ export async function upsertIssueFact(input: {
   priority?: number;
   evidenceTypes?: string[];
   status?: string;
+  requiredWhen?: unknown;
+  skipWhen?: unknown;
+  optional?: boolean;
   /** Bootstrap seeding only — insert if absent, never overwrite an admin edit. */
   seedOnly?: boolean;
 }): Promise<void> {
@@ -269,12 +391,15 @@ export async function upsertIssueFact(input: {
        priority = EXCLUDED.priority,
        evidence_types = EXCLUDED.evidence_types,
        status = EXCLUDED.status,
+       required_when = EXCLUDED.required_when,
+       skip_when = EXCLUDED.skip_when,
+       optional = EXCLUDED.optional,
        updated_at = EXCLUDED.updated_at`;
   await q(
     `INSERT INTO issue_required_facts (
        id, issue_id, fact_key, reason_code, priority, evidence_types,
-       status, created_at, updated_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8)
+       status, required_when, skip_when, optional, created_at, updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)
      ${onConflict}`,
     [
       id,
@@ -284,6 +409,9 @@ export async function upsertIssueFact(input: {
       input.priority ?? 100,
       JSON.stringify(input.evidenceTypes ?? []),
       input.status ?? "ACTIVE",
+      JSON.stringify(input.requiredWhen ?? {}),
+      input.skipWhen != null ? JSON.stringify(input.skipWhen) : null,
+      input.optional ?? false,
       now,
     ],
   );
@@ -320,6 +448,107 @@ export async function linkIssueKnowledge(
      VALUES ($1,$2,$3,$4)
      ${onConflict}`,
     [issueId, moduleId, status, now],
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Fact defaults — Admin-managed controlled assumptions                */
+/* ------------------------------------------------------------------ */
+
+export interface FactDefaultRow {
+  id: string;
+  serviceId: string | null;
+  factKey: string;
+  condition: unknown;
+  defaultValue: unknown;
+  reasonCode: string;
+  priority: number;
+  status: string;
+  version: number;
+}
+
+function rowToFactDefault(r: Row): FactDefaultRow {
+  return {
+    id: r.id as string,
+    serviceId: (r.service_id as string | null) ?? null,
+    factKey: r.fact_key as string,
+    condition: r.condition_json ?? null,
+    defaultValue: r.default_value,
+    reasonCode: (r.reason_code as string) ?? "SYSTEM_SAFE_DEFAULT",
+    priority: Number(r.priority ?? 100),
+    status: r.status as string,
+    version: Number(r.version ?? 1),
+  };
+}
+
+export async function listFactDefaults(
+  serviceId?: string | null,
+  onlyActive = true,
+): Promise<FactDefaultRow[]> {
+  const where = onlyActive ? `WHERE status = 'ACTIVE'` : `WHERE TRUE`;
+  const serviceFilter = serviceId
+    ? ` AND (service_id = $1 OR service_id IS NULL)`
+    : ``;
+  const rows = await q(
+    `SELECT * FROM fact_defaults ${where}${serviceFilter} ORDER BY priority, fact_key`,
+    serviceId ? [serviceId] : [],
+  );
+  return rows.map(rowToFactDefault);
+}
+
+export async function upsertFactDefault(input: {
+  id?: string;
+  serviceId?: string | null;
+  factKey: string;
+  condition?: unknown;
+  defaultValue: unknown;
+  reasonCode?: string;
+  priority?: number;
+  status?: string;
+  /** Bootstrap seeding only — insert if absent, never overwrite an admin edit. */
+  seedOnly?: boolean;
+}): Promise<FactDefaultRow> {
+  const now = new Date().toISOString();
+  const id = input.id ?? `fd_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  const onConflict = input.seedOnly
+    ? `ON CONFLICT (id) DO NOTHING`
+    : `ON CONFLICT (id) DO UPDATE SET
+       condition_json = EXCLUDED.condition_json,
+       default_value = EXCLUDED.default_value,
+       reason_code = EXCLUDED.reason_code,
+       priority = EXCLUDED.priority,
+       status = EXCLUDED.status,
+       version = fact_defaults.version + 1,
+       updated_at = EXCLUDED.updated_at`;
+  await q(
+    `INSERT INTO fact_defaults (
+       id, service_id, fact_key, condition_json, default_value,
+       reason_code, priority, status, version, created_at, updated_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1,$9,$9)
+     ${onConflict}`,
+    [
+      id,
+      input.serviceId ?? null,
+      input.factKey,
+      input.condition != null ? JSON.stringify(input.condition) : null,
+      JSON.stringify(input.defaultValue),
+      input.reasonCode ?? "SYSTEM_SAFE_DEFAULT",
+      input.priority ?? 100,
+      input.status ?? "ACTIVE",
+      now,
+    ],
+  );
+  const rows = await q(`SELECT * FROM fact_defaults WHERE id = $1`, [id]);
+  return rowToFactDefault(rows[0]!);
+}
+
+export async function setFactDefaultStatus(
+  id: string,
+  status: string,
+): Promise<void> {
+  await q(
+    `UPDATE fact_defaults SET status = $2, updated_at = $3 WHERE id = $1`,
+    [id, status, new Date().toISOString()],
   );
 }
 
@@ -408,6 +637,13 @@ export async function getActivePrompt(
   };
 }
 
+/**
+ * Validator codes that can never be disabled or downgraded, however the
+ * request is shaped. VAL-DRIVER is the keeper-safety check — the one
+ * validator this product cannot ship without.
+ */
+const IMMUTABLE_VALIDATOR_CODES = new Set(["VAL-DRIVER"]);
+
 export async function upsertValidationRule(input: {
   code: string;
   label: string;
@@ -417,6 +653,15 @@ export async function upsertValidationRule(input: {
   /** Bootstrap seeding only — insert if absent, never overwrite an admin edit. */
   seedOnly?: boolean;
 }): Promise<void> {
+  if (
+    IMMUTABLE_VALIDATOR_CODES.has(input.code) &&
+    !input.seedOnly &&
+    ((input.status ?? "ACTIVE") !== "ACTIVE" || (input.severity ?? "BLOCKING") !== "BLOCKING")
+  ) {
+    throw new Error(
+      `${input.code} is a non-negotiable safety validator and cannot be disabled or downgraded.`,
+    );
+  }
   const now = new Date().toISOString();
   const onConflict = input.seedOnly
     ? `ON CONFLICT (code) DO NOTHING`
@@ -442,6 +687,27 @@ export async function upsertValidationRule(input: {
       now,
     ],
   );
+}
+
+export interface ValidationRuleRow {
+  code: string;
+  label: string;
+  severity: string;
+  status: string;
+  configJson: Record<string, unknown>;
+  version: number;
+}
+
+export async function listValidationRules(): Promise<ValidationRuleRow[]> {
+  const rows = await q(`SELECT * FROM validation_rules ORDER BY code`);
+  return rows.map((r) => ({
+    code: r.code as string,
+    label: r.label as string,
+    severity: (r.severity as string) ?? "BLOCKING",
+    status: (r.status as string) ?? "ACTIVE",
+    configJson: (r.config_json as Record<string, unknown>) ?? {},
+    version: Number(r.version ?? 1),
+  }));
 }
 
 export async function upsertEmailTemplate(input: {
@@ -500,7 +766,7 @@ export async function getEmailTemplate(code: string): Promise<{
 }
 
 /** Full active graph for one service — used by the generic issue engine. */
-export async function loadServiceGraph(serviceCode: string): Promise<{
+export interface ServiceGraph {
   service: ServiceRow;
   issues: Array<
     IssueRow & {
@@ -508,19 +774,22 @@ export async function loadServiceGraph(serviceCode: string): Promise<{
       knowledge: IssueKnowledgeRow[];
     }
   >;
-} | null> {
-  const cacheKey = `svcgraph:v1:${serviceCode}`;
+  factDefaults: FactDefaultRow[];
+}
+
+/**
+ * Full active graph for one service — used by the generic issue
+ * engine. This, plus lib/rules/conditions.ts, is the single business
+ * authority: an issue's applicability, a fact's requirement, and a
+ * case's controlled defaults are all rows here, not TypeScript.
+ */
+export async function loadServiceGraph(
+  serviceCode: string,
+): Promise<ServiceGraph | null> {
+  const cacheKey = `svcgraph:v2:${serviceCode}`;
   try {
     const { cacheGetJson } = await import("@/lib/cache/store");
-    const cached = await cacheGetJson<{
-      service: ServiceRow;
-      issues: Array<
-        IssueRow & {
-          facts: IssueFactRow[];
-          knowledge: IssueKnowledgeRow[];
-        }
-      >;
-    }>(cacheKey);
+    const cached = await cacheGetJson<ServiceGraph>(cacheKey);
     if (cached?.service) return cached;
   } catch {
     // Cache is optional.
@@ -529,14 +798,17 @@ export async function loadServiceGraph(serviceCode: string): Promise<{
   const service = await getServiceByCode(serviceCode);
   if (!service || service.status !== "ACTIVE") return null;
   const issues = await listIssues(service.id, true);
-  const enriched = await Promise.all(
-    issues.map(async (issue) => ({
-      ...issue,
-      facts: await listIssueFacts(issue.id, true),
-      knowledge: await listIssueKnowledge(issue.id, true),
-    })),
-  );
-  const graph = { service, issues: enriched };
+  const [enriched, factDefaults] = await Promise.all([
+    Promise.all(
+      issues.map(async (issue) => ({
+        ...issue,
+        facts: await listIssueFacts(issue.id, true),
+        knowledge: await listIssueKnowledge(issue.id, true),
+      })),
+    ),
+    listFactDefaults(service.id, true),
+  ]);
+  const graph: ServiceGraph = { service, issues: enriched, factDefaults };
 
   try {
     const { cacheSetJson } = await import("@/lib/cache/store");
@@ -553,8 +825,8 @@ export async function invalidateServiceGraphCache(
 ): Promise<void> {
   try {
     const { cacheDel, cacheDelPrefix } = await import("@/lib/cache/store");
-    if (serviceCode) await cacheDel(`svcgraph:v1:${serviceCode}`);
-    else await cacheDelPrefix("svcgraph:v1:");
+    if (serviceCode) await cacheDel(`svcgraph:v2:${serviceCode}`);
+    else await cacheDelPrefix("svcgraph:v2:");
   } catch {
     // ignore
   }

@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import type { ExtractedPcn, ExtractionResult, NoticeRoute } from "@/types";
 import type { DocumentExtractionProvider } from "./types";
 import { modelFor } from "@/services/ai/models";
-import { withTransientRetry } from "@/services/ai/transport";
+import { callWithModelFallback } from "@/services/ai/modelFallback";
 import { recordAiUsage } from "@/lib/ai/usage";
 
 /**
@@ -71,41 +71,42 @@ export class OpenAIExtractionProvider implements DocumentExtractionProvider {
             file_data: `data:${mime};base64,${b64}`,
           });
 
-    const response = await withTransientRetry(
-      () => this.client.responses.create({
-      model: this.model,
-      // Keep temperature at 0 for deterministic extraction.
-      temperature: 0,
-      input: [
-        {
-          role: "system",
-          content: [{ type: "input_text", text: SYSTEM_PROMPT }],
-        },
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text: USER_PROMPT },
-            contentItem,
+    const { result: response, model } = await callWithModelFallback(
+      "EXTRACTION",
+      (model) =>
+        this.client.responses.create({
+          model,
+          // Keep temperature at 0 for deterministic extraction.
+          temperature: 0,
+          input: [
+            {
+              role: "system",
+              content: [{ type: "input_text", text: SYSTEM_PROMPT }],
+            },
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: USER_PROMPT },
+                contentItem,
+              ],
+            },
           ],
-        },
-      ],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "pcn_extraction",
-          schema: PCN_JSON_SCHEMA,
-          strict: true,
-        },
-      },
-      }),
-      { operation: "EXTRACTION" },
+          text: {
+            format: {
+              type: "json_schema",
+              name: "pcn_extraction",
+              schema: PCN_JSON_SCHEMA,
+              strict: true,
+            },
+          },
+        }),
     );
 
     await recordAiUsage({
       caseId: file.caseId ?? null,
       operation: "EXTRACTION",
       provider: "openai",
-      model: this.model,
+      model,
       inputTokens: response.usage?.input_tokens,
       cachedInputTokens:
         response.usage?.input_tokens_details?.cached_tokens ?? 0,

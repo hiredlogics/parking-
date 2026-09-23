@@ -18,6 +18,23 @@ import { ensureSchema } from "@/lib/db/schema";
 
 const PRIVATE_PARKING = "PRIVATE_PARKING_INITIAL_APPEAL";
 
+/** Real validator codes (lib/kb/types.ts ALL_VALIDATOR_CODES), with labels. */
+const VALIDATOR_SEEDS: Array<{ code: string; label: string }> = [
+  { code: "VAL-DRIVER", label: "Keeper-safe wording (driver never identified)" },
+  { code: "VAL-FACT", label: "Fact-grounded claims only" },
+  { code: "VAL-EVIDENCE", label: "Evidence claimed as enclosed must actually be available" },
+  { code: "VAL-POFA", label: "PoFA defect claims require route-specific verification" },
+  { code: "VAL-CODE", label: "Code rule/version applied only with a valid applicability check" },
+  { code: "VAL-RES", label: "Lease/tenancy wording must be accurate, not invented" },
+  { code: "VAL-BREAK", label: "Breakdown frustration claims require genuine-prevention facts" },
+  { code: "VAL-EQ", label: "Equality Act grounds require supporting facts" },
+  { code: "VAL-ANPR", label: "ANPR calibration/maintenance claims require a factual trigger" },
+  { code: "VAL-STAGE", label: "No POPLA/IAS/court language in an initial operator appeal" },
+  { code: "VAL-CONFLICT", label: "No contradictory dates, payment, duration, permit or account facts" },
+  { code: "VAL-REPETITION", label: "No repeating the same point across multiple grounds" },
+  { code: "VAL-UNSUPPORTED", label: "Every legal proposition/authority must be in approved material" },
+];
+
 interface IssueSeed {
   code: string;
   label: string;
@@ -367,20 +384,20 @@ Parking Appeals Group`,
       seedOnly: true,
     });
 
-    await upsertValidationRule({
-      code: "KEEPER_SAFE",
-      label: "Keeper-safe wording",
-      severity: "BLOCKING",
-      status: "ACTIVE",
-      seedOnly: true,
-    });
-    await upsertValidationRule({
-      code: "FACT_GROUNDED",
-      label: "Fact-grounded claims only",
-      severity: "BLOCKING",
-      status: "ACTIVE",
-      seedOnly: true,
-    });
+    // Seed every real validator code (lib/kb/types.ts ALL_VALIDATOR_CODES) so
+    // an admin sees — and can act on — the validators that actually run.
+    // VAL-DRIVER is seeded ACTIVE/BLOCKING like the rest, but the engine
+    // (lib/validation/ruleConfig.ts) refuses to let it be disabled or
+    // downgraded regardless of what this row says.
+    for (const seed of VALIDATOR_SEEDS) {
+      await upsertValidationRule({
+        code: seed.code,
+        label: seed.label,
+        severity: "BLOCKING",
+        status: "ACTIVE",
+        seedOnly: true,
+      });
+    }
 
     await insertPromptIfAbsent({
       purpose: "DRAFTING",

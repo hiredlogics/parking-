@@ -19,6 +19,7 @@
 
 export type AiOperation =
   | "EXTRACTION"
+  | "TRIAGE"
   | "QUESTION_GENERATION"
   | "ANALYSIS"
   | "DRAFTING"
@@ -26,6 +27,7 @@ export type AiOperation =
 
 export const AI_OPERATIONS: readonly AiOperation[] = [
   "EXTRACTION",
+  "TRIAGE",
   "QUESTION_GENERATION",
   "ANALYSIS",
   "DRAFTING",
@@ -34,6 +36,7 @@ export const AI_OPERATIONS: readonly AiOperation[] = [
 
 const ENV_KEYS: Record<AiOperation, string> = {
   EXTRACTION: "OPENAI_EXTRACTION_MODEL",
+  TRIAGE: "OPENAI_TRIAGE_MODEL",
   QUESTION_GENERATION: "OPENAI_QUESTION_MODEL",
   ANALYSIS: "OPENAI_ANALYSIS_MODEL",
   DRAFTING: "OPENAI_DRAFTING_MODEL",
@@ -52,10 +55,19 @@ const ENV_KEYS: Record<AiOperation, string> = {
  * route applicability, source governance and release validation are
  * all deterministic code and must stay that way. A configured model
  * name is not permission to replace them.
+ *
+ * TRIAGE (document-type classification) used to piggyback on the
+ * ANALYSIS slot because no dedicated operation existed — that meant an
+ * env var meant for a future real ANALYSIS use would have silently
+ * retargeted document classification instead. It is its own operation
+ * now; the default is unchanged so behaviour with no env vars set is
+ * identical to before this split.
  */
 const DEFAULTS: Record<AiOperation, string> = {
   // Vision extraction — the cheaper model handles a PCN comfortably.
   EXTRACTION: "gpt-5.4-mini",
+  // Document-type classification (was piggybacking on ANALYSIS).
+  TRIAGE: "gpt-5.4",
   // One short question at a time; wording quality matters more than depth.
   QUESTION_GENERATION: "gpt-5.4-mini",
   // Configured only. Deterministic today.

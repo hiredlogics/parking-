@@ -1,5 +1,6 @@
 import type { ConfirmedPcn } from "@/types";
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
+import { loadPofaConfig } from "@/lib/config/pofaConfig";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
 import { KbCatalogError, loadKbCatalog } from "@/lib/kb/catalog";
 import { draftAppeal, type DraftAppealResult } from "@/lib/drafting/engine";
@@ -8,6 +9,7 @@ import {
   validateDraft,
   type ValidationRun,
 } from "@/lib/validation/engine";
+import { loadValidatorConfig } from "@/lib/validation/ruleConfig";
 import {
   runReleaseChecklist,
   type ReleaseChecklist,
@@ -162,6 +164,7 @@ export async function generateValidatedAppeal(
     answers: input.answers,
     evidenceTypes,
     evidenceRefs: input.evidenceRefs ?? [],
+    pofaConfig: await loadPofaConfig(),
   };
 
   const analysis = input.analysis ?? analyseCase(analysisInput);
@@ -304,6 +307,7 @@ export async function generateValidatedAppeal(
 
   let lastDraft: DraftAppealResult | null = null;
   let regenerationFeedback = "";
+  const ruleConfig = await loadValidatorConfig();
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const draft = await draftAppeal({
@@ -384,6 +388,7 @@ export async function generateValidatedAppeal(
       facts,
       evidence: new Set(evidenceTypes),
       variables: draft.variables,
+      ruleConfig,
     };
 
     const validation = validateDraft(ctx);
@@ -458,7 +463,32 @@ export async function generateValidatedAppeal(
     );
   }
 
-  if (!isAppealBodyTooThin(rulesLetter.body)) {
+  /*
+   * Every AI/deterministic attempt was rejected. The rules letter is a
+   * candidate substitute, but — exactly as with the in-loop fallback
+   * above — it must clear the same validator, checklist and keeper-safety
+   * gates before release. Trusting `isAppealBodyTooThin` alone would ship
+   * an unvalidated, un-keeper-checked letter whenever every AI attempt
+   * failed for a reason the rules letter shares (e.g. its own repeated
+   * wording, or driver-identifying phrasing).
+   */
+  const finalRulesCtx = {
+    body: rulesLetter.body ?? "",
+    analysis,
+    modules: retrieval.modules,
+    sources: retrieval.sources,
+    facts,
+    evidence: new Set(evidenceTypes),
+    variables: {},
+    ruleConfig,
+  };
+  const rulesLetterFinallyReleasable =
+    !isAppealBodyTooThin(rulesLetter.body) &&
+    rulesLetter.keeperSafe &&
+    validateDraft(finalRulesCtx).status === "PASS" &&
+    runReleaseChecklist(finalRulesCtx).passed;
+
+  if (rulesLetterFinallyReleasable) {
     return {
       ...base,
       analysis: withRulesRoutes(analysis, rulesLetter.activeRoutes),

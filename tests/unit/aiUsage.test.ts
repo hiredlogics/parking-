@@ -84,14 +84,15 @@ afterEach(() => {
 /* ==================== AI-3 model configuration ==================== */
 
 describe("Central model configuration", () => {
-  it("covers all five operations", () => {
+  it("covers all six operations", () => {
     expect([...AI_OPERATIONS].sort()).toEqual(
-      ["ANALYSIS", "DRAFTING", "EXTRACTION", "QUESTION_GENERATION", "VALIDATION"].sort(),
+      ["ANALYSIS", "DRAFTING", "EXTRACTION", "QUESTION_GENERATION", "TRIAGE", "VALIDATION"].sort(),
     );
   });
 
   it("uses the client's env var names", () => {
     expect(envKeyFor("EXTRACTION")).toBe("OPENAI_EXTRACTION_MODEL");
+    expect(envKeyFor("TRIAGE")).toBe("OPENAI_TRIAGE_MODEL");
     expect(envKeyFor("QUESTION_GENERATION")).toBe("OPENAI_QUESTION_MODEL");
     expect(envKeyFor("ANALYSIS")).toBe("OPENAI_ANALYSIS_MODEL");
     expect(envKeyFor("DRAFTING")).toBe("OPENAI_DRAFTING_MODEL");

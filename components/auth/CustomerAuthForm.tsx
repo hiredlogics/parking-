@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { BrandLogo } from "@/components/landing/BrandLogo";
 
 /**
  * Shared UI for customer sign-in / register.
@@ -89,19 +90,9 @@ export function CustomerAuthForm({ mode }: { mode: "register" | "signin" }) {
     <div className="min-h-dvh bg-brand-navy text-white">
       <div className="container-page flex min-h-dvh items-center justify-center py-10">
         <div className="w-full max-w-md">
-          <Link href="/" className="mb-6 flex items-center justify-center gap-2">
-            <span className="inline-flex h-10 w-10 items-center justify-center rounded-md bg-white text-[15px] font-black text-brand-pink">
-              PA
-            </span>
-            <div className="leading-tight">
-              <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-white">
-                Parking
-              </p>
-              <p className="text-[11px] font-extrabold uppercase tracking-[0.14em] text-white">
-                Appeals <span className="text-brand-pink">Group</span>
-              </p>
-            </div>
-          </Link>
+          <div className="mb-6 flex justify-center">
+            <BrandLogo href="/" invert size="md" />
+          </div>
 
           <div className="rounded-2xl border border-white/5 bg-white p-6 text-brand-text shadow-glow sm:p-7">
             <span className="app-badge">

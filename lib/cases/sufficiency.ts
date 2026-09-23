@@ -1,4 +1,5 @@
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
+import { loadPofaConfig } from "@/lib/config/pofaConfig";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
 import { KbCatalogError, loadKbCatalog } from "@/lib/kb/catalog";
 import { deriveKnownFacts } from "@/lib/questions/facts";
@@ -110,6 +111,7 @@ export async function assessSufficiency(
     confirmed: appealCase.confirmed,
     answers: appealCase.adaptiveAnswers,
     evidenceTypes,
+    pofaConfig: await loadPofaConfig(),
   };
 
   // ---- Are there material facts still outstanding? ----

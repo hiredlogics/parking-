@@ -43,13 +43,23 @@ export function Footer() {
             <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-white/45">
               As featured in
             </p>
-            <div className="mt-3 flex flex-wrap items-center gap-5 text-white/70">
-              <span className="font-display text-[18px] font-bold tracking-tight">
-                BBC
-              </span>
-              <span className="font-display text-[15px] font-semibold italic tracking-wide">
-                The Telegraph
-              </span>
+            <div className="mt-4 flex flex-wrap items-center gap-6 sm:gap-8">
+              {/* Official BBC 2021 blocks wordmark — light for dark footer */}
+              <img
+                src="/brand/bbc-logo-light.svg"
+                alt="BBC"
+                width={88}
+                height={25}
+                className="h-[22px] w-auto opacity-90 sm:h-[25px]"
+              />
+              {/* Official Telegraph blackletter wordmark — light for dark footer */}
+              <img
+                src="/brand/telegraph-wordmark-light.png"
+                alt="The Telegraph"
+                width={160}
+                height={32}
+                className="h-[26px] w-auto opacity-90 sm:h-[30px]"
+              />
             </div>
           </div>
         </div>

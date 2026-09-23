@@ -5,7 +5,7 @@ import {
 } from "../prompts/drafting";
 import { serialiseDraftingContext } from "./contextSerialiser";
 import { modelFor } from "../models";
-import { withTransientRetry } from "../transport";
+import { callWithModelFallback } from "../modelFallback";
 import { recordAiUsage } from "@/lib/ai/usage";
 import type { DraftResult, DraftingContext, DraftingProvider } from "../types";
 
@@ -74,34 +74,35 @@ export class OpenAIDraftingProvider implements DraftingProvider {
       );
     }
 
-    const response = await withTransientRetry(
-      () => this.client.responses.create({
-      model: this.model,
-      // Low but non-zero: the letter should read naturally while staying
-      // tightly anchored to the supplied context.
-      temperature: 0.3,
-      max_output_tokens: 2000,
-      input: [
-        {
-          role: "system",
-          content: [{ type: "input_text", text: systemBody }],
-        },
-        {
-          role: "user",
-          content: [
-            { type: "input_text", text: serialiseDraftingContext(context) },
+    const { result: response, model } = await callWithModelFallback(
+      "DRAFTING",
+      (model) =>
+        this.client.responses.create({
+          model,
+          // Low but non-zero: the letter should read naturally while staying
+          // tightly anchored to the supplied context.
+          temperature: 0.3,
+          max_output_tokens: 2000,
+          input: [
+            {
+              role: "system",
+              content: [{ type: "input_text", text: systemBody }],
+            },
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: serialiseDraftingContext(context) },
+              ],
+            },
           ],
-        },
-      ],
-      }),
-      { operation: "DRAFTING" },
+        }),
     );
 
     await recordAiUsage({
       caseId: context.caseId ?? null,
       operation: "DRAFTING",
       provider: "openai",
-      model: this.model,
+      model,
       inputTokens: response.usage?.input_tokens,
       cachedInputTokens:
         response.usage?.input_tokens_details?.cached_tokens ?? 0,
@@ -131,7 +132,7 @@ export class OpenAIDraftingProvider implements DraftingProvider {
       body,
       providerId: this.id,
       promptVersion: prompt.id,
-      model: this.model,
+      model,
       bespoke: true,
       moduleIds: context.modules.map((m) => m.moduleId),
       warnings,

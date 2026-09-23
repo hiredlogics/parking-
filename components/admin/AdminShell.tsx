@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Sidebar } from "./Sidebar";
+import { BrandLogo } from "@/components/landing/BrandLogo";
 
 /**
  * Admin shell — fixed sidebar on desktop, hamburger drawer on tablet/mobile.
@@ -52,10 +53,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               <path d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <Link href="/admin" className="flex items-center gap-2">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-brand-navy text-[11px] font-black text-brand-pink">PA</span>
-            <span className="text-[12.5px] font-bold uppercase tracking-wide">Parking Appeals Group</span>
-          </Link>
+          <BrandLogo href="/admin" size="sm" />
           <Link href="/" className="text-[11.5px] font-semibold uppercase tracking-wide text-brand-mute">
             Site
           </Link>

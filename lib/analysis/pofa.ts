@@ -40,6 +40,28 @@ import type { PofaAnalysis, PofaTimingStatus } from "./types";
 /** Days of slack within which we refuse to allege a failure. */
 export const BOUNDARY_TOLERANCE_DAYS = 2;
 
+/**
+ * The two statutory day-count thresholds, and the boundary tolerance —
+ * Admin-configurable data (`issues.config_json` on the POFA issue), not
+ * a code constant, per the product decision that a legal threshold is
+ * business/legal configuration while the arithmetic that applies it
+ * (working-day counting, boundary tolerance, deemed-service dates)
+ * stays generic and in code. `loadPofaConfig()` (lib/config/pofaConfig.ts)
+ * reads the admin value; this default is what every caller gets until
+ * that config is threaded in, and what a no-DB path always gets.
+ */
+export interface PofaConfig {
+  paragraph9Days: number;
+  paragraph8Days: number;
+  boundaryToleranceDays: number;
+}
+
+export const DEFAULT_POFA_CONFIG: PofaConfig = {
+  paragraph9Days: 14,
+  paragraph8Days: 28,
+  boundaryToleranceDays: BOUNDARY_TOLERANCE_DAYS,
+};
+
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function parseDate(v: string | null | undefined): Date | null {
@@ -79,6 +101,8 @@ export interface PofaInput {
   facts: KnownFacts;
   /** Content defects an operator/admin has positively confirmed. */
   confirmedContentDefects?: string[];
+  /** Admin-configured thresholds; defaults to the statutory constants. */
+  config?: Partial<PofaConfig>;
 }
 
 const NOT_APPLICABLE = (reasons: string[]): PofaAnalysis => ({
@@ -96,6 +120,7 @@ const NOT_APPLICABLE = (reasons: string[]): PofaAnalysis => ({
 
 export function analysePofa(input: PofaInput): PofaAnalysis {
   const f = input.facts;
+  const cfg: PofaConfig = { ...DEFAULT_POFA_CONFIG, ...input.config };
   const reasons: string[] = [];
   const unresolved: string[] = [];
 
@@ -161,7 +186,7 @@ export function analysePofa(input: PofaInput): PofaAnalysis {
     unresolved.push(FACT.NOTICE_ROUTE);
 
     if (eventDate && issueDate) {
-      const inferredDeadline = addDays(eventDate, 14);
+      const inferredDeadline = addDays(eventDate, cfg.paragraph9Days);
       const inferredGiven = addWorkingDays(issueDate, 2);
       const inferredLate = diffDays(inferredGiven, inferredDeadline);
       const inferredReasons: string[] = [];
@@ -170,7 +195,8 @@ export function analysePofa(input: PofaInput): PofaAnalysis {
         inferredReasons,
         inferredDeadline,
         inferredGiven,
-        "14-day paragraph 9",
+        `${cfg.paragraph9Days}-day paragraph 9`,
+        cfg.boundaryToleranceDays,
       );
       if (inferredStatus === "FAILED") {
         return {
@@ -238,10 +264,17 @@ export function analysePofa(input: PofaInput): PofaAnalysis {
       };
     }
     // Relevant period: 28 days beginning with the day after the NTD.
-    const deadline = addDays(ntdDate, 28);
+    const deadline = addDays(ntdDate, cfg.paragraph8Days);
     const given = addWorkingDays(issueDate, 2);
     const late = diffDays(given, deadline);
-    const status = classify(late, reasons, deadline, given, "28-day paragraph 8");
+    const status = classify(
+      late,
+      reasons,
+      deadline,
+      given,
+      `${cfg.paragraph8Days}-day paragraph 8`,
+      cfg.boundaryToleranceDays,
+    );
     return {
       route: "WINDSCREEN",
       paragraph: "8",
@@ -283,10 +316,17 @@ export function analysePofa(input: PofaInput): PofaAnalysis {
   // Relevant period: 14 days beginning with the day after the parking
   // period ended. Postal notices are given on the 2nd working day after
   // posting.
-  const deadline = addDays(eventDate, 14);
+  const deadline = addDays(eventDate, cfg.paragraph9Days);
   const given = addWorkingDays(issueDate, 2);
   const late = diffDays(given, deadline);
-  const status = classify(late, reasons, deadline, given, "14-day paragraph 9");
+  const status = classify(
+    late,
+    reasons,
+    deadline,
+    given,
+    `${cfg.paragraph9Days}-day paragraph 9`,
+    cfg.boundaryToleranceDays,
+  );
 
   return {
     route: "POSTAL",
@@ -308,8 +348,9 @@ function classify(
   deadline: Date,
   given: Date,
   label: string,
+  boundaryToleranceDays: number = BOUNDARY_TOLERANCE_DAYS,
 ): PofaTimingStatus {
-  if (late > BOUNDARY_TOLERANCE_DAYS) {
+  if (late > boundaryToleranceDays) {
     reasons.push(
       `The notice is treated as given on ${iso(given)}, which is ${late} day(s) after the ${label} deadline of ${iso(deadline)}.`,
     );
@@ -317,7 +358,7 @@ function classify(
   }
   if (late > 0) {
     reasons.push(
-      `The notice is treated as given on ${iso(given)}, within ${BOUNDARY_TOLERANCE_DAYS} day(s) of the ${label} deadline of ${iso(deadline)}. Because working-day counting is sensitive to bank holidays, no timing failure is alleged.`,
+      `The notice is treated as given on ${iso(given)}, within ${boundaryToleranceDays} day(s) of the ${label} deadline of ${iso(deadline)}. Because working-day counting is sensitive to bank holidays, no timing failure is alleged.`,
     );
     return "UNRESOLVED";
   }
@@ -351,7 +392,9 @@ export function assessPossibleLateNoticeFromDates(input: {
   parkingEventDate?: string | null;
   noticeIssueDate?: string | null;
   noticeRoute?: string | null;
+  config?: Partial<PofaConfig>;
 }): PossibleLateNoticeAssessment {
+  const cfg: PofaConfig = { ...DEFAULT_POFA_CONFIG, ...input.config };
   const noticeRoute = (input.noticeRoute ?? "").toUpperCase() || null;
   const eventDate = parseDate(input.parkingEventDate);
   const issueDate = parseDate(input.noticeIssueDate);
@@ -393,14 +436,23 @@ export function assessPossibleLateNoticeFromDates(input: {
   // late-NTK scenario; windscreen uses paragraph 8 with event as NTD date.
   const usePostal = noticeRoute !== "WINDSCREEN";
   const paragraph: "8" | "9" = usePostal ? "9" : "8";
-  const label = usePostal ? "14-day paragraph 9" : "28-day paragraph 8";
+  const label = usePostal
+    ? `${cfg.paragraph9Days}-day paragraph 9`
+    : `${cfg.paragraph8Days}-day paragraph 8`;
   const deadline = usePostal
-    ? addDays(eventDate, 14)
-    : addDays(eventDate, 28);
+    ? addDays(eventDate, cfg.paragraph9Days)
+    : addDays(eventDate, cfg.paragraph8Days);
   const given = addWorkingDays(issueDate, 2);
   const late = diffDays(given, deadline);
   const timingReasons: string[] = [];
-  const status = classify(late, timingReasons, deadline, given, label);
+  const status = classify(
+    late,
+    timingReasons,
+    deadline,
+    given,
+    label,
+    cfg.boundaryToleranceDays,
+  );
   reasons.push(...timingReasons);
 
   supportingFacts.deadline = iso(deadline);

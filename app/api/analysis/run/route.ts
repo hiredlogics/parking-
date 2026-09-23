@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth/session";
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
+import { loadPofaConfig } from "@/lib/config/pofaConfig";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
 import { KbCatalogError, loadKbCatalog } from "@/lib/kb/catalog";
 import type { AnswerMap } from "@/lib/questions/types";
@@ -69,6 +70,7 @@ export async function POST(request: Request) {
       answers: body.answers ?? {},
       evidenceTypes: body.evidenceTypes ?? [],
       evidenceRefs: body.evidenceRefs ?? [],
+      pofaConfig: await loadPofaConfig(),
     });
     let catalog;
     try {

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { BrandLogo } from "@/components/landing/BrandLogo";
 
 /**
  * Journey header — full-width on web, same brand look as mobile mockups.
@@ -13,15 +14,7 @@ export function JourneyHeader() {
   return (
     <header className="sticky top-0 z-40 border-b border-brand-borderSoft bg-white">
       <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-4 sm:h-16 sm:px-6 lg:px-10">
-        <Link
-          href="/"
-          className="text-[13px] font-black uppercase tracking-[0.08em] text-brand-text sm:text-[15px] lg:text-[16px]"
-          aria-label="Parking Appeals Group — Home"
-        >
-          Parking{" "}
-          <span className="text-brand-pink">Appeals</span>
-          <span className="text-brand-pink">.</span> Group
-        </Link>
+        <BrandLogo size="sm" />
 
         {/* Desktop links — proper web nav */}
         <nav className="hidden items-center gap-1 md:flex" aria-label="Primary">

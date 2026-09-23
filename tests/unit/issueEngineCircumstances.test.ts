@@ -69,6 +69,9 @@ const GRACE_GRAPH = {
           reasonCode: "PERMISSION_SOURCE_UNRESOLVED",
           priority: 30,
           evidenceTypes: [],
+          // Admin-configured required_when: asking where the permit came
+          // from only makes sense once the customer has said they held one.
+          requiredWhen: { fact: FACT.PERMISSION_HELD, op: "eq", value: "YES" },
         },
       ],
     },

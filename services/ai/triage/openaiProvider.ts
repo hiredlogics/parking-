@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import type { DocumentTriageResult } from "@/types/triage";
 import { modelFor } from "../models";
-import { withTransientRetry } from "../transport";
+import { callWithModelFallback } from "../modelFallback";
 import { recordAiUsage } from "@/lib/ai/usage";
 import { TRIAGE_JSON_SCHEMA, TRIAGE_SYSTEM_PROMPT } from "../prompts/triage";
 import type {
@@ -31,7 +31,7 @@ export class OpenAITriageProvider implements DocumentTriageProvider {
       throw new Error("OpenAITriageProvider requires OPENAI_API_KEY.");
     }
     this.client = new OpenAI({ apiKey: opts.apiKey, baseURL: opts.baseURL });
-    this.model = opts.model ?? modelFor("ANALYSIS");
+    this.model = opts.model ?? modelFor("TRIAGE");
     this.id = `openai-triage:${this.model}`;
   }
 
@@ -65,10 +65,11 @@ export class OpenAITriageProvider implements DocumentTriageProvider {
         ? `\nExtracted field hints (may be wrong — classify from the document itself):\n${JSON.stringify(input.extractedHints)}`
         : "";
 
-      const response = await withTransientRetry(
-        () =>
+      const { result: response, model } = await callWithModelFallback(
+        "TRIAGE",
+        (model) =>
           this.client.responses.create({
-            model: this.model,
+            model,
             temperature: 0,
             max_output_tokens: 800,
             text: {
@@ -98,14 +99,13 @@ export class OpenAITriageProvider implements DocumentTriageProvider {
               },
             ],
           }),
-        { operation: "ANALYSIS" },
       );
 
       await recordAiUsage({
         caseId: input.caseId ?? null,
-        operation: "ANALYSIS",
+        operation: "TRIAGE",
         provider: "openai",
-        model: this.model,
+        model,
         inputTokens: response.usage?.input_tokens,
         cachedInputTokens:
           response.usage?.input_tokens_details?.cached_tokens ?? 0,
@@ -135,7 +135,7 @@ export class OpenAITriageProvider implements DocumentTriageProvider {
             typeof parsed.confidence === "number" ? parsed.confidence : 0.7,
           signals: Array.isArray(parsed.signals) ? parsed.signals : [],
           providerId: this.id,
-          model: this.model,
+          model,
           assessedAt: new Date().toISOString(),
         },
       };

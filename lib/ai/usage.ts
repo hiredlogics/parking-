@@ -87,6 +87,7 @@ export interface OperationUsage {
 export interface CaseAiUsage {
   caseId: string;
   extraction: OperationUsage;
+  triage: OperationUsage;
   questioning: OperationUsage;
   analysis: OperationUsage;
   drafting: OperationUsage;
@@ -106,6 +107,7 @@ const EMPTY = (): OperationUsage => ({
 
 const BUCKETS: Record<AiOperation, keyof Omit<CaseAiUsage, "caseId" | "total" | "currency" | "pricingVersions">> = {
   EXTRACTION: "extraction",
+  TRIAGE: "triage",
   QUESTION_GENERATION: "questioning",
   ANALYSIS: "analysis",
   DRAFTING: "drafting",
@@ -121,6 +123,7 @@ export async function getCaseAIUsage(caseId: string): Promise<CaseAiUsage> {
   const usage: CaseAiUsage = {
     caseId,
     extraction: EMPTY(),
+    triage: EMPTY(),
     questioning: EMPTY(),
     analysis: EMPTY(),
     drafting: EMPTY(),

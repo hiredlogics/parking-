@@ -152,6 +152,8 @@ export async function POST(request: Request) {
         const severity = required(enumOf(body, "severity", SEVERITY_VALUES, "BLOCKING"));
         const status = required(enumOf(body, "status", STATUS_VALUES, "ACTIVE"));
         await upsertValidationRule({ code, label, severity, status });
+        const { invalidateValidatorConfigCache } = await import("@/lib/validation/ruleConfig");
+        invalidateValidatorConfigCache();
         return ok({ ok: true });
       }
       case "UPSERT_EMAIL_TEMPLATE": {

@@ -1,5 +1,6 @@
 import type { ConfirmedPcn } from "@/types";
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
+import { loadPofaConfig } from "@/lib/config/pofaConfig";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
 import { transformToKeeperSafe, validateKeeperSafe } from "@/lib/keeperSafe";
 import { getDraftingProvider } from "@/services/ai/drafting";
@@ -100,6 +101,7 @@ export async function draftAppeal(
       answers: input.answers,
       evidenceTypes: input.evidenceTypes ?? [],
       evidenceRefs: input.evidenceRefs ?? [],
+      pofaConfig: await loadPofaConfig(),
     });
 
   const warnings: string[] = [];
@@ -161,11 +163,21 @@ export async function draftAppeal(
     evidenceTypes: input.evidenceTypes ?? [],
   });
 
-  // Separate rules vector store → RAG retrieve for the LLM prompt only.
+  /*
+   * Semantic ranking over the KB modules retrieveKnowledge() already
+   * approved for this case — never a second, independent authority.
+   * Replaces the old in-memory vector store, which indexed
+   * `rules/rules.ts` alongside the KB catalog and so could hand the
+   * drafting prompt a rule the new declarative engine had never
+   * approved. `eligibleModuleIds` is exactly retrieval.modules, so a
+   * pgvector hit can only ever re-rank what already passed the rule
+   * filter — it can never reintroduce a rejected module.
+   */
   let ragRules: { texts: string[]; ids: string[] } | undefined;
   try {
-    const { buildCaseRagQuery, retrieveRulesForCase } = await import(
-      "@/lib/rag/retrieveRules"
+    const { buildCaseRagQuery } = await import("@/lib/rag/retrieveRules");
+    const { rankKbModulesBySimilarity } = await import(
+      "@/lib/retrieval/semanticRank"
     );
     const circumstanceTags = Array.isArray(
       (input.answers as Record<string, unknown>)?.scenarios,
@@ -184,22 +196,20 @@ export async function draftAppeal(
         .filter((f) => f.status === "IDENTIFIED")
         .map((f) => f.ground),
     });
-    ragRules = await retrieveRulesForCase({
+    const hits = await rankKbModulesBySimilarity({
       query,
-      routes: [
-        analysis.primaryRoute,
-        ...analysis.secondaryRoutes,
-      ].filter(Boolean) as string[],
+      eligibleModuleIds: retrieval.modules.map((m) => m.moduleId),
       topK: 8,
     });
+    ragRules = { texts: hits.map((h) => h.content), ids: hits.map((h) => h.moduleId) };
     if (ragRules.texts.length > 0) {
       warnings.push(
-        `RAG retrieved ${ragRules.texts.length} rule chunk(s) from the vector store.`,
+        `Semantic ranking surfaced ${ragRules.texts.length} approved KB chunk(s) via pgvector.`,
       );
     }
   } catch (err) {
     warnings.push(
-      `RAG rules retrieve skipped: ${err instanceof Error ? err.message : String(err)}`,
+      `Semantic ranking skipped: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 

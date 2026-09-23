@@ -4,7 +4,7 @@ import { missingMaterialFacts } from "@/lib/questions/missing";
 import { detectOutOfScope } from "@/lib/questions/scope";
 import { resolveCodeVersion } from "@/lib/kb/seed/codeVersions";
 import type { AnswerMap } from "@/lib/questions/types";
-import { analysePofa } from "./pofa";
+import { analysePofa, type PofaConfig } from "./pofa";
 import { assessRoutes } from "./routes";
 import { computeProhibitedClaims } from "./prohibited";
 import type { IssueAnalysis, VerifiedFact } from "./types";
@@ -32,6 +32,8 @@ export interface AnalysisInput {
   evidenceRefs?: string[];
   /** Content defects positively confirmed by an operator/admin. */
   confirmedContentDefects?: string[];
+  /** Admin-configured PoFA thresholds; omit to use the statutory defaults. */
+  pofaConfig?: Partial<PofaConfig>;
 }
 
 /** Facts that came from the notice itself. */
@@ -73,6 +75,7 @@ export function analyseCase(input: AnalysisInput): IssueAnalysis {
   const pofa = analysePofa({
     facts,
     confirmedContentDefects: input.confirmedContentDefects,
+    config: input.pofaConfig,
   });
 
   // ---- Applicable industry Code version (KB-GOV-05) ----

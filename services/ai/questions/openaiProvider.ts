@@ -9,7 +9,7 @@ import {
 } from "../prompts/questions";
 import { serialiseQuestionContext } from "./contextSerialiser";
 import { modelFor } from "../models";
-import { withTransientRetry } from "../transport";
+import { callWithModelFallback } from "../modelFallback";
 import { recordAiUsage } from "@/lib/ai/usage";
 import type { QuestionProvider, QuestionProviderResult } from "./types";
 
@@ -54,31 +54,32 @@ export class OpenAIQuestionProvider implements QuestionProvider {
     };
 
     try {
-      const response = await withTransientRetry(
-        () => this.client.responses.create({
-        model: this.model,
-        // Low: wording may vary per case, structure must not.
-        temperature: 0.2,
-        max_output_tokens: 700,
-        text: { format: { type: "json_object" } },
-        input: [
-          { role: "system", content: [{ type: "input_text", text: prompt.system }] },
-          {
-            role: "user",
-            content: [
-              { type: "input_text", text: serialiseQuestionContext(context) },
+      const { result: response, model } = await callWithModelFallback(
+        "QUESTION_GENERATION",
+        (model) =>
+          this.client.responses.create({
+            model,
+            // Low: wording may vary per case, structure must not.
+            temperature: 0.2,
+            max_output_tokens: 700,
+            text: { format: { type: "json_object" } },
+            input: [
+              { role: "system", content: [{ type: "input_text", text: prompt.system }] },
+              {
+                role: "user",
+                content: [
+                  { type: "input_text", text: serialiseQuestionContext(context) },
+                ],
+              },
             ],
-          },
-        ],
-        }),
-        { operation: "QUESTION_GENERATION" },
+          }),
       );
 
       await recordAiUsage({
         caseId: context.caseId ?? null,
         operation: "QUESTION_GENERATION",
         provider: "openai",
-        model: this.model,
+        model,
         inputTokens: response.usage?.input_tokens,
         cachedInputTokens:
           response.usage?.input_tokens_details?.cached_tokens ?? 0,
@@ -88,14 +89,14 @@ export class OpenAIQuestionProvider implements QuestionProvider {
 
       const raw = (response.output_text ?? "").trim();
       if (raw.length === 0) {
-        return { ...base, output: null, error: "Model returned an empty response." };
+        return { ...base, model, output: null, error: "Model returned an empty response." };
       }
 
       const parsed = parseOutput(raw);
       if (!parsed) {
-        return { ...base, output: null, error: "Model returned unparseable JSON." };
+        return { ...base, model, output: null, error: "Model returned unparseable JSON." };
       }
-      return { ...base, output: parsed };
+      return { ...base, model, output: parsed };
     } catch (err) {
       // A provider failure must never be reported as "no more questions".
       return {

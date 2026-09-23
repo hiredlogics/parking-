@@ -30,10 +30,13 @@ export function validateDraft(ctx: ValidatorContext): ValidationRun {
 
   for (const validator of VALIDATORS) {
     let found: ValidationIssue[];
+    let threw = false;
     try {
       found = validator.run(ctx);
     } catch (err) {
-      // A validator that throws must fail closed, never silently pass.
+      // A validator that throws must fail closed, never silently pass —
+      // and live config below must never be allowed to suppress this.
+      threw = true;
       found = [
         {
           code: validator.code,
@@ -44,6 +47,16 @@ export function validateDraft(ctx: ValidatorContext): ValidationRun {
         },
       ];
     }
+
+    if (!threw) {
+      const config = ctx.ruleConfig?.get(validator.code);
+      if (config && config.status !== "ACTIVE") {
+        found = [];
+      } else if (config && found.length > 0) {
+        found = found.map((i) => ({ ...i, severity: config.severity }));
+      }
+    }
+
     byValidator[validator.code] = found;
     issues.push(...found);
   }

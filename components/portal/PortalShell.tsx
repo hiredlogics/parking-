@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { BrandLogo } from "@/components/landing/BrandLogo";
 
 const NAV = [
   { href: "/portal", label: "Home" },
@@ -55,13 +56,13 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
         <div className="sticky top-0 flex h-dvh flex-col justify-between border-r border-brand-borderSoft bg-white">
           <div>
             <div className="border-b border-brand-borderSoft px-4 py-4">
-              <Link href="/" className="flex items-center gap-2">
-                <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-brand-navy text-[13px] font-black text-brand-pink">PA</span>
-                <div className="leading-tight">
-                  <p className="text-[11px] font-semibold uppercase tracking-widest text-brand-mute">Welcome back,</p>
-                  <p className="text-[13px] font-bold text-brand-text">{user?.name?.split(" ")[0] ?? "Guest"}</p>
-                </div>
-              </Link>
+              <BrandLogo href="/" size="sm" />
+              <p className="mt-2 text-[11px] font-semibold uppercase tracking-widest text-brand-mute">
+                Welcome back,{" "}
+                <span className="font-bold normal-case tracking-normal text-brand-text">
+                  {user?.name?.split(" ")[0] ?? "Guest"}
+                </span>
+              </p>
             </div>
             <nav className="p-2" aria-label="Portal">
               <ul className="space-y-0.5">
@@ -108,10 +109,7 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
 
       <div className="flex min-h-dvh flex-1 flex-col">
         <div className="flex items-center justify-between border-b border-brand-borderSoft bg-white px-4 py-2 lg:hidden">
-          <Link href="/portal" className="flex items-center gap-2">
-            <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-brand-navy text-[11px] font-black text-brand-pink">PA</span>
-            <span className="text-[12.5px] font-bold uppercase tracking-wide">Customer Portal</span>
-          </Link>
+          <BrandLogo href="/portal" size="sm" />
           <button
             type="button"
             onClick={signOut}

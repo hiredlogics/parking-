@@ -167,22 +167,42 @@ export const PersonShieldIcon = wrap(
   </>,
 );
 
-/** A small logo mark used inline where the PNG is oversized. */
+/** Compact Option 1 wordmark for inline / icon-sized slots. */
 export function LogoMarkIcon(props: SVGProps<SVGSVGElement>) {
   return (
-    <svg viewBox="0 0 40 40" aria-hidden="true" {...props}>
-      <rect x="1" y="1" width="38" height="38" rx="7" fill="#EC1573" />
+    <svg viewBox="0 0 120 72" aria-hidden="true" {...props}>
       <text
-        x="50%"
-        y="55%"
-        textAnchor="middle"
-        dominantBaseline="middle"
-        fontFamily="Inter, ui-sans-serif, system-ui, sans-serif"
-        fontWeight="800"
-        fontSize="20"
-        fill="#ffffff"
+        x="0"
+        y="14"
+        fill="#EC1573"
+        fontFamily="Plus Jakarta Sans, Manrope, ui-sans-serif, system-ui, sans-serif"
+        fontWeight="700"
+        fontSize="11"
+        letterSpacing="4.2"
       >
-        PA
+        THE
+      </text>
+      <text
+        x="0"
+        y="40"
+        fill="currentColor"
+        fontFamily="Plus Jakarta Sans, Manrope, ui-sans-serif, system-ui, sans-serif"
+        fontWeight="800"
+        fontSize="16"
+        letterSpacing="0.8"
+      >
+        PARKING APPEALS
+      </text>
+      <text
+        x="0"
+        y="60"
+        fill="currentColor"
+        fontFamily="Plus Jakarta Sans, Manrope, ui-sans-serif, system-ui, sans-serif"
+        fontWeight="800"
+        fontSize="16"
+        letterSpacing="0.8"
+      >
+        GROUP
       </text>
     </svg>
   );

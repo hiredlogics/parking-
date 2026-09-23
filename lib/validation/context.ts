@@ -22,6 +22,12 @@ export interface ValidatorContext {
   evidence: Set<string>;
   /** Resolved variable values. */
   variables: Record<string, string>;
+  /**
+   * Live admin config for each validator code, if loaded by the caller
+   * (lib/validation/ruleConfig.ts). Absent means "run every validator at
+   * its hard-coded severity" — the historical, still-safe behaviour.
+   */
+  ruleConfig?: Map<string, { status: string; severity: ValidationIssue["severity"] }>;
 }
 
 export interface Validator {

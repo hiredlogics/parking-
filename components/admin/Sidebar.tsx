@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
+import { BrandLogo } from "@/components/landing/BrandLogo";
 
 interface NavItem {
   href: string;
@@ -96,17 +97,7 @@ export function Sidebar({
       <div>
         {/* Logo */}
         <div className="px-4 pt-4 pb-3 border-b border-white/5">
-          <Link href="/admin" onClick={onNavigate} className="flex items-center gap-2">
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-white text-brand-pink text-[15px] font-black">
-              PA
-            </span>
-            <span className="flex flex-col leading-none">
-              <span className="text-[11px] font-extrabold uppercase tracking-[0.14em]">Parking</span>
-              <span className="text-[11px] font-extrabold uppercase tracking-[0.14em]">
-                Appeals <span className="text-brand-pink">Group</span>
-              </span>
-            </span>
-          </Link>
+          <BrandLogo href="/admin" invert size="sm" className="py-1" />
         </div>
 
         {/* Nav */}

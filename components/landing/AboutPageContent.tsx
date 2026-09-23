@@ -39,14 +39,16 @@ export function AboutStory() {
       <div className="container-page grid grid-cols-1 items-center gap-10 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] lg:gap-14">
         <div className="relative mx-auto w-full max-w-[420px]">
           <div className="aspect-[4/3] overflow-hidden rounded-2xl bg-brand-canvas shadow-card ring-1 ring-brand-border">
-            <div className="flex h-full flex-col items-center justify-center gap-4 bg-gradient-to-br from-white via-brand-pinkPale to-brand-canvas p-8">
-              <span className="text-[56px] font-black leading-none tracking-tight">
-                <span className="text-brand-pink">P</span>
-                <span className="text-brand-text">A</span>
-              </span>
-              <p className="text-center text-[11px] font-extrabold uppercase tracking-[0.16em] text-brand-text">
-                Parking Appeals Group
-              </p>
+            <div className="flex h-full flex-col items-center justify-center gap-3 bg-gradient-to-br from-white via-brand-pinkPale to-brand-canvas p-8">
+              <div className="flex flex-col items-start">
+                <span className="font-display text-[11px] font-bold uppercase tracking-[0.42em] text-brand-pink">
+                  THE
+                </span>
+                <span className="mt-1.5 flex flex-col gap-[0.12em] font-display text-[18px] font-extrabold uppercase leading-[1.05] tracking-[0.055em] text-brand-text">
+                  <span>Parking Appeals</span>
+                  <span>Group</span>
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -92,13 +94,15 @@ function ReadyChecklist() {
     <div className="mx-auto w-full max-w-[380px]">
       <div className="rounded-[18px] bg-[#1a1a24] p-3 shadow-pop ring-1 ring-black/20">
         <div className="overflow-hidden rounded-xl bg-white">
-          <div className="flex items-center gap-2 border-b border-brand-borderSoft px-4 py-3">
-            <span className="text-[18px] font-black leading-none">
-              <span className="text-brand-pink">P</span>
-              <span className="text-brand-text">A</span>
-            </span>
-            <span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-brand-text">
-              Parking Appeals Group
+          <div className="flex items-center gap-3 border-b border-brand-borderSoft px-4 py-3">
+            <span className="flex flex-col items-start leading-none">
+              <span className="font-display text-[8px] font-bold uppercase tracking-[0.38em] text-brand-pink">
+                THE
+              </span>
+              <span className="mt-0.5 flex flex-col font-display text-[10px] font-extrabold uppercase leading-[1.05] tracking-[0.05em] text-brand-text">
+                <span>Parking Appeals</span>
+                <span>Group</span>
+              </span>
             </span>
           </div>
           <div className="px-5 py-6 text-center">
