@@ -23,6 +23,11 @@ export interface ExtractedPcn {
   /** Vehicle make (e.g. Ford, VW). Optional — only some notices print this. */
   vehicle_make?: string;
   parking_location?: string;
+  /**
+   * UK nation group for the parking event, inferred by extraction from the
+   * notice (address, postcode, town). Only ask the customer when null/UNKNOWN.
+   */
+  uk_jurisdiction?: "ENGLAND_WALES" | "SCOTLAND" | "NORTHERN_IRELAND" | "UNKNOWN";
   /** ISO date (YYYY-MM-DD) */
   parking_event_date?: string;
   /** ISO date (YYYY-MM-DD) */

@@ -39,20 +39,24 @@ const SCOTLAND_PLACES =
 const NI_PLACES =
   /\b(northern\s+ireland|belfast|derry|londonderry|lisburn|newry|armagh|omagh|enniskillen|antrim|bangor|coleraine)\b/i;
 const ENGLAND_WALES_PLACES =
-  /\b(england|wales|london|manchester|birmingham|leeds|liverpool|bristol|sheffield|newcastle|cardiff|swansea|newport|wrexham|brighton|oxford|cambridge|nottingham|leicester|coventry|southampton|portsmouth|reading|milton\s+keynes|croydon|westminster|camden|islington|hackney|tower\s+hamlets|solihull|shirley|warwickshire|west\s+midlands|staffordshire|worcestershire|gloucestershire|hampshire|surrey|kent|essex|sussex|yorkshire|lancashire|cheshire|merseyside|greater\s+manchester|tyne\s+and\s+wear|durham|cumbria|norfolk|suffolk|devon|cornwall|dorset|somerset|wiltshire|berkshire|buckinghamshire|hertfordshire|bedfordshire|northamptonshire|derbyshire|lincolnshire|nottinghamshire|shropshire|herefordshire|powys|gwynedd|anglesey|carmarthenshire|pembrokeshire|bridgend|caerphilly|rhondda|bath|york|hull|plymouth|exeter|bournemouth|poole|basingstoke|guildford|watford|luton|slough|heathrow|gatwick|stansted|birmingham\s+airport|manchester\s+airport|liverpool\s+airport|bristol\s+airport)\b/i;
+  /\b(england|wales|london|manchester|birmingham|leeds|liverpool|bristol|sheffield|newcastle|cardiff|swansea|newport|wrexham|brighton|oxford|cambridge|nottingham|leicester|coventry|southampton|portsmouth|reading|milton\s+keynes|croydon|westminster|camden|islington|hackney|tower\s+hamlets|solihull|shirley|warwickshire|west\s+midlands|staffordshire|worcestershire|gloucestershire|hampshire|surrey|kent|essex|sussex|yorkshire|lancashire|cheshire|merseyside|greater\s+manchester|tyne\s+and\s+wear|durham|cumbria|norfolk|suffolk|devon|cornwall|dorset|somerset|wiltshire|berkshire|buckinghamshire|hertfordshire|bedfordshire|northamptonshire|derbyshire|lincolnshire|nottinghamshire|shropshire|herefordshire|powys|gwynedd|anglesey|carmarthenshire|pembrokeshire|bridgend|caerphilly|rhondda|bath|york|hull|plymouth|exeter|bournemouth|poole|basingstoke|guildford|watford|luton|slough|heathrow|gatwick|stansted|birmingham\s+airport|manchester\s+airport|liverpool\s+airport|bristol\s+airport|northampton|northamptonshire)\b/i;
 
 /**
  * Extract a UK outward area code from free text (e.g. "LS1 2AB" → "LS",
- * "G1 1AA" → "G", "EH12 5AA" → "EH", "B90 4QY" → "B").
+ * "G1 1AA" → "G", "EH12 5AA" → "EH", "B90 4QY" → "B", or outward-only "B90").
  */
 export function extractPostcodeArea(text: string): string | null {
   const normalised = text
     .toUpperCase()
     .replace(/[\u2013\u2014-]/g, " ")
     .replace(/\s+/g, " ");
-  const m = normalised.match(/\b([A-Z]{1,2})\d[A-Z\d]?\s*\d[A-Z]{2}\b/);
-  if (!m) return null;
-  return m[1];
+  // Full postcode first (outward + inward).
+  const full = normalised.match(/\b([A-Z]{1,2})\d[A-Z\d]?\s*\d[A-Z]{2}\b/);
+  if (full) return full[1];
+  // Outward-only (common when OCR drops the inward half).
+  const outward = normalised.match(/\b([A-Z]{1,2})\d[A-Z\d]?\b/);
+  if (outward) return outward[1];
+  return null;
 }
 
 export function inferUkJurisdiction(
@@ -76,4 +80,46 @@ export function inferUkJurisdiction(
   if (ENGLAND_WALES_PLACES.test(combined)) return "ENGLAND_WALES";
 
   return null;
+}
+
+/** Accept extraction / answer values into the canonical jurisdiction bucket. */
+export function normaliseUkJurisdiction(
+  value?: string | null,
+): UkJurisdiction | null {
+  if (!value || typeof value !== "string") return null;
+  const s = value.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (
+    s === "ENGLAND_WALES" ||
+    s === "ENGLAND" ||
+    s === "WALES" ||
+    s === "ENGLAND_OR_WALES"
+  ) {
+    return "ENGLAND_WALES";
+  }
+  if (s === "SCOTLAND") return "SCOTLAND";
+  if (
+    s === "NORTHERN_IRELAND" ||
+    s === "NI" ||
+    s === "NORTHERNIRELAND"
+  ) {
+    return "NORTHERN_IRELAND";
+  }
+  return null;
+}
+
+/**
+ * Resolve jurisdiction from AI extraction first, then location/postcode hints.
+ * Returns null only when neither source can decide — that is when we ask.
+ */
+export function resolveUkJurisdiction(input: {
+  ukJurisdiction?: string | null;
+  parkingLocation?: string | null;
+  extraText?: Array<string | null | undefined>;
+}): UkJurisdiction | null {
+  const fromExtraction = normaliseUkJurisdiction(input.ukJurisdiction);
+  if (fromExtraction) return fromExtraction;
+  return inferUkJurisdiction(
+    input.parkingLocation,
+    ...(input.extraText ?? []),
+  );
 }

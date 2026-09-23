@@ -158,6 +158,7 @@ const PCN_JSON_SCHEMA = {
     "vrm",
     "vehicle_make",
     "parking_location",
+    "uk_jurisdiction",
     "parking_event_date",
     "notice_issue_date",
     "notice_received_date",
@@ -174,7 +175,13 @@ const PCN_JSON_SCHEMA = {
     pcn_number: { type: ["string", "null"], description: "Parking Charge Notice reference / number." },
     vrm: { type: ["string", "null"], description: "Vehicle Registration Mark, e.g. AB12 CDE." },
     vehicle_make: { type: ["string", "null"], description: "Vehicle make, e.g. Ford, VW. Only if visibly stated." },
-    parking_location: { type: ["string", "null"], description: "Site or location name and/or address." },
+    parking_location: { type: ["string", "null"], description: "Site or location name and/or address — include town and postcode when printed." },
+    uk_jurisdiction: {
+      type: ["string", "null"],
+      enum: ["ENGLAND_WALES", "SCOTLAND", "NORTHERN_IRELAND", "UNKNOWN", null],
+      description:
+        "Which UK nation the parking event occurred in, based on the site address, town, postcode, or explicit nation wording on the notice. ENGLAND_WALES covers both England and Wales. Use UNKNOWN only when the document gives no usable geographic signal.",
+    },
     parking_event_date: {
       type: ["string", "null"],
       description:
@@ -240,6 +247,8 @@ const USER_PROMPT = [
   "Dates must be ISO YYYY-MM-DD. Times must be HH:MM 24-hour when possible.",
   "For notice_route: POSTAL if it is a Notice to Keeper sent by post; WINDSCREEN if it was placed on the vehicle; UNKNOWN otherwise.",
   "For charge_amount: numeric in pounds only (no currency symbol).",
+  "For uk_jurisdiction: classify the parking event location as ENGLAND_WALES, SCOTLAND, or NORTHERN_IRELAND from the site address, town, postcode, or nation wording on the notice. Use UNKNOWN only if there is no usable geographic signal.",
+  "For parking_location: include the fullest site address available (site name, town, postcode).",
   "case_stage must be exactly 'INITIAL_OPERATOR_APPEAL'.",
 ].join(" ");
 
@@ -253,6 +262,12 @@ interface RawSchemaOutput {
   vrm: string | null;
   vehicle_make: string | null;
   parking_location: string | null;
+  uk_jurisdiction:
+    | "ENGLAND_WALES"
+    | "SCOTLAND"
+    | "NORTHERN_IRELAND"
+    | "UNKNOWN"
+    | null;
   parking_event_date: string | null;
   notice_issue_date: string | null;
   notice_received_date: string | null;
@@ -267,12 +282,19 @@ interface RawSchemaOutput {
 
 function toExtractedPcn(o: RawSchemaOutput): ExtractedPcn {
   const undefIfNull = <T>(v: T | null): T | undefined => (v === null ? undefined : v);
+  const jurisdiction =
+    o.uk_jurisdiction && o.uk_jurisdiction !== "UNKNOWN"
+      ? o.uk_jurisdiction
+      : o.uk_jurisdiction === "UNKNOWN"
+        ? ("UNKNOWN" as const)
+        : undefined;
   return {
     operator_name: undefIfNull(o.operator_name),
     pcn_number: undefIfNull(o.pcn_number),
     vrm: undefIfNull(o.vrm)?.toUpperCase().replace(/\s+/g, " ").trim(),
     vehicle_make: undefIfNull(o.vehicle_make),
     parking_location: undefIfNull(o.parking_location),
+    uk_jurisdiction: jurisdiction,
     parking_event_date: undefIfNull(o.parking_event_date),
     notice_issue_date: undefIfNull(o.notice_issue_date),
     notice_received_date: undefIfNull(o.notice_received_date),

@@ -252,16 +252,21 @@ export async function confirmFactsForCase(
 
   await repo.saveConfirmed(caseId, confirmedWithStage);
 
-  // Seed jurisdiction from the notice location when clear — do not ask
-  // the customer unless inference cannot resolve England/Wales / Scotland / NI.
+  // Seed jurisdiction from AI extraction or notice location when clear —
+  // do not ask unless neither source can resolve England/Wales / Scotland / NI.
   {
-    const { inferUkJurisdiction } = await import("@/lib/questions/jurisdiction");
-    const { FACT } = await import("@/lib/questions/facts");
-    const inferred = inferUkJurisdiction(
-      confirmedWithStage.parking_location,
-      confirmedWithStage.alleged_breach,
-      confirmedWithStage.operator_name,
+    const { resolveUkJurisdiction } = await import(
+      "@/lib/questions/jurisdiction"
     );
+    const { FACT } = await import("@/lib/questions/facts");
+    const inferred = resolveUkJurisdiction({
+      ukJurisdiction: confirmedWithStage.uk_jurisdiction,
+      parkingLocation: confirmedWithStage.parking_location,
+      extraText: [
+        confirmedWithStage.alleged_breach,
+        confirmedWithStage.operator_name,
+      ],
+    });
     if (inferred) {
       const existing = access.appealCase.adaptiveAnswers ?? {};
       if (!existing[FACT.JURISDICTION]) {
@@ -378,6 +383,10 @@ async function resolveNextStep(
 
   const history = await questionRepo.listCaseQuestions(caseId);
   const answeredCount = history.filter((h) => h.answeredAt).length;
+
+  // Heal mid-journey cases: if the notice already resolves UK nation,
+  // seed the answer and drop any pending jurisdiction question.
+  answers = await ensureJurisdictionSeeded(appealCase, answers);
 
   // An unanswered question is served again rather than regenerated, so
   // a refresh does not produce different wording or burn an AI call.
@@ -514,7 +523,38 @@ async function isStillMaterial(
   for (const h of history) {
     if (h.answeredAt) facts.values[askedFactKey(h.targetFact)] = true;
   }
+  // Prefer admin issue engine when available so pending checks match
+  // what nextDynamicQuestion will ask — especially jurisdiction.
+  if (fact === FACT.JURISDICTION && factStr(facts, FACT.JURISDICTION)) {
+    return false;
+  }
   return missingRequirements(facts).some((r) => r.fact === fact);
+}
+
+/**
+ * Persist jurisdiction when the notice already resolves it (AI extraction
+ * or location/postcode). Keeps mid-journey cases from re-asking.
+ */
+async function ensureJurisdictionSeeded(
+  appealCase: AppealCase,
+  answers: AnswerMap,
+): Promise<AnswerMap> {
+  if (answers[FACT.JURISDICTION]) return answers;
+  const facts = deriveKnownFacts({
+    confirmed: appealCase.confirmed,
+    answers,
+  });
+  const resolved = factStr(facts, FACT.JURISDICTION);
+  if (!resolved) return answers;
+  const next = { ...answers, [FACT.JURISDICTION]: resolved };
+  await repo.saveAnswers(appealCase.id, {
+    adaptiveAnswers: next,
+    askedQuestionIds: appealCase.askedQuestionIds ?? [],
+    questioningComplete: appealCase.questioningComplete,
+    missingFacts: appealCase.missingFacts ?? [],
+    candidateRoutes: appealCase.candidateRoutes ?? [],
+  });
+  return next;
 }
 
 function toStep(outcome: DynamicOutcome, answered: number): QuestionStep {

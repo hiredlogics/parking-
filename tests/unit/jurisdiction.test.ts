@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   extractPostcodeArea,
   inferUkJurisdiction,
+  resolveUkJurisdiction,
 } from "@/lib/questions/jurisdiction";
 import { deriveKnownFacts, FACT } from "@/lib/questions/facts";
 
@@ -36,6 +37,10 @@ describe("inferUkJurisdiction", () => {
     );
   });
 
+  it("infers England/Wales from outward-only postcode", () => {
+    expect(inferUkJurisdiction("Sears Retail Park B90")).toBe("ENGLAND_WALES");
+  });
+
   it("returns null when unsure", () => {
     expect(inferUkJurisdiction("Unknown retail park")).toBeNull();
   });
@@ -43,6 +48,7 @@ describe("inferUkJurisdiction", () => {
   it("extracts outward area codes", () => {
     expect(extractPostcodeArea("12 High Street, LS1 2AB")).toBe("LS");
     expect(extractPostcodeArea("G1 1AA")).toBe("G");
+    expect(extractPostcodeArea("B90")).toBe("B");
   });
 
   it("seeds jurisdiction into known facts from parking location", () => {
@@ -53,5 +59,25 @@ describe("inferUkJurisdiction", () => {
       },
     });
     expect(facts.values[FACT.JURISDICTION]).toBe("ENGLAND_WALES");
+  });
+
+  it("seeds jurisdiction from AI-extracted uk_jurisdiction even without place hints", () => {
+    const facts = deriveKnownFacts({
+      confirmed: {
+        parking_location: "Sears Retail Park",
+        uk_jurisdiction: "ENGLAND_WALES",
+        confirmedAt: new Date().toISOString(),
+      },
+    });
+    expect(facts.values[FACT.JURISDICTION]).toBe("ENGLAND_WALES");
+  });
+
+  it("does not treat UNKNOWN extraction as resolved", () => {
+    expect(
+      resolveUkJurisdiction({
+        ukJurisdiction: "UNKNOWN",
+        parkingLocation: "Unknown retail park",
+      }),
+    ).toBeNull();
   });
 });

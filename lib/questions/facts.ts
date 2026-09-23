@@ -1,6 +1,6 @@
 import type { ConfirmedPcn } from "@/types";
 import type { AnswerMap, AnswerValue, KnownFacts } from "./types";
-import { inferUkJurisdiction } from "./jurisdiction";
+import { resolveUkJurisdiction } from "./jurisdiction";
 
 /**
  * Material fact keys.
@@ -193,8 +193,8 @@ export function deriveKnownFacts(input: {
     if (isEstablished(v)) values[k] = v;
   }
 
-  // Infer England/Wales / Scotland / NI from location or postcode when
-  // the customer has not already answered — avoids a redundant question.
+  // Prefer AI-extracted uk_jurisdiction from the notice, then location /
+  // postcode heuristics — only ask the customer when both fail.
   if (!isEstablished(values[FACT.JURISDICTION])) {
     const locationText =
       typeof values[FACT.PARKING_LOCATION] === "string"
@@ -208,11 +208,16 @@ export function deriveKnownFacts(input: {
       typeof values["keeper_town"] === "string"
         ? (values["keeper_town"] as string)
         : null;
-    const inferred = inferUkJurisdiction(
-      locationText,
-      keeperPostcode,
-      keeperTown,
-    );
+    const inferred = resolveUkJurisdiction({
+      ukJurisdiction: c?.uk_jurisdiction ?? null,
+      parkingLocation: locationText,
+      extraText: [
+        c?.alleged_breach,
+        c?.operator_name,
+        keeperPostcode,
+        keeperTown,
+      ],
+    });
     if (inferred) values[FACT.JURISDICTION] = inferred;
   }
 

@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import type { ExtractedPcn, ExtractionResult, NoticeRoute } from "@/types";
+import { resolveUkJurisdiction } from "@/lib/questions/jurisdiction";
 
 /**
  * Rules / OCR-style fallback for UK private parking notices.
@@ -231,6 +232,15 @@ export function parsePcnText(text: string): {
       confidence.alleged_breach = 0.45;
       break;
     }
+  }
+
+  const inferredNation = resolveUkJurisdiction({
+    parkingLocation: raw.parking_location,
+    extraText: [raw.alleged_breach, raw.operator_name, text.slice(0, 800)],
+  });
+  if (inferredNation) {
+    raw.uk_jurisdiction = inferredNation;
+    confidence.uk_jurisdiction = 0.55;
   }
 
   const filled = Object.keys(raw).filter((k) => k !== "case_stage" && (raw as Record<string, unknown>)[k] != null).length;
