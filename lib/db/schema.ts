@@ -332,7 +332,7 @@ const SENTINEL_COLUMN = {
  * `CREATE ... IF NOT EXISTS`) and runs once per version bump, on new
  * and existing databases alike. Bump SCHEMA_VERSION when you append.
  */
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const ADDITIVE_STATEMENTS: string[] = [
   ...CASE_V2_STATEMENTS,

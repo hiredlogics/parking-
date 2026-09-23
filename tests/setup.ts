@@ -16,6 +16,7 @@ import "@testing-library/jest-dom/vitest";
 process.env.EXTRACTION_PROVIDER = "mock";
 process.env.DRAFTING_PROVIDER = "deterministic";
 process.env.QUESTION_PROVIDER = "bank";
+process.env.EVIDENCE_PROVIDER = "mock";
 
 /**
  * Pin pricing so cost assertions do not move when rates are revised.

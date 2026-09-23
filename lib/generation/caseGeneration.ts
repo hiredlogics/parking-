@@ -16,6 +16,8 @@ import { saveAwaitingApprovalAppeal, findCurrentAppeal } from "@/lib/appeals/rep
 import { releaseAppealToCustomer } from "@/lib/appeals/autoRelease";
 import { evaluateIssues } from "@/lib/engine/issueEngine";
 import { factsForCase } from "@/lib/analysis/engine";
+import { FACT, deriveKnownFacts } from "@/lib/facts/facts";
+import { admitDocumentFacts } from "@/lib/facts/fromDocuments";
 import { ensureAdminConfigSeeded } from "@/lib/config/seedAdminConfig";
 import { getServiceByCode } from "@/lib/config/adminRepo";
 import { resolveAnswersWithDefaults } from "@/lib/rules/factDefaults";
@@ -179,6 +181,41 @@ export async function generateAppealForCase(
   const evidenceTypes = docs.map((d) => d.evidenceType ?? "other");
 
   /*
+   * What reading the uploaded documents established.
+   *
+   * Admission re-checks every candidate against the document category's
+   * scope and the registry vocabulary, and defers to anything the notice
+   * or the customer already said — so this cannot introduce a value the
+   * rest of the system does not recognise, and cannot overwrite the
+   * customer's own account of what happened.
+   */
+  const noticeOnlyFacts = deriveKnownFacts({ confirmed: c.confirmed }).values;
+  const documentFacts = admitDocumentFacts({
+    candidates: docs
+      .filter((d) => d.derivedFacts)
+      .map((d) => ({
+        evidenceType: d.evidenceType ?? "other",
+        facts: d.derivedFacts!.candidates.map((cand) => ({
+          factKey: cand.factKey,
+          value: cand.value as never,
+          basis: cand.basis,
+          confidence: cand.confidence,
+        })),
+      })),
+    alreadyEstablished: { ...noticeOnlyFacts, ...c.adaptiveAnswers },
+  });
+
+  const answersWithDocuments = { ...c.adaptiveAnswers, ...documentFacts.answers };
+  if (documentFacts.tags.length > 0) {
+    const existing = Array.isArray(answersWithDocuments[FACT.SCENARIOS])
+      ? (answersWithDocuments[FACT.SCENARIOS] as string[])
+      : [];
+    answersWithDocuments[FACT.SCENARIOS] = [
+      ...new Set([...existing, ...documentFacts.tags]),
+    ].sort();
+  }
+
+  /*
    * A case that never went through adaptive questioning (or skipped it)
    * still needs the same "registered keeper, driver not named" safe
    * assumption the question engine would otherwise have asked about —
@@ -189,8 +226,18 @@ export async function generateAppealForCase(
   const {
     answers: draftingAnswers,
     applied: appliedDefaults,
-    answerProvenance,
-  } = resolveAnswersWithDefaults(c.confirmed, c.adaptiveAnswers, evidenceTypes);
+    answerProvenance: defaultProvenance,
+  } = resolveAnswersWithDefaults(
+    c.confirmed,
+    answersWithDocuments,
+    evidenceTypes,
+  );
+
+  // A document-read fact must never be recorded as a customer answer.
+  const answerProvenance = {
+    ...documentFacts.provenance,
+    ...defaultProvenance,
+  };
 
   // Refresh intelligence with latest answers before drafting, then reuse analysis.
   const { buildCaseIntelligence } = await import(

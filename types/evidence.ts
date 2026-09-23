@@ -33,6 +33,65 @@ export const EVIDENCE_TYPE_LABELS: Record<EvidenceType, string> = {
 };
 
 /**
+ * Upload category → the evidence kinds the knowledge base names.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * The KB describes the evidence a module needs in its own vocabulary —
+ * "lease", "tenancy", "recovery_report", "dashcam" — and
+ * `EVIDENCE_ESSENTIAL` in lib/retrieval/engine.ts filters modules on it.
+ * That vocabulary and the nine tiles a customer can actually upload
+ * under had NO values in common, and the filter compared one against the
+ * other. The effect in production was that every module with an
+ * essential-evidence requirement was unreachable no matter what the
+ * customer supplied: the whole residential route (KB-RES-01..06), the
+ * breakdown grounds (KB-BREAK-01, KB-BREAK-03) and KB-EV-01.
+ *
+ * It passed unnoticed because the UAT fixtures set `evidenceTypes` to
+ * "lease" and "recovery_report" directly — values the upload path
+ * rejects — so the tests exercised a vocabulary the product never
+ * produces.
+ *
+ * This is a sufficiency check ("is evidence of this kind available?"),
+ * not an assertion that the document says any particular thing. Nothing
+ * here lets a ground be argued: the residential modules still require
+ * `agreement_uploaded === "YES"`, and the residential and breakdown
+ * prohibitions in lib/analysis/prohibited.ts still require the facts.
+ */
+export const KB_EVIDENCE_KINDS: Record<EvidenceType, string[]> = {
+  // The tile is "Permit / authorisation"; a lease or tenancy uploaded to
+  // appeal a residential charge arrives here.
+  authorisation_evidence: ["lease", "tenancy", "parking_grant"],
+  breakdown_evidence: [
+    "recovery_report",
+    "garage_invoice",
+    "roadside_record",
+    "call_logs",
+  ],
+  signage_photo: ["photos"],
+  location_evidence: ["location_record", "dashcam", "cctv"],
+  payment_receipt: ["receipt"],
+  app_screenshot: ["receipt"],
+  anpr_evidence: [],
+  permit: [],
+  other: [],
+};
+
+/**
+ * Expand upload categories into the vocabulary the KB filters on,
+ * keeping the originals so gates keyed on a tile still match.
+ */
+export function expandEvidenceKinds(evidenceTypes: string[]): string[] {
+  const out = new Set<string>(evidenceTypes);
+  for (const t of evidenceTypes) {
+    for (const kind of KB_EVIDENCE_KINDS[t as EvidenceType] ?? []) {
+      out.add(kind);
+    }
+  }
+  return [...out];
+}
+
+/**
  * Which evidence tiles to suggest from selected situation tags.
  * Always includes "other" as a catch-all.
  */

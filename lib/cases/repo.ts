@@ -746,7 +746,29 @@ function rowToDocument(r: Row): CaseDocument {
     description: (r.description as string | null) ?? null,
     uploadedAt: r.uploaded_at as string,
     uploadedBy: r.uploaded_by as string,
+    derivedFacts:
+      (r.derived_facts_json as CaseDocument["derivedFacts"]) ?? null,
   };
+}
+
+/**
+ * Record what reading a document established.
+ *
+ * Separate from addCaseDocument because the read is a second, slower
+ * step that must not be able to fail the upload: a customer whose file
+ * stored successfully has uploaded it, whether or not the reader was
+ * available.
+ */
+export async function saveDocumentDerivedFacts(
+  documentId: string,
+  derived: NonNullable<CaseDocument["derivedFacts"]>,
+): Promise<void> {
+  await q(
+    `UPDATE case_documents_meta
+        SET derived_facts_json = $2::jsonb
+      WHERE id = $1`,
+    [documentId, JSON.stringify(derived)],
+  );
 }
 
 export async function addCaseDocument(input: {

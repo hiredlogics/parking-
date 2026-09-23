@@ -155,7 +155,80 @@ export async function uploadEvidenceForCase(
     },
   });
 
-  return { ok: true, document };
+  const derivedFacts = await readDocument({
+    documentId: document.id,
+    caseId,
+    fileName: stored.fileName,
+    mimeType: stored.mimeType,
+    bytes: input.bytes,
+    evidenceType: input.evidenceType,
+  });
+
+  return { ok: true, document: { ...document, derivedFacts } };
+}
+
+/**
+ * Read an uploaded document and record what it shows.
+ *
+ * Deliberately cannot fail the upload. The customer's file is already
+ * stored and attached by this point; if the reader is unavailable, times
+ * out or returns something unusable, the case simply proceeds on what
+ * the notice, the customer and the evidence category established — the
+ * behaviour before this layer existed. Losing a successful upload
+ * because an AI call failed would be a far worse outcome than not
+ * reading it.
+ */
+async function readDocument(input: {
+  documentId: string;
+  caseId: string;
+  fileName: string;
+  mimeType: string;
+  bytes: Uint8Array;
+  evidenceType: string;
+}): Promise<CaseDocument["derivedFacts"]> {
+  const { getEvidenceUnderstandingProvider } = await import(
+    "@/services/evidence"
+  );
+  const provider = getEvidenceUnderstandingProvider();
+  if (!provider) return null;
+
+  try {
+    const reading = await provider.derive({
+      name: input.fileName,
+      mimeType: input.mimeType,
+      bytes: input.bytes,
+      evidenceType: input.evidenceType,
+      caseId: input.caseId,
+    });
+    const derived = {
+      providerId: reading.providerId,
+      readAt: reading.readAt,
+      documentSummary: reading.documentSummary,
+      typeMismatch: reading.typeMismatch,
+      candidates: reading.facts.map((f) => ({
+        factKey: f.factKey,
+        value: f.value,
+        basis: f.basis,
+        confidence: f.confidence,
+      })),
+    };
+    await repo.saveDocumentDerivedFacts(input.documentId, derived);
+    await repo.addCaseEvent({
+      caseId: input.caseId,
+      eventType: "DOCUMENT_READ",
+      actorId: null,
+      payload: {
+        documentId: input.documentId,
+        providerId: reading.providerId,
+        factKeys: derived.candidates.map((c) => c.factKey),
+        typeMismatch: reading.typeMismatch,
+      },
+    });
+    return derived;
+  } catch (err) {
+    console.error("[evidence] document read failed:", err);
+    return null;
+  }
 }
 
 export type EvidenceDownload =

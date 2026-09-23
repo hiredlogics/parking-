@@ -402,7 +402,7 @@ beforeEach(() => {
       evidenceType: null, storageKey: `cases/${CASE_ID}/evidence/k-notice.pdf`,
       storageProvider: "memory", fileName: "notice.pdf",
       mimeType: "application/pdf", sizeBytes: 100, sha256: "a",
-      sourceDraftId: null, description: null,
+      sourceDraftId: null, description: null, derivedFacts: null,
       uploadedAt: "2026-07-23T00:00:00.000Z", uploadedBy: CUSTOMER_A,
     },
   ];

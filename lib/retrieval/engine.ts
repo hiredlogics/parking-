@@ -13,6 +13,7 @@ import {
 } from "@/lib/kb/catalog";
 import type { IssueAnalysis } from "@/lib/analysis/types";
 import type { KnownFacts } from "@/lib/facts/types";
+import { expandEvidenceKinds } from "@/types/evidence";
 import { blockAllowed, moduleAllowed, type GateInput } from "./gates";
 
 export const RETRIEVAL_VERSION = "retrieval-v1";
@@ -95,7 +96,7 @@ function withinEffectiveDates(
  * helpful. Dropping these without evidence implements VAL-EVIDENCE at
  * retrieval time instead of leaving it to the validator.
  */
-const EVIDENCE_ESSENTIAL: Record<string, string[]> = {
+export const EVIDENCE_ESSENTIAL: Record<string, string[]> = {
   "KB-BREAK-01": ["recovery_report", "garage_invoice", "roadside_record", "photos", "call_logs"],
   "KB-BREAK-03": ["recovery_report", "call_logs"],
   "KB-RES-01": ["lease", "tenancy", "parking_grant"],
@@ -139,7 +140,10 @@ export function retrieveKnowledge(input: RetrievalInput): RetrievalResult {
 
   const sourceById = new Map(sources.map((s) => [s.sourceId, s]));
   const blockById = new Map(allBlocks.map((b) => [b.blockId, b]));
-  const evidence = new Set(input.evidenceTypes ?? []);
+  // Upload categories are expanded into the vocabulary the KB names its
+  // evidence in, or EVIDENCE_ESSENTIAL below can never match anything a
+  // customer is able to supply. See types/evidence.ts.
+  const evidence = new Set(expandEvidenceKinds(input.evidenceTypes ?? []));
 
   // Fact gating is skipped only when no facts were supplied.
   const gate: GateInput | null = input.facts

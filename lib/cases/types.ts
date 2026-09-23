@@ -45,6 +45,28 @@ export interface CaseDocument {
   description: string | null;
   uploadedAt: string;
   uploadedBy: string;
+  /**
+   * What reading this document established (services/evidence/), or null
+   * when it has not been read. Held against the document, not merged
+   * into the answer map, so a fact a document evidences never becomes
+   * indistinguishable from one the customer asserted.
+   */
+  derivedFacts: DocumentDerivedFacts | null;
+}
+
+export interface DocumentDerivedFacts {
+  providerId: string;
+  readAt: string;
+  documentSummary: string;
+  /** The document is not what its upload category claimed. */
+  typeMismatch: boolean;
+  /** Candidate facts, before admission. Admission happens at read time. */
+  candidates: Array<{
+    factKey: string;
+    value: unknown;
+    basis: string;
+    confidence: number;
+  }>;
 }
 
 /**
