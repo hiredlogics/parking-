@@ -9,6 +9,11 @@ import { useAppealStore } from "@/features/appeal/store";
 import { useCaseSession } from "@/features/appeal/useCaseSession";
 import { removeEvidence, uploadEvidence } from "@/features/appeal/caseSync";
 import {
+  KeeperDetailsForm,
+  keeperProfileFrom,
+  needsKeeperDetails,
+} from "@/features/appeal/KeeperDetails";
+import {
   evidenceTypesForScenarios,
   type EvidenceItem,
   type EvidenceType,
@@ -97,6 +102,8 @@ export default function EvidencePage() {
   const router = useRouter();
   const evidence = useAppealStore((s) => s.evidence);
   const adaptiveAnswers = useAppealStore((s) => s.adaptiveAnswers);
+  const confirmed = useAppealStore((s) => s.confirmed);
+  const setAdaptiveAnswers = useAppealStore((s) => s.setAdaptiveAnswers);
   const remove = useAppealStore((s) => s.removeEvidence);
   const setStep = useAppealStore((s) => s.setStep);
   const hydrateFromCase = useAppealStore((s) => s.hydrateFromCase);
@@ -104,6 +111,18 @@ export default function EvidencePage() {
   const [error, setError] = useState<string | null>(null);
 
   const { caseId } = useCaseSession();
+
+  /*
+   * The keeper's name and address, collected here because the letter is
+   * addressed FROM them and nothing else can supply it: a windscreen
+   * ticket does not carry the keeper's details, and no document the
+   * customer uploads does either. This is the one piece of typed input
+   * the pipeline genuinely cannot derive.
+   */
+  const needsKeeper = needsKeeperDetails(
+    adaptiveAnswers,
+    confirmed?.notice_route,
+  );
 
   const categories: Category[] = useMemo(() => {
     const types = evidenceTypesForScenarios(adaptiveAnswers.scenarios);
@@ -161,6 +180,12 @@ export default function EvidencePage() {
   };
 
   const onContinue = () => {
+    if (needsKeeper) {
+      setError(
+        "Please add the registered keeper's name and address — the appeal letter is sent in their name.",
+      );
+      return;
+    }
     setStep("review");
     router.push("/appeal/review");
   };
@@ -188,6 +213,33 @@ export default function EvidencePage() {
             >
               {error}
             </div>
+          )}
+
+          {needsKeeper && caseId && (
+            <section
+              className="mb-6 rounded-2xl border border-brand-border bg-brand-canvas p-4 sm:p-5"
+              data-testid="keeper-details-section"
+            >
+              <h2 className="text-[16px] font-bold text-brand-text">
+                Registered keeper details
+              </h2>
+              <p className="mt-1 text-[13px] leading-relaxed text-brand-mute">
+                Your appeal letter is sent in the registered keeper&apos;s name,
+                so we need these before we can produce it.
+              </p>
+              <KeeperDetailsForm
+                caseId={caseId}
+                windscreen={confirmed?.notice_route === "WINDSCREEN"}
+                initial={keeperProfileFrom(adaptiveAnswers)}
+                heading={false}
+                submitLabel="Save keeper details"
+                className="flex flex-col"
+                onSaved={(answers) => {
+                  setAdaptiveAnswers(answers);
+                  setError(null);
+                }}
+              />
+            </section>
           )}
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
