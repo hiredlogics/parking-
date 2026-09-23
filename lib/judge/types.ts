@@ -99,6 +99,10 @@ export type JudgeDropReason =
   | "UNKNOWN_MODULE"
   | "HARD_REJECTION"
   | "UNGROUNDED"
+  /** A CONFLICTS_WITH edge to a ground already being argued. */
+  | "CONFLICTS"
+  /** A REQUIRES edge to a ground that is not being argued. */
+  | "MISSING_PREREQUISITE"
   | "CEILING";
 
 export interface JudgeDrop {

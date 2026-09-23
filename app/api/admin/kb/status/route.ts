@@ -7,9 +7,33 @@ import {
   setQuotationEnabled,
 } from "@/lib/kb/repo";
 import { insertAuditEvent } from "@/lib/kb/audit";
+import { ingestKbEmbeddings } from "@/lib/rag/kbEmbeddingIngest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * Post-save hook: keep the semantic index in step with module status.
+ *
+ * Ingestion only covers ACTIVE modules, so disabling one must remove its
+ * chunks and re-enabling one must add them back — otherwise similarity
+ * search keeps recommending a module an administrator has withdrawn,
+ * which is exactly the governance failure KB-GOV-06 exists to prevent.
+ *
+ * Deliberately not awaited: an embedding pass is slow and paid-for, and
+ * the status change itself has already been committed and audited. A
+ * failure here leaves a stale index, which the admin embeddings route
+ * can repair on demand — it must never turn a successful status change
+ * into a 500.
+ */
+function reindexInBackground(target: string, id: string): void {
+  void ingestKbEmbeddings().catch((err) => {
+    console.warn(
+      `[api/admin/kb/status] re-index after ${target} ${id} failed (index is now stale; POST /api/admin/kb/embeddings to repair):`,
+      err instanceof Error ? err.message : String(err),
+    );
+  });
+}
 
 type Body =
   | { target: "module"; id: string; status: "ACTIVE" | "REVIEW" | "DISABLED" }
@@ -49,6 +73,7 @@ export async function POST(request: Request) {
         actorId: session.userId,
         payload: { moduleId: body.id, status: body.status },
       });
+      reindexInBackground("module", body.id);
     } else if (body.target === "block") {
       await setBlockStatus(body.id, body.status);
       await insertAuditEvent({

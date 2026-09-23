@@ -5,6 +5,7 @@ import {
   JUDGE_OVERRIDABLE_CODES,
   type RetrievalResult,
 } from "@/lib/retrieval/engine";
+import { loadModuleEdges, type ModuleEdge } from "@/lib/kb/edges";
 import { MockGroundsJudgeProvider } from "./mockProvider";
 import { OpenAIGroundsJudgeProvider } from "./openaiProvider";
 import { enforceJudgeVerdict, judgeFailureDecision } from "./select";
@@ -113,6 +114,11 @@ export interface JudgeGroundsInput {
   caseId?: string | null;
   /** Override the provider — tests and the shadow comparator. */
   provider?: GroundsJudgeProvider | null;
+  /**
+   * Module graph edges. Loaded from lib/kb/edges.ts when omitted; pass
+   * [] to disable graph constraints entirely.
+   */
+  edges?: ModuleEdge[];
 }
 
 /**
@@ -167,6 +173,7 @@ export async function judgeGrounds(
     eligible,
     allModules: input.allModules,
     trace: input.retrieval.trace,
+    edges: input.edges ?? (await loadModuleEdges()),
   });
 }
 

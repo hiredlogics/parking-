@@ -71,6 +71,8 @@ export interface IngestSummary {
   embedded: number;
   skippedUnchanged: number;
   removedStale: number;
+  /** True when the ANN index exists after this run. */
+  annIndexCreated: boolean;
 }
 
 /**
@@ -79,7 +81,14 @@ export interface IngestSummary {
  */
 export async function ingestKbEmbeddings(): Promise<IngestSummary> {
   if (!hasDb()) {
-    return { modulesScanned: 0, chunksConsidered: 0, embedded: 0, skippedUnchanged: 0, removedStale: 0 };
+    return {
+      modulesScanned: 0,
+      chunksConsidered: 0,
+      embedded: 0,
+      skippedUnchanged: 0,
+      removedStale: 0,
+      annIndexCreated: false,
+    };
   }
   const sql = getSql();
   const catalog = await loadKbCatalog();
@@ -209,5 +218,66 @@ export async function ingestKbEmbeddings(): Promise<IngestSummary> {
     );
   }
 
-  return { modulesScanned: modules.length, chunksConsidered, embedded, skippedUnchanged, removedStale };
+  const annIndexCreated = await ensureAnnIndex(sql);
+
+  return {
+    modulesScanned: modules.length,
+    chunksConsidered,
+    embedded,
+    skippedUnchanged,
+    removedStale,
+    annIndexCreated,
+  };
 }
+
+/**
+ * Build the ANN index, once rows exist.
+ *
+ * The schema deliberately does not create this: IVFFlat needs training
+ * data and some pgvector versions reject a build against an empty table,
+ * so the DDL would fail on a fresh database. Here is the right place —
+ * we have just written the rows.
+ *
+ * `lists` is sized by the usual heuristic of rows/1000, clamped to a
+ * sane floor and ceiling. The KB is a few hundred chunks, so in practice
+ * this is the floor; the arithmetic is here so the index does not need
+ * revisiting when the KB grows.
+ *
+ * Best-effort. Without the index, similarity search still returns
+ * correct results by sequential scan — it is slower, not wrong — so a
+ * failure here must never fail the ingest.
+ */
+async function ensureAnnIndex(
+  sql: ReturnType<typeof getSql>,
+): Promise<boolean> {
+  try {
+    const res = await sql.query(
+      `SELECT count(*)::int AS n FROM kb_embeddings WHERE embedding IS NOT NULL`,
+    );
+    const rows = (
+      Array.isArray(res) ? res : ((res as { rows?: unknown[] }).rows ?? [])
+    ) as Array<{ n: number }>;
+    const n = Number(rows[0]?.n ?? 0);
+    if (n < MIN_ROWS_FOR_ANN) return false;
+
+    const lists = Math.max(1, Math.min(200, Math.round(n / 1000) || 1));
+    await sql.query(
+      `CREATE INDEX IF NOT EXISTS kb_embeddings_ann_idx
+         ON kb_embeddings USING ivfflat (embedding vector_cosine_ops)
+         WITH (lists = ${lists})`,
+    );
+    return true;
+  } catch (err) {
+    console.warn(
+      "[rag] ANN index not created (similarity search still works, by sequential scan):",
+      err instanceof Error ? err.message : String(err),
+    );
+    return false;
+  }
+}
+
+/**
+ * Below this, a sequential scan is faster than an index anyway, and
+ * IVFFlat has too little to train on to cluster usefully.
+ */
+const MIN_ROWS_FOR_ANN = 100;

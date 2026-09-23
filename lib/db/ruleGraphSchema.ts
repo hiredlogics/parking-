@@ -238,6 +238,52 @@ export const RULE_GRAPH_STATEMENTS: string[] = [
      ON appeal_claim_traces (case_id, claim_index)`,
   `CREATE INDEX IF NOT EXISTS appeal_claim_traces_appeal_idx
      ON appeal_claim_traces (appeal_id)`,
+
+  /* ---------- Module → module edges: the graph's missing dimension ----------
+   *
+   * The knowledge base has been described as a graph since it was
+   * written, but it was a three-level TREE: source → module → block,
+   * with no relationship between modules at all. So two facts about the
+   * legal content had nowhere to live:
+   *
+   *   CONFLICTS_WITH  two grounds that must not be argued together,
+   *                   because arguing both is self-contradictory.
+   *                   "Payment was made" and "the tariff did not apply"
+   *                   is the obvious pair — a letter making both invites
+   *                   the operator to pick whichever it prefers.
+   *                   VAL-CONFLICT catches some of this in the prose,
+   *                   but only after the draft exists; an edge stops it
+   *                   being selected in the first place.
+   *   REQUIRES        a module that is meaningless without another.
+   *                   The PoFA content-defect modules only bite once the
+   *                   keeper-liability threshold module is in play.
+   *   SUPERSEDES      replaces another module from an effective date, so
+   *                   a Code change can retire a proposition without
+   *                   deleting the record of what applied before.
+   *   NARROWS         a more specific case of a broader ground, used to
+   *                   prefer the specific one rather than argue both.
+   *
+   * Directed. `weight` orders competing edges of the same kind. Kept
+   * separate from kb_modules rather than as a JSONB column so an edge
+   * can be added, audited and reversed on its own.
+   */
+  `CREATE TABLE IF NOT EXISTS kb_module_edges (
+    id           TEXT PRIMARY KEY,
+    from_module  TEXT NOT NULL,
+    to_module    TEXT NOT NULL,
+    /* SUPERSEDES | REQUIRES | CONFLICTS_WITH | NARROWS */
+    edge_kind    TEXT NOT NULL,
+    weight       INTEGER NOT NULL DEFAULT 0,
+    note         TEXT,
+    status       TEXT NOT NULL DEFAULT 'ACTIVE',
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    UNIQUE (from_module, to_module, edge_kind)
+  )`,
+  `CREATE INDEX IF NOT EXISTS kb_module_edges_from_idx
+     ON kb_module_edges (from_module, edge_kind, status)`,
+  `CREATE INDEX IF NOT EXISTS kb_module_edges_to_idx
+     ON kb_module_edges (to_module, edge_kind, status)`,
 ];
 
 /**

@@ -4,6 +4,11 @@ import type { KnownFacts } from "@/lib/facts/types";
 import { ASSERTABLE_PROVENANCE } from "@/lib/facts/types";
 import { BASE_RANK } from "@/lib/analysis/routes";
 import {
+  conflictsWith,
+  prerequisitesOf,
+  type ModuleEdge,
+} from "@/lib/kb/edges";
+import {
   JUDGE_OVERRIDABLE_CODES,
   type RetrievalTraceEntry,
 } from "@/lib/retrieval/engine";
@@ -38,7 +43,10 @@ import {
  *   5. Ordering is deterministic: confidence, then BASE_RANK, then
  *      module id. Ties never depend on the order a model happened to
  *      emit, so the PDF's route labels are reproducible.
- *   6. The ceiling applies last, and every drop is recorded.
+ *   6. Graph constraints (lib/kb/edges.ts): a ground that CONFLICTS_WITH
+ *      a higher-confidence selected ground is dropped, and a ground
+ *      whose REQUIRES prerequisite is not being argued is dropped.
+ *   7. The ceiling applies last, and every drop is recorded.
  *
  * Note the asymmetry in step 4, which is the point of the whole design:
  * a ground may be dropped for being ungrounded, but it can never be
@@ -54,6 +62,12 @@ export interface SelectInput {
   /** Every module retrieval saw, eligible or not. */
   allModules: KbModule[];
   trace: RetrievalTraceEntry[];
+  /**
+   * Module→module graph edges (lib/kb/edges.ts). Absent means no graph
+   * constraints are applied, which is the behaviour before edges
+   * existed — a missing edge set must never invent a conflict.
+   */
+  edges?: ModuleEdge[];
 }
 
 /** A grounding key counts only if it is established AND assertable. */
@@ -150,8 +164,60 @@ export function enforceJudgeVerdict(input: SelectInput): JudgeDecision {
     return ra - rb || a.moduleId.localeCompare(b.moduleId);
   });
 
-  const selected = admitted.slice(0, MAX_SELECTED_MODULES);
-  for (const g of admitted.slice(MAX_SELECTED_MODULES)) {
+  /*
+   * ---- Graph constraints, applied before the ceiling ----
+   *
+   * Walked in confidence order, so where two grounds conflict the one
+   * the judge was more confident about survives and the weaker is
+   * dropped. Doing this BEFORE the ceiling matters: a contradictory
+   * ground must not consume one of the six slots and push a usable
+   * ground out.
+   *
+   * REQUIRES is checked against the surviving selection, not the
+   * eligible set — a prerequisite that was itself dropped cannot
+   * support anything.
+   */
+  const edges = input.edges ?? [];
+  const kept: JudgeGround[] = [];
+  const keptIds = new Set<string>();
+  const blockedByConflict = new Set<string>();
+
+  for (const g of admitted) {
+    if (blockedByConflict.has(g.moduleId)) {
+      drops.push({
+        moduleId: g.moduleId,
+        reason: "CONFLICTS",
+        detail: conflictDetail(edges, g.moduleId, keptIds),
+      });
+      continue;
+    }
+    kept.push(g);
+    keptIds.add(g.moduleId);
+    for (const other of conflictsWith(edges, g.moduleId)) {
+      blockedByConflict.add(other);
+    }
+  }
+
+  const afterPrereqs: JudgeGround[] = [];
+  for (const g of kept) {
+    const missing = prerequisitesOf(edges, g.moduleId).filter(
+      (p) => !keptIds.has(p),
+    );
+    if (missing.length > 0) {
+      drops.push({
+        moduleId: g.moduleId,
+        reason: "MISSING_PREREQUISITE",
+        detail: `Requires ${missing.join(", ")}, which ${
+          missing.length === 1 ? "is" : "are"
+        } not being argued.`,
+      });
+      continue;
+    }
+    afterPrereqs.push(g);
+  }
+
+  const selected = afterPrereqs.slice(0, MAX_SELECTED_MODULES);
+  for (const g of afterPrereqs.slice(MAX_SELECTED_MODULES)) {
     drops.push({
       moduleId: g.moduleId,
       reason: "CEILING",
@@ -183,7 +249,7 @@ export function enforceJudgeVerdict(input: SelectInput): JudgeDecision {
 
   const failure =
     selected.length === 0
-      ? admitted.length === 0 && drops.some((d) => d.reason === "CEILING")
+      ? drops.some((d) => d.reason === "CEILING")
         ? "JUDGE_CEILING_REJECTED_ALL"
         : "JUDGE_SELECTED_NONE"
       : null;
@@ -201,6 +267,25 @@ export function enforceJudgeVerdict(input: SelectInput): JudgeDecision {
     failure,
     judgeVersion: JUDGE_VERSION,
   };
+}
+
+function conflictDetail(
+  edges: ModuleEdge[],
+  moduleId: string,
+  keptIds: Set<string>,
+): string {
+  const against = [...conflictsWith(edges, moduleId)].filter((m) =>
+    keptIds.has(m),
+  );
+  const note = edges.find(
+    (e) =>
+      e.kind === "CONFLICTS_WITH" &&
+      ((e.fromModule === moduleId && against.includes(e.toModule)) ||
+        (e.toModule === moduleId && against.includes(e.fromModule))),
+  )?.note;
+  return `Conflicts with ${against.join(", ")}, which is being argued.${
+    note ? ` ${note}` : ""
+  }`;
 }
 
 function rankOf(m: KbModule | undefined): number {

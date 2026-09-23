@@ -28,6 +28,7 @@ export type AuditEventType =
   | "APPEAL_MANUAL_REVIEW"
   | "KB_MODULE_STATUS_CHANGED"
   | "KB_BLOCK_STATUS_CHANGED"
+  | "KB_EMBEDDINGS_INGESTED"
   | "LEGAL_SOURCE_QUOTATION_CHANGED";
 
 export interface AuditEventInput {
