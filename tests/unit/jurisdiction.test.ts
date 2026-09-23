@@ -72,6 +72,25 @@ describe("inferUkJurisdiction", () => {
     expect(facts.values[FACT.JURISDICTION]).toBe("ENGLAND_WALES");
   });
 
+  it("defaults England/Wales when location is known but nation is ambiguous", () => {
+    const facts = deriveKnownFacts({
+      confirmed: {
+        parking_location: "Sears Retail Park",
+        confirmedAt: new Date().toISOString(),
+      },
+    });
+    expect(facts.values[FACT.JURISDICTION]).toBe("ENGLAND_WALES");
+  });
+
+  it("does not invent jurisdiction with no location and no extraction", () => {
+    const facts = deriveKnownFacts({
+      confirmed: {
+        confirmedAt: new Date().toISOString(),
+      },
+    });
+    expect(facts.values[FACT.JURISDICTION]).toBeUndefined();
+  });
+
   it("does not treat UNKNOWN extraction as resolved", () => {
     expect(
       resolveUkJurisdiction({

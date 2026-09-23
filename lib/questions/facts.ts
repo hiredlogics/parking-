@@ -194,7 +194,9 @@ export function deriveKnownFacts(input: {
   }
 
   // Prefer AI-extracted uk_jurisdiction from the notice, then location /
-  // postcode heuristics — only ask the customer when both fail.
+  // postcode heuristics. When the customer already confirmed a site
+  // location on the notice, never leave jurisdiction open for a radio
+  // question — default England/Wales (PoFA product path) if still unclear.
   if (!isEstablished(values[FACT.JURISDICTION])) {
     const locationText =
       typeof values[FACT.PARKING_LOCATION] === "string"
@@ -218,7 +220,11 @@ export function deriveKnownFacts(input: {
         keeperTown,
       ],
     });
-    if (inferred) values[FACT.JURISDICTION] = inferred;
+    if (inferred) {
+      values[FACT.JURISDICTION] = inferred;
+    } else if (isEstablished(locationText)) {
+      values[FACT.JURISDICTION] = "ENGLAND_WALES";
+    }
   }
 
   const known = new Set(Object.keys(values));

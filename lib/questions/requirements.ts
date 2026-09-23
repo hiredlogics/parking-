@@ -161,8 +161,10 @@ export const TRIAGE_REQUIREMENTS: FactRequirement[] = [
     rationale:
       "Schedule 4 keeper liability applies in England and Wales only, so the jurisdiction decides whether the automated route is available at all.",
     kbModules: ["KB-POFA-01"],
-    // Skipped when deriveKnownFacts already inferred from location/postcode.
-    when: (f) => factStr(f, FACT.JURISDICTION) === null,
+    // Ask only when neither notice location nor extraction resolved it.
+    when: (f) =>
+      factStr(f, FACT.JURISDICTION) === null &&
+      factStr(f, FACT.PARKING_LOCATION) === null,
   },
   {
     fact: FACT.VEHICLE_HIRE_STATUS,

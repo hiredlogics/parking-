@@ -70,7 +70,9 @@ export const QUESTION_BANK: QuestionDef[] = [
     serves: "SCOPE",
     establishesFacts: [FACT.JURISDICTION],
     // Skipped when location/postcode already establishes the nation group.
-    askWhen: (f) => factStr(f, FACT.JURISDICTION) === null,
+    askWhen: (f) =>
+      factStr(f, FACT.JURISDICTION) === null &&
+      factStr(f, FACT.PARKING_LOCATION) === null,
     // Prefer bank only when location could not establish the nation group.
     priority: 5,
     supportsModules: ["KB-POFA-01"],

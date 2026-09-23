@@ -154,7 +154,18 @@ describe("Missing material facts", () => {
   });
 
   it("starts with scope and triage before any route", () => {
+    // Location on the notice resolves jurisdiction — next up is hire status.
     const missing = missingMaterialFacts(facts());
+    expect(missing[0]).toBe(FACT.VEHICLE_HIRE_STATUS);
+    expect(missing).not.toContain(FACT.JURISDICTION);
+  });
+
+  it("asks jurisdiction only when the notice has no parking location", () => {
+    const missing = missingMaterialFacts(
+      deriveKnownFacts({
+        confirmed: { ...CONFIRMED, parking_location: undefined },
+      }),
+    );
     expect(missing[0]).toBe(FACT.JURISDICTION);
   });
 
@@ -242,8 +253,11 @@ describe("Missing material facts", () => {
 /* ====================== Generated validation ====================== */
 
 describe("Generated question validation", () => {
+  /** Facts with no location so jurisdiction stays outstanding for these tests. */
   const base = () => {
-    const f = facts();
+    const f = deriveKnownFacts({
+      confirmed: { ...CONFIRMED, parking_location: undefined },
+    });
     return { facts: f, missing: missingRequirements(f) };
   };
 
@@ -517,9 +531,11 @@ describe("Generated question validation", () => {
 /* ================= Regeneration and fallback ================= */
 
 describe("Regeneration and fallback", () => {
+  const noLocation = { ...CONFIRMED, parking_location: undefined };
+
   it("serves a valid AI question on the first attempt", async () => {
     const out = await nextDynamicQuestion({
-      confirmed: CONFIRMED,
+      confirmed: noLocation,
       provider: stubProvider([
         candidate({
           target_fact: FACT.JURISDICTION,
@@ -544,7 +560,7 @@ describe("Regeneration and fallback", () => {
 
   it("regenerates once, then accepts", async () => {
     const out = await nextDynamicQuestion({
-      confirmed: CONFIRMED,
+      confirmed: noLocation,
       provider: stubProvider([
         // First attempt is keeper-unsafe.
         candidate({
@@ -583,7 +599,7 @@ describe("Regeneration and fallback", () => {
       question: { type: "short_text", label: "Who was driving?" },
     });
     const out = await nextDynamicQuestion({
-      confirmed: CONFIRMED,
+      confirmed: noLocation,
       provider: stubProvider([bad, bad]),
     });
     expect(out.status).toBe("QUESTION_REQUIRED");
