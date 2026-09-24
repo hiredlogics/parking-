@@ -329,6 +329,40 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
     }
   }
 
+  const aa = ctx.appealAnalysis;
+  if (aa) {
+    lines.push("");
+    lines.push("=== APPEAL ANALYSIS (sole drafting authority — do not invent grounds) ===");
+    lines.push(`Primary ground: ${aa.primary_ground ?? "none"}`);
+    if (aa.secondary_grounds.length > 0) {
+      lines.push(`Secondary grounds: ${aa.secondary_grounds.join(", ")}`);
+    }
+    lines.push(`Code version: ${aa.code_version ?? "unresolved"}`);
+    if (aa.pofa) {
+      lines.push(
+        `PoFA: paragraph ${aa.pofa.paragraph ?? "?"} status=${aa.pofa.timingStatus} deadline=${aa.pofa.deadline ?? "n/a"} given=${aa.pofa.noticeGivenDate ?? "n/a"} daysLate=${aa.pofa.daysLate ?? "n/a"}`,
+      );
+      for (const r of aa.pofa.reasons) {
+        lines.push(`  - ${formatIsoDatesInProse(r)}`);
+      }
+      if (aa.pofa.timingStatus === "FAILED") {
+        lines.push(
+          "REQUIRED: When arguing PoFA timing, you MUST state the parking event date, the notice issue date, the statutory deadline, the deemed given date, and that the notice was late by the recorded number of days. Do not write a bare 'timing failure' conclusion without those dates.",
+        );
+      }
+    }
+    lines.push("Supporting facts (use these concrete values; do not invent others):");
+    for (const [k, v] of Object.entries(aa.supporting_facts)) {
+      if (v === null || v === undefined || v === "") continue;
+      lines.push(`  - ${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
+    }
+    if (aa.knowledge_modules.length > 0) {
+      lines.push(
+        `Approved modules: ${aa.knowledge_modules.map((m) => m.moduleId).join(", ")}`,
+      );
+    }
+  }
+
   if (ctx.feedback && ctx.feedback.trim().length > 0) {
     lines.push("");
     lines.push("=== VALIDATOR FEEDBACK ON YOUR PREVIOUS ATTEMPT ===");

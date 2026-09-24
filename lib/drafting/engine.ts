@@ -14,6 +14,8 @@ import {
 } from "@/lib/facts/toLegacyAnswers";
 import { withoutRedundantParagraphs } from "@/lib/appeals/paragraphSelection";
 import { buildVariableMap } from "@/lib/variables";
+import { formatUkDate } from "@/lib/format/ukDate";
+import { derivedPofaVariableValues } from "@/lib/analysis/derivedLegalFacts";
 
 export const DRAFTING_ENGINE_VERSION = "drafting-v1";
 
@@ -153,6 +155,19 @@ export async function draftAppeal(
     string,
     string
   >;
+  /*
+   * DERIVED_LEGAL_FACT presentation values — PoFA deadline / deemed given
+   * so VAL-FACT and the model share the same assertable date set.
+   */
+  {
+    const derived = derivedPofaVariableValues(analysis.pofa);
+    for (const [k, v] of Object.entries(derived)) {
+      variables[k] = formatUkDate(v) ?? v;
+      if (/^\d{4}-\d{2}-\d{2}/.test(v)) {
+        variables[`${k}_iso`] = v;
+      }
+    }
+  }
 
   // Never draft a case that must go to a human.
   if (analysis.manualReview) {
@@ -210,6 +225,10 @@ export async function draftAppeal(
     confirmed: input.confirmed,
     answers: input.answers,
     evidenceTypes: input.evidenceTypes ?? [],
+    allowedRoutes: [
+      ...(analysis.primaryRoute ? [analysis.primaryRoute] : []),
+      ...(analysis.secondaryRoutes ?? []),
+    ],
   });
 
   /*
@@ -327,6 +346,14 @@ export async function draftAppeal(
           outstandingFacts: ci.missingFacts,
         }
       : undefined,
+    appealAnalysis: ci
+      ? (await import("@/lib/drafting/appealAnalysis")).buildAppealAnalysis({
+          intelligence: ci,
+          modules: retrieval.modules,
+          sources: retrieval.sources,
+          evidenceRefs: input.evidenceRefs,
+        })
+      : null,
   };
 
   /*

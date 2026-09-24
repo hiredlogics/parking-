@@ -1,7 +1,6 @@
 import type { ConfirmedPcn, EvidenceItem, ExtractionResult } from "@/types";
 import type { SessionData } from "@/lib/auth/session";
 import type { AnswerMap } from "@/lib/facts/types";
-import { missingRequirements } from "@/lib/facts/missing";
 import { openRoutes } from "@/lib/facts/requirements";
 import { detectOutOfScope } from "@/lib/facts/scope";
 import { isFollowUpDue } from "./outcome";
@@ -338,13 +337,9 @@ export async function confirmFactsForCase(
   /*
    * Derive the case state now the notice is confirmed.
    *
-   * `questioningComplete` is what `assessSufficiency` reads to decide
-   * whether outstanding facts still block checkout. Nothing set it on
-   * this path, so a customer who never used the "I am not the registered
-   * keeper" correction reached Review with it still false and was told to
-   * "answer the remaining questions" — a journey step that no longer
-   * exists. Confirmation is the point at which there is nothing left to
-   * ask, which is exactly what persistDerivedState documents.
+   * `questioningComplete` is decided by the fact-gap resolver inside
+   * persistDerivedState — true only when there is no blocking material
+   * fact left to ask. Confirmation alone must never mark questioning done.
    */
   const confirmedCase = await repo.findCase(caseId);
   if (confirmedCase) {
@@ -373,25 +368,12 @@ export interface AnswerOutcome {
 /**
  * Recompute and persist everything the case derives from its facts.
  *
- * This used to be driven by a `DynamicOutcome` — the question engine
- * told the case which routes were open, what was outstanding and whether
- * the customer was still being questioned. With the questions gone the
- * facts themselves are the only input, which is the better arrangement
- * anyway: the engine's opinion and the facts could previously disagree.
- *
- *   candidateRoutes  openRoutes(facts) — the same function the question
- *                    engine called, now called directly.
- *   missingFacts     still recorded, because a fact nobody can supply is
- *                    exactly what the release checklist and the operator
- *                    dashboard need to see. Nothing asks the customer
- *                    for them any more.
+ *   candidateRoutes  openRoutes(facts)
+ *   missingFacts     from the fact-gap resolver (admin issue config)
  *   questioningComplete
- *                    always true once the notice is confirmed. There is
- *                    no questioning left to complete, and the workflow
- *                    gate and sufficiency check both read this to decide
- *                    whether the journey may proceed.
- *   outOfScope       from `detectOutOfScope`, which the question engine
- *                    wrapped rather than owned.
+ *                    true only when there is no remaining blocking
+ *                    fact-gap question — never "true because confirmed".
+ *   outOfScope       from `detectOutOfScope`
  */
 async function persistDerivedState(
   caseId: string,
@@ -432,10 +414,60 @@ async function persistDerivedState(
 
   const scope = detectOutOfScope(facts);
 
+  /*
+   * Fact-gap is the authority on whether questioning is finished.
+   *
+   * Confirming the notice is not the same as having nothing left to ask:
+   * allegation-driven issues often still need material facts. Defaults
+   * are applied first so we do not treat system-filled facts as gaps.
+   */
+  const { resolveAnswersWithDefaults } = await import(
+    "@/lib/rules/factDefaults"
+  );
+  const { resolveFactGap, ASKED_PREFIX } = await import(
+    "@/lib/facts/gapResolver"
+  );
+  const { answers: withDefaults } = resolveAnswersWithDefaults(
+    appealCase.confirmed,
+    answers,
+    evidenceTypes,
+  );
+  const gapFacts = deriveKnownFacts({
+    confirmed: appealCase.confirmed,
+    answers: withDefaults,
+    evidenceTypes,
+  });
+  for (const key of Object.keys(facts.values)) {
+    if (key.startsWith(ASKED_PREFIX)) gapFacts.values[key] = true;
+  }
+  const { buildCaseIntelligence } = await import(
+    "@/lib/cases/caseIntelligence"
+  );
+  const intelligence = buildCaseIntelligence({
+    confirmed: appealCase.confirmed!,
+    answers: withDefaults,
+    evidenceTypes,
+    documentUnderstanding: {
+      documentType: (appealCase.documentType as never) ?? null,
+      senderName: appealCase.senderName,
+      parkingOperatorName: appealCase.parkingOperatorName,
+      caseStage: (appealCase.caseStage as never) ?? null,
+      serviceDecision: (appealCase.serviceDecision as never) ?? null,
+    },
+    knownFactsOverride: gapFacts,
+  });
+  const gap = await resolveFactGap({
+    facts: gapFacts,
+    serviceCode: appealCase.serviceType,
+    evidenceTypes,
+    caseIntelligence: intelligence,
+  });
+  const blockingGap = Boolean(gap.gap && !gap.gap.optional);
+
   await repo.saveAnswers(caseId, {
     adaptiveAnswers: answers,
-    questioningComplete: true,
-    missingFacts: missingRequirements(facts).map((m) => m.fact),
+    questioningComplete: !blockingGap,
+    missingFacts: gap.outstanding.map((m) => m.factKey),
     candidateRoutes: openRoutes(facts),
     driverStatus:
       factStr(facts, FACT.DRIVER_IDENTIFIED) === "YES"
@@ -447,21 +479,6 @@ async function persistDerivedState(
   });
 
   if (appealCase.confirmed) {
-    const { buildCaseIntelligence } = await import(
-      "@/lib/cases/caseIntelligence"
-    );
-    const intelligence = buildCaseIntelligence({
-      confirmed: appealCase.confirmed,
-      answers,
-      evidenceTypes,
-      documentUnderstanding: {
-        documentType: (appealCase.documentType as never) ?? null,
-        senderName: appealCase.senderName,
-        parkingOperatorName: appealCase.parkingOperatorName,
-        caseStage: (appealCase.caseStage as never) ?? null,
-        serviceDecision: (appealCase.serviceDecision as never) ?? null,
-      },
-    });
     await repo.saveCaseIntelligence(caseId, intelligence);
   }
 }

@@ -7,7 +7,7 @@ import { askedFactKey } from "@/lib/facts/missing";
 import { ASKED_PREFIX, resolveFactGap } from "@/lib/facts/gapResolver";
 import { resolveAnswersWithDefaults } from "@/lib/rules/factDefaults";
 import { detectOutOfScope, isHardOutOfScope } from "@/lib/facts/scope";
-import { resolveSuitability } from "@/lib/cases/caseIntelligence";
+import { resolveSuitability, buildCaseIntelligence } from "@/lib/cases/caseIntelligence";
 import { SERVICE_NOT_SUITABLE_DETAIL } from "@/lib/cases/documentUnderstanding";
 import { routeLabels } from "./labels";
 import { listArchivedQuestions } from "./questionHistory";
@@ -277,6 +277,19 @@ export async function assessSufficiency(
     facts: resolvedFacts,
     serviceCode: appealCase.serviceType,
     evidenceTypes,
+    caseIntelligence: buildCaseIntelligence({
+      confirmed: appealCase.confirmed!,
+      answers: answersWithDefaults,
+      evidenceTypes,
+      documentUnderstanding: {
+        documentType: (appealCase.documentType as never) ?? null,
+        senderName: appealCase.senderName,
+        parkingOperatorName: appealCase.parkingOperatorName,
+        caseStage: (appealCase.caseStage as never) ?? null,
+        serviceDecision: (appealCase.serviceDecision as never) ?? null,
+      },
+      knownFactsOverride: resolvedFacts,
+    }),
   });
 
   /*
@@ -287,15 +300,14 @@ export async function assessSufficiency(
    * required facts against a budget of four — would block forever on
    * facts nobody was ever going to ask. `gap` is null the moment the
    * budget is spent or everything askable has been put, which makes the
-   * gate self-limiting: it can only ever hold a case back for as long
-   * as there is something to do about it.
+   * gate self-limiting.
    *
    * Optional facts strengthen an appeal but never hold up payment.
-   * `questioningComplete` still short-circuits the admin and manual
-   * paths.
+   * Do NOT short-circuit on `questioningComplete` — that flag is derived
+   * from this same gap check and must not override a live blocking gap.
    */
   const blockingGap = gapState.gap && !gapState.gap.optional;
-  if (blockingGap && !appealCase.questioningComplete) {
+  if (blockingGap) {
     blockers.push(
       "Tell us a little more about what happened so we can finish your appeal.",
     );

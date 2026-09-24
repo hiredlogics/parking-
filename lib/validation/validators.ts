@@ -123,6 +123,10 @@ function allowedValues(ctx: ValidatorContext): Set<string> {
     }
   };
 
+  /*
+   * DOCUMENT_FACT / CUSTOMER_FACT / DERIVED_LEGAL_FACT (source=computed)
+   * via verifiedFacts + ASSERTABLE_PROVENANCE.
+   */
   for (const f of ctx.analysis.verifiedFacts) {
     if (f.field.startsWith("__")) continue;
     if (!ALLOWED_VALUE_PROVENANCE.has(f.source)) continue;
@@ -130,6 +134,18 @@ function allowedValues(ctx: ValidatorContext): Set<string> {
     else push(f.value);
   }
   for (const v of Object.values(ctx.variables)) push(v);
+
+  /*
+   * Belt-and-braces: PoFA timing outputs on the analysis object itself,
+   * even if an older snapshot omitted them from verifiedFacts.
+   */
+  const p = ctx.analysis.pofa;
+  if (p?.timingStatus === "FAILED") {
+    push(p.deadline);
+    push(p.noticeGivenDate);
+    if (p.daysLate != null) push(p.daysLate);
+  }
+
   return allowed;
 }
 
@@ -277,7 +293,12 @@ const valPofa: Validator = {
         ctx.body,
         /\bnot\s+(?:given|delivered|served)\s+within\b/gi,
       );
-      if (allegesTiming.length > 0) {
+      const allegesTimingAlt = findAll(
+        ctx.body,
+        /\b(?:timing\s+failure|days?\s+late|out\s+of\s+time|statutory\s+(?:period|deadline))\b/gi,
+      );
+      const timingMentions = [...allegesTiming, ...allegesTimingAlt];
+      if (timingMentions.length > 0) {
         const eventDate = ctx.variables.parking_event_date;
         const noticeDate = ctx.variables.notice_issue_date;
         const statesDate = (value: string | undefined): boolean =>
@@ -294,7 +315,7 @@ const valPofa: Validator = {
               "BLOCKING",
               `Draft alleges the Notice to Keeper was served out of time but does not state ${missing.join(" or ")}. An established timing failure must show the dates it is calculated from.`,
               ctx.body,
-              allegesTiming[0],
+              timingMentions[0],
             ),
           );
         }

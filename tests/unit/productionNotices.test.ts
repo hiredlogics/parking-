@@ -185,16 +185,40 @@ describe("production-reachable notices", () => {
   });
 
   /*
-   * The regression that matters. A letter with no modules has no legal
-   * argument in it — it is the intro and closing blocks and nothing
-   * else. That shipped once; it must never ship again.
+   * Notices with an established PoFA timing defect must still retrieve
+   * grounds from confirm-page answers alone (dates are on the notice).
+   *
+   * Compliant notices no longer retrieve a weak keeper-only PoFA module
+   * from defaults — that produced generic letters. Those cases need the
+   * fact-gap step (allegation → issues → answers) before retrieval has
+   * anything case-specific to say.
    */
-  it.each(PRODUCTION_NOTICES.map((n) => [n.id, n] as const))(
-    "%s retrieves at least one ground and some wording",
+  it.each(
+    PRODUCTION_NOTICES.filter((n) => n.ntk === "LATE").map(
+      (n) => [n.id, n] as const,
+    ),
+  )(
+    "%s (late NTK) retrieves at least one ground and some wording",
     async (_id, sample) => {
       const { moduleIds, retrieval } = await runNotice(sample.confirmed);
       expect(moduleIds.length).toBeGreaterThan(0);
       expect(retrieval.blocks.length).toBeGreaterThan(0);
+    },
+  );
+
+  it.each(
+    PRODUCTION_NOTICES.filter((n) => n.ntk === "COMPLIANT").map(
+      (n) => [n.id, n] as const,
+    ),
+  )(
+    "%s (confirm-only) does not invent a weak keeper PoFA ground",
+    async (_id, sample) => {
+      const { analysis, moduleIds } = await runNotice(sample.confirmed);
+      expect(analysis.pofa.timingStatus).not.toBe("FAILED");
+      expect(moduleIds).not.toContain("KB-POFA-02");
+      // Without fact-gap answers there is no conduct route and no
+      // established PoFA defect — so no modules, not a generic letter.
+      expect(moduleIds.filter((m) => m.startsWith("KB-POFA"))).toEqual([]);
     },
   );
 

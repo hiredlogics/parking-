@@ -83,10 +83,33 @@ export async function approveAppeal(
       };
     }
     const docs = await caseRepo.listCaseDocuments(before.caseId, "EVIDENCE");
+    const evidenceTypes = docs.map((d) => d.evidenceType ?? "other");
+    const { buildCaseIntelligence } = await import(
+      "@/lib/cases/caseIntelligence"
+    );
+    const intelligence = buildCaseIntelligence({
+      confirmed: appealCase.confirmed,
+      answers: appealCase.adaptiveAnswers,
+      evidenceTypes,
+      documentUnderstanding: {
+        documentType: (appealCase.documentType as never) ?? null,
+        senderName: appealCase.senderName,
+        parkingOperatorName: appealCase.parkingOperatorName,
+        caseStage: (appealCase.caseStage as never) ?? null,
+        serviceDecision: (appealCase.serviceDecision as never) ?? null,
+      },
+    });
+    const allowedRoutes = [
+      ...(intelligence.analysis?.primaryRoute
+        ? [intelligence.analysis.primaryRoute]
+        : []),
+      ...(intelligence.analysis?.secondaryRoutes ?? []),
+    ];
     const rulesLetter = await buildRulesBasedLetter({
       confirmed: appealCase.confirmed,
       answers: appealCase.adaptiveAnswers,
-      evidenceTypes: docs.map((d) => d.evidenceType ?? "other"),
+      evidenceTypes,
+      allowedRoutes,
     });
     if (isAppealBodyTooThin(rulesLetter.body)) {
       return {

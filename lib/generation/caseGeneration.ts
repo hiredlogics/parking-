@@ -14,13 +14,12 @@ import { routeLabels } from "@/lib/cases/labels";
 import type { RouteFamily } from "@/types/caseState";
 import { saveAwaitingApprovalAppeal, findCurrentAppeal } from "@/lib/appeals/repo";
 import { releaseAppealToCustomer } from "@/lib/appeals/autoRelease";
-import { evaluateIssues } from "@/lib/engine/issueEngine";
-import { factsForCase } from "@/lib/analysis/engine";
-import { FACT, deriveKnownFacts } from "@/lib/facts/facts";
-import { admitDocumentFacts } from "@/lib/facts/fromDocuments";
 import { ensureAdminConfigSeeded } from "@/lib/config/seedAdminConfig";
 import { getServiceByCode } from "@/lib/config/adminRepo";
 import { resolveAnswersWithDefaults } from "@/lib/rules/factDefaults";
+import { factsForCase } from "@/lib/analysis/engine";
+import { FACT, deriveKnownFacts } from "@/lib/facts/facts";
+import { admitDocumentFacts } from "@/lib/facts/fromDocuments";
 
 /**
  * Case-scoped generation.
@@ -239,7 +238,22 @@ export async function generateAppealForCase(
     ...defaultProvenance,
   };
 
-  // Refresh intelligence with latest answers before drafting, then reuse analysis.
+  const draftingFacts = factsForCase({
+    confirmed: c.confirmed,
+    answers: draftingAnswers,
+    evidenceTypes,
+    answerProvenance,
+  });
+
+  /*
+   * Case Intelligence owns grounds and missing facts. Fact-gap must be
+   * clear before drafting; do not re-open allegation-driven issues.
+   */
+  const { applyDocumentImplications } = await import(
+    "@/lib/facts/documentImplications"
+  );
+  const impliedFacts = applyDocumentImplications(draftingFacts);
+  const { resolveFactGap } = await import("@/lib/facts/gapResolver");
   const { buildCaseIntelligence } = await import(
     "@/lib/cases/caseIntelligence"
   );
@@ -255,8 +269,36 @@ export async function generateAppealForCase(
       serviceDecision: (c.serviceDecision as never) ?? null,
     },
     answerProvenance,
+    knownFactsOverride: impliedFacts,
   });
+
+  const gapState = await resolveFactGap({
+    facts: impliedFacts,
+    serviceCode: c.serviceType,
+    evidenceTypes,
+    caseIntelligence: intelligence,
+  });
+  if (gapState.gap && !gapState.gap.optional) {
+    return {
+      ok: false,
+      status: 409,
+      code: "FACT_GAP_INCOMPLETE",
+      message:
+        "We still need a few facts about your case before we can prepare the appeal.",
+    };
+  }
+
   await repo.saveCaseIntelligence(caseId, intelligence);
+
+  if (!intelligence.analysis) {
+    return {
+      ok: false,
+      status: 409,
+      code: "NO_CASE_ANALYSIS",
+      message:
+        "We could not identify a supported appeal ground for this case yet.",
+    };
+  }
 
   const result = await generateValidatedAppeal({
     caseId,
@@ -288,16 +330,6 @@ export async function generateAppealForCase(
     });
   }
 
-  const facts = factsForCase({
-    confirmed: c.confirmed,
-    answers: c.adaptiveAnswers,
-    evidenceTypes,
-  });
-  const issueEval = await evaluateIssues({
-    serviceCode: c.serviceType,
-    facts,
-    evidenceTypes,
-  });
   const service = await getServiceByCode(c.serviceType);
 
   const appealRow = await saveAwaitingApprovalAppeal({
@@ -305,7 +337,12 @@ export async function generateAppealForCase(
     serviceId: service?.id ?? null,
     body: draft.body,
     paragraphs: draft.paragraphs ?? [],
-    issuesJson: issueEval.activeIssues,
+    issuesJson: intelligence.supported_grounds.map((g) => ({
+      code: g.code,
+      routeFamily: g.routeFamily,
+      status: g.status,
+      reasons: g.reasons,
+    })),
     factsSnapshot: Object.fromEntries(
       Object.entries(c.adaptiveAnswers).filter(([k]) => !k.startsWith("__")),
     ),

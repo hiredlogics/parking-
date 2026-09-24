@@ -1,23 +1,16 @@
 /**
  * @vitest-environment node
  *
- * The go/no-go gate for deleting the question engine.
+ * Grounds available from notice + uploads + document reads alone —
+ * without the adaptive question bank, and without inventing a weak
+ * keeper-only PoFA letter from defaults.
  *
- * Every customer answer is thrown away here. Each case is built from
- * only what the pipeline will still have once questions are gone:
+ * Fact-gap questions (allegation → issues → missing facts) are the
+ * path for conduct grounds. This suite checks that:
  *
- *   the confirmed notice
- *   + the evidence categories the customer uploaded under
- *   + what reading those documents established
- *
- * If the corpus collapses onto one set of grounds under those
- * conditions, deleting the questions would ship the identical-letter
- * bug permanently, and this test is the thing that says so.
- *
- * It is deliberately not a snapshot. The question is not "do the same
- * modules come back" — they will not, and should not. The question is
- * whether distinct notices still produce materially distinct grounds
- * with no answers at all.
+ *   - we do not collapse every thin case onto KB-POFA-01
+ *   - document evidence can still open real grounds
+ *   - distinct notices remain distinguishable when they have substance
  */
 import { describe, expect, it } from "vitest";
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
@@ -55,7 +48,6 @@ async function withoutAnswers(f: UatFixture) {
   if (documentFacts.tags.length > 0) {
     answers[FACT.SCENARIOS] = [...documentFacts.tags].sort();
   }
-  // The same safe defaults the live no-questions path applies.
   const resolved = resolveAnswersWithDefaults(
     f.confirmed,
     answers,
@@ -84,58 +76,51 @@ async function withoutAnswers(f: UatFixture) {
     id: f.id,
     hasEvidence: f.evidenceTypes.length > 0,
     primaryRoute: analysis.primaryRoute,
+    pofaFailed: analysis.pofa.timingStatus === "FAILED",
     moduleIds: retrieval.modules.map((m) => m.moduleId).sort(),
     admittedFactKeys: documentFacts.admitted.map((a) => a.factKey),
   };
 }
 
-describe("no-questions pipeline: the corpus with every answer removed", () => {
-  it("retrieves grounds for every case, with no customer answers at all", async () => {
-    for (const f of UAT_FIXTURES) {
-      const s = await withoutAnswers(f);
-      expect(s.moduleIds.length, `${s.id} retrieved nothing`).toBeGreaterThan(0);
-    }
-  });
-
-  it("does not collapse every case onto the generic module", async () => {
+describe("notice + evidence pipeline without adaptive answers", () => {
+  it("does not invent weak keeper-only PoFA from defaults alone", async () => {
     const snaps = await Promise.all(UAT_FIXTURES.map(withoutAnswers));
     const genericOnly = snaps.filter(
       (s) => s.moduleIds.length === 1 && s.moduleIds[0] === "KB-POFA-01",
     );
-    /*
-     * A case with no uploaded evidence and no answers genuinely has
-     * nothing to argue beyond the keeper-liability position, so some
-     * generic-only results are correct rather than a failure. What must
-     * not happen is the whole corpus landing there.
-     */
-    expect(genericOnly.length).toBeLessThan(snaps.length);
-    expect(
-      genericOnly.every((s) => !s.hasEvidence),
-      `cases with evidence collapsed to generic: ${genericOnly
-        .filter((s) => s.hasEvidence)
-        .map((s) => s.id)
-        .join(", ")}`,
-    ).toBe(true);
+    expect(genericOnly).toEqual([]);
   });
 
-  it("gives a case with uploaded evidence more than the generic fallback", async () => {
+  it("still retrieves grounds when PoFA timing is established or evidence admits facts", async () => {
     const snaps = await Promise.all(UAT_FIXTURES.map(withoutAnswers));
-    const withEvidence = snaps.filter((s) => s.hasEvidence);
-    expect(withEvidence.length).toBeGreaterThan(0);
-    for (const s of withEvidence) {
-      expect(s.moduleIds.length, `${s.id}: ${s.moduleIds.join(",")}`).toBeGreaterThan(1);
-      expect(s.admittedFactKeys.length, `${s.id} read no facts`).toBeGreaterThan(0);
+    const withSubstance = snaps.filter(
+      (s) => s.pofaFailed || s.admittedFactKeys.length > 0,
+    );
+    expect(withSubstance.length).toBeGreaterThan(0);
+    for (const s of withSubstance) {
+      expect(
+        s.moduleIds.length,
+        `${s.id} had substance but retrieved nothing`,
+      ).toBeGreaterThan(0);
     }
   });
 
-  it("still tells materially different notices apart", async () => {
+  it("gives a case with uploaded evidence admitted facts a real route when possible", async () => {
     const snaps = await Promise.all(UAT_FIXTURES.map(withoutAnswers));
-    const distinct = new Set(snaps.map((s) => s.moduleIds.join("|")));
-    /*
-     * Cases that differ only in facts a question used to establish will
-     * legitimately coincide now. The corpus must still resolve into
-     * several distinct outcomes rather than one.
-     */
+    const withAdmitted = snaps.filter((s) => s.admittedFactKeys.length > 0);
+    expect(withAdmitted.length).toBeGreaterThan(0);
+    for (const s of withAdmitted) {
+      expect(
+        s.moduleIds.length,
+        `${s.id}: ${s.moduleIds.join(",")}`,
+      ).toBeGreaterThan(0);
+    }
+  });
+
+  it("still tells materially different notices apart when they have substance", async () => {
+    const snaps = await Promise.all(UAT_FIXTURES.map(withoutAnswers));
+    const withModules = snaps.filter((s) => s.moduleIds.length > 0);
+    const distinct = new Set(withModules.map((s) => s.moduleIds.join("|")));
     expect(distinct.size).toBeGreaterThan(1);
   });
 });

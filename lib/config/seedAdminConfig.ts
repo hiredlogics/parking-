@@ -259,17 +259,77 @@ function adminSeedFingerprint(): string {
         validators: VALIDATOR_SEEDS.map((v) => v.code),
         /*
          * Bumped by hand when a step below changes in a way the data
-         * above does not describe — the `scenarios` retirement and the
-         * AUTHORISATION applicability patch are both one-time
-         * migrations rather than seed rows.
+         * above does not describe — the `scenarios` retirement, the
+         * AUTHORISATION applicability patch, and allegation-driven
+         * PAYMENT_KEYING / ANPR / GRACE / CONSIDERATION applicability.
          */
-        revision: 3,
+        revision: 4,
       }),
     )
     .digest("hex");
 }
 
 let seeded: Promise<void> | null = null;
+
+/**
+ * Ensure an issue's applicability includes circumstance + allegation leaves.
+ *
+ * Idempotent: only writes when a required allegation leaf is missing.
+ * Existing leaves are preserved (except explicitly dropped tags).
+ */
+async function ensureAllegationApplicability(input: {
+  issueId: string;
+  circumstanceTags: string[];
+  allegationCategoryTags: string[];
+  allegationIssueTags?: string[];
+  dropTags?: string[];
+  changeNote: string;
+}): Promise<void> {
+  const { getSql } = await import("@/lib/db/pool");
+  const rows = (await getSql().query(
+    `SELECT applicability_json FROM issues WHERE id = $1`,
+    [input.issueId],
+  )) as unknown as
+    | { rows?: Array<{ applicability_json: unknown }> }
+    | Array<{ applicability_json: unknown }>;
+  const row = (Array.isArray(rows) ? rows : (rows.rows ?? []))[0];
+  const current = (row?.applicability_json ?? null) as { any?: unknown[] } | null;
+  const leaves = Array.isArray(current?.any) ? [...current!.any!] : [];
+
+  const drop = new Set(input.dropTags ?? []);
+  const kept = leaves.filter((l) => {
+    if (typeof l !== "object" || l === null) return true;
+    const tag = (l as { tag?: string }).tag;
+    return !tag || !drop.has(tag);
+  });
+
+  const hasAllAllegation = input.allegationCategoryTags.every((tag) =>
+    kept.some(
+      (l) =>
+        typeof l === "object" &&
+        l !== null &&
+        (l as { tag?: string }).tag === tag,
+    ),
+  );
+  if (hasAllAllegation) return;
+
+  const merged = [
+    ...kept,
+    ...input.circumstanceTags.map((tag) => ({ tag })),
+    ...input.allegationCategoryTags.map((tag) => ({ tag })),
+    ...(input.allegationIssueTags ?? []).map((tag) => ({ tag })),
+  ].filter(
+    (l, i, arr) =>
+      arr.findIndex((o) => JSON.stringify(o) === JSON.stringify(l)) === i,
+  );
+
+  await setIssueApplicability({
+    issueId: input.issueId,
+    applicabilityCondition: { any: merged },
+    changeNote: input.changeNote,
+    changedBy: "SEED",
+  });
+}
 
 export async function ensureAdminConfigSeeded(): Promise<void> {
   if (seeded) return seeded;
@@ -508,49 +568,113 @@ export async function ensureAdminConfigSeeded(): Promise<void> {
         status: "ACTIVE",
         seedOnly: true,
       });
-      const current = authorisation.applicabilityCondition as
-        | { any?: unknown[] }
-        | null;
-      const leaves = Array.isArray(current?.any) ? current!.any! : [];
-      const hasAllegationLeaf = leaves.some(
-        (l) =>
-          typeof l === "object" &&
-          l !== null &&
-          (l as { tag?: string }).tag === "allegation_category:no_permit",
-      );
-      if (!hasAllegationLeaf) {
-        /*
-         * An earlier revision of this patch added the route-derived
-         * `allegation:authorisation`, which is too broad — it also
-         * fires on "unauthorised parking". Drop it while adding the
-         * category leaf, or the narrowing would never take effect on a
-         * database that already ran that revision.
-         */
-        const kept = leaves.filter(
-          (l) =>
-            !(
-              typeof l === "object" &&
-              l !== null &&
-              (l as { tag?: string }).tag === "allegation:authorisation"
-            ),
-        );
-        await setIssueApplicability({
-          issueId: authorisation.id,
-          applicabilityCondition: {
-            any: [
-              ...kept,
-              { tag: "authorised_or_permit" },
-              { tag: "allegation_category:no_permit" },
-            ].filter(
-              (l, i, arr) =>
-                arr.findIndex((o) => JSON.stringify(o) === JSON.stringify(l)) === i,
-            ),
-          },
-          changeNote:
-            "Open on a NO_PERMIT allegation only; scenarios menu retired.",
-          changedBy: "SEED",
-        });
-      }
+      await ensureAllegationApplicability({
+        issueId: authorisation.id,
+        circumstanceTags: ["authorised_or_permit"],
+        allegationCategoryTags: ["allegation_category:no_permit"],
+        dropTags: ["allegation:authorisation"],
+        changeNote:
+          "Open on a NO_PERMIT allegation only; scenarios menu retired.",
+      });
+    }
+
+    /*
+     * Allegation-driven issues that used to open only from customer tags.
+     *
+     * Without these leaves, a notice that clearly alleges non-payment or
+     * overstay activates nothing, fact-gap asks nothing, and drafting
+     * falls through to generic keeper/PoFA wording. Customer circumstance
+     * tags remain additional triggers — they are not removed.
+     */
+    {
+      const payment = await upsertIssue({
+        serviceId: service.id,
+        code: "PAYMENT_KEYING",
+        label: "Payment / Keying Error",
+        sortOrder: 10,
+        triggerTags: ["payment", "keying", "vrm_error"],
+        status: "ACTIVE",
+        seedOnly: true,
+      });
+      await ensureAllegationApplicability({
+        issueId: payment.id,
+        circumstanceTags: ["payment", "keying", "vrm_error", "payment_made"],
+        allegationCategoryTags: [
+          "allegation_category:no_payment",
+          "allegation_category:no_validation",
+        ],
+        allegationIssueTags: ["allegation:payment_keying"],
+        changeNote:
+          "Open PAYMENT_KEYING from NO_PAYMENT / NO_VALIDATION allegations.",
+      });
+    }
+    {
+      const anpr = await upsertIssue({
+        serviceId: service.id,
+        code: "ANPR",
+        label: "ANPR / Double visit",
+        sortOrder: 30,
+        triggerTags: [
+          "anpr_disputed",
+          "multiple_visits_same_day",
+          "anpr",
+          "double_visit",
+        ],
+        status: "ACTIVE",
+        seedOnly: true,
+      });
+      await ensureAllegationApplicability({
+        issueId: anpr.id,
+        circumstanceTags: [
+          "anpr_disputed",
+          "multiple_visits_same_day",
+          "anpr",
+          "double_visit",
+        ],
+        allegationCategoryTags: [
+          "allegation_category:overstay",
+          "allegation_category:anpr_duration",
+        ],
+        allegationIssueTags: ["allegation:anpr"],
+        changeNote:
+          "Open ANPR from OVERSTAY / ANPR_DURATION allegations.",
+      });
+    }
+    {
+      const grace = await upsertIssue({
+        serviceId: service.id,
+        code: "GRACE",
+        label: "Grace period",
+        sortOrder: 50,
+        triggerTags: ["grace"],
+        status: "ACTIVE",
+        seedOnly: true,
+      });
+      await ensureAllegationApplicability({
+        issueId: grace.id,
+        circumstanceTags: ["grace", "grace_or_exit"],
+        allegationCategoryTags: ["allegation_category:overstay"],
+        allegationIssueTags: ["allegation:grace"],
+        changeNote: "Open GRACE from OVERSTAY allegations.",
+      });
+    }
+    {
+      const consideration = await upsertIssue({
+        serviceId: service.id,
+        code: "CONSIDERATION",
+        label: "Consideration period",
+        sortOrder: 40,
+        triggerTags: ["consideration"],
+        status: "ACTIVE",
+        seedOnly: true,
+      });
+      await ensureAllegationApplicability({
+        issueId: consideration.id,
+        circumstanceTags: ["consideration", "short_stay_consideration"],
+        allegationCategoryTags: ["allegation_category:overstay"],
+        allegationIssueTags: ["allegation:consideration"],
+        changeNote: "Open CONSIDERATION from OVERSTAY allegations.",
+      });
     }
 
     /*

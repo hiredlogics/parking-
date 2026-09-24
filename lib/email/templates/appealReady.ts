@@ -67,10 +67,10 @@ export function buildAppealReadyEmail(
     "Next steps:",
     "1. Open the Final Appeal PDF and check your details.",
     "2. Follow the submission instructions to send it to the parking company.",
-    "3. Keep a copy for your records.",
+    "3. Keep a copy for your records — you can also open it anytime in your portal.",
     "",
     ...(showPortal
-      ? [`You can also view your case here: ${portal}`, ""]
+      ? [`View your case here: ${portal}`, ""]
       : []),
     "Parking Appeals Group",
     "https://parkingappeals.group",
@@ -146,7 +146,7 @@ export function buildAppealReadyEmail(
               <ol style="margin:0 0 24px;padding-left:20px;font-size:14px;line-height:1.7;color:${MUTE};">
                 <li>Open the Final Appeal PDF and check your details.</li>
                 <li>Follow the submission instructions to send it to the parking company.</li>
-                <li>Keep a copy for your records.</li>
+                <li>Keep a copy for your records — you can also open it anytime in your portal.</li>
               </ol>
               ${portalHtml}
             </td>

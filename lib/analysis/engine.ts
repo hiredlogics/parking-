@@ -7,6 +7,7 @@ import type { AnswerMap, FactSource } from "@/lib/facts/types";
 import { analysePofa, type PofaConfig } from "./pofa";
 import { assessRoutes } from "./routes";
 import { computeProhibitedClaims } from "./prohibited";
+import { derivedLegalFactsFromPofa } from "./derivedLegalFacts";
 import type { IssueAnalysis, VerifiedFact } from "./types";
 
 export const ANALYSIS_VERSION = "analysis-v1";
@@ -95,19 +96,19 @@ export function analyseCase(input: AnalysisInput): IssueAnalysis {
       source: facts.provenance[field] ?? "answer",
     }));
 
-  if (code) {
-    verifiedFacts.push({
-      field: "applicable_code_version",
-      value: `${code.codeName} v${code.version}`,
-      source: "computed",
-    });
-  }
-  if (pofa.paragraph) {
-    verifiedFacts.push({
-      field: "pofa_paragraph",
-      value: pofa.paragraph,
-      source: "computed",
-    });
+  /*
+   * DERIVED_LEGAL_FACT — PoFA deadline / deemed given / days late / Code
+   * version. Assertable under VAL-FACT because inputs are document facts
+   * and the calculation rule is recorded on the analysis.
+   */
+  const derived = derivedLegalFactsFromPofa(pofa, {
+    codeVersion: code ? `${code.codeName} v${code.version}` : null,
+  });
+  const seen = new Set(verifiedFacts.map((f) => f.field));
+  for (const f of derived.verified) {
+    if (seen.has(f.field)) continue;
+    verifiedFacts.push(f);
+    seen.add(f.field);
   }
 
   // ---- Missing material facts ----

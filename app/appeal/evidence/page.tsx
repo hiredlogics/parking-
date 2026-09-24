@@ -10,6 +10,7 @@ import { useAppealStore } from "@/features/appeal/store";
 import { useCaseSession } from "@/features/appeal/useCaseSession";
 import {
   fetchCase,
+  fetchFactGap,
   removeEvidence,
   saveKeeperProfile,
   uploadEvidence,
@@ -142,6 +143,7 @@ export default function EvidencePage() {
    * remount the question component so it re-asks against the new set.
    */
   const [factsNonce, setFactsNonce] = useState(0);
+  const [factGapComplete, setFactGapComplete] = useState(false);
 
   const saveSituation = async () => {
     if (!caseId) return;
@@ -154,6 +156,7 @@ export default function EvidencePage() {
       return;
     }
     setAdaptiveAnswers(res.data.adaptiveAnswers);
+    setFactGapComplete(false);
     setFactsNonce((n) => n + 1);
   };
 
@@ -234,12 +237,21 @@ export default function EvidencePage() {
     hydrateFromCase(res.data.case);
   };
 
-  const onContinue = () => {
+  const onContinue = async () => {
     if (needsKeeper) {
       setError(
         "Please add the registered keeper's name and address — the appeal letter is sent in their name.",
       );
       return;
+    }
+    if (caseId && !factGapComplete) {
+      const gap = await fetchFactGap(caseId);
+      if (gap.ok && gap.data.question && !gap.data.question.optional) {
+        setError(
+          "Please answer the questions about your case above — we need those facts to prepare your appeal.",
+        );
+        return;
+      }
     }
     setStep("review");
     router.push("/appeal/review");
@@ -308,7 +320,11 @@ export default function EvidencePage() {
             <FactGapQuestions
               key={factsNonce}
               caseId={caseId}
-              onAnswered={() => void refreshCase()}
+              onComplete={() => setFactGapComplete(true)}
+              onAnswered={() => {
+                setFactGapComplete(false);
+                void refreshCase();
+              }}
             />
           )}
 

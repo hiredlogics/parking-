@@ -102,6 +102,12 @@ export async function buildRulesBasedLetter(input: {
    * one set of identified facts.
    */
   identifiedTags?: readonly string[];
+  /**
+   * Case Intelligence routes in play. When set, paragraphs/routes outside
+   * these families are stripped — rulesLetter is content pack only, not
+   * ground authority.
+   */
+  allowedRoutes?: readonly string[];
 }): Promise<{
   body: string;
   paragraphs: Array<{ id: string; text: string }>;
@@ -169,6 +175,40 @@ export async function buildRulesBasedLetter(input: {
     evaluation.activeRoutes = evaluation.activeRoutes.filter(
       (r) => r !== "GRACE_ROUTE",
     );
+  }
+
+  /*
+   * Case Intelligence owns grounds. Filter content pack to allowed
+   * route families so rulesLetter cannot reintroduce keyword-activated
+   * paragraphs (e.g. ANPR/GRACE from "overstayed" alone).
+   */
+  if (input.allowedRoutes && input.allowedRoutes.length > 0) {
+    const allowed = new Set(
+      input.allowedRoutes.map((r) => r.toUpperCase().replace(/_ROUTE$/, "")),
+    );
+    // Always keep intro/closing structural paragraphs.
+    const structural = (id: string) =>
+      id.startsWith("PP-INTRO") ||
+      id.startsWith("PP-CLOSE") ||
+      id.startsWith("PP-SIGN");
+    evaluation.matchedParagraphIds = evaluation.matchedParagraphIds.filter(
+      (id) => {
+        if (structural(id)) return true;
+        const upper = id.toUpperCase();
+        for (const route of allowed) {
+          if (upper.includes(`-${route}-`) || upper.includes(`-${route}`)) {
+            return true;
+          }
+          // PoFA paragraphs
+          if (route === "POFA" && upper.includes("-POFA-")) return true;
+        }
+        return false;
+      },
+    );
+    evaluation.activeRoutes = evaluation.activeRoutes.filter((r) => {
+      const norm = r.toUpperCase().replace(/_ROUTE$/, "");
+      return allowed.has(norm) || allowed.has(r.toUpperCase());
+    });
   }
 
   // One conclusion per letter, using the same suppression the AI path

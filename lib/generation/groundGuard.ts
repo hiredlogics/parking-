@@ -77,7 +77,6 @@
 import type { IssueAnalysis } from "@/lib/analysis/types";
 import type { KnownFacts } from "@/lib/facts/types";
 import { FACT } from "@/lib/facts/facts";
-import { evaluateIssues } from "@/lib/engine/issueEngine";
 import {
   classifyAllegation,
   type AllegationCategory,
@@ -150,16 +149,45 @@ export async function assessGroundSufficiency(input: {
    * THE SAME AS A SUPPORTED ONE".
    */
   retainedModules?: ReadonlyArray<{ moduleId: string; routeFamily: string }>;
+  /** Case Intelligence ground codes when available — preferred over issue engine. */
+  groundCodes?: string[];
 }): Promise<GroundAssessment> {
-  const evaluation = await evaluateIssues({
-    serviceCode: input.serviceCode,
-    facts: input.facts,
-    evidenceTypes: input.evidenceTypes,
-  });
+  /*
+   * Prefer CI / analysis routes. Do not re-run allegation-driven
+   * evaluateIssues as ground authority.
+   */
+  const fromAnalysis = [
+    ...(input.analysis.primaryRoute ? [input.analysis.primaryRoute] : []),
+    ...(input.analysis.secondaryRoutes ?? []),
+  ];
+  const activeIssues =
+    input.groundCodes && input.groundCodes.length > 0
+      ? [...input.groundCodes]
+      : fromAnalysis;
 
-  const activeIssues = evaluation.activeIssues.map((i) => i.code);
+  if (activeIssues.length === 0) {
+    const allegation = classifyAllegation(
+      typeof input.facts.values[FACT.ALLEGED_BREACH] === "string"
+        ? (input.facts.values[FACT.ALLEGED_BREACH] as string)
+        : null,
+    );
+    return {
+      ok: false,
+      reason: "NO_SUBSTANTIVE_GROUND",
+      detail:
+        "Case Intelligence has not identified a supported appeal ground.",
+      allegation,
+      activeIssues: [],
+      substantiveIssues: [],
+      establishedPofaDefect: false,
+      assertableFactCount: 0,
+      missingFacts: input.analysis.missingFacts ?? [],
+      supportingModules: [],
+    };
+  }
+
   const substantiveIssues = activeIssues.filter(
-    (code) => !PROCEDURAL_ISSUES.has(code),
+    (code) => !PROCEDURAL_ISSUES.has(code) && code !== "POFA" && code !== "POFA_TIMING",
   );
 
   /*
@@ -191,7 +219,7 @@ export async function assessGroundSufficiency(input: {
       ASSERTABLE_PROVENANCE.has(input.facts.provenance[k]),
   ).length;
 
-  const missingFacts = evaluation.missingFacts.map((m) => m.factKey);
+  const missingFacts = input.analysis.missingFacts ?? [];
 
   if (!hasSubstantiveSupport && !establishedPofaDefect) {
     return {

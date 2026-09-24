@@ -9,6 +9,7 @@ import { useAppealStore } from "@/features/appeal/store";
 import { useCaseSession } from "@/features/appeal/useCaseSession";
 import {
   confirmCase,
+  fetchFactGap,
   saveKeeperProfile,
 } from "@/features/appeal/caseSync";
 import { needsKeeperDetails } from "@/features/appeal/KeeperDetails";
@@ -224,22 +225,24 @@ export default function ConfirmPage() {
     }
 
     /*
-     * Show step 3 only when something is actually needed.
+     * Route to the situation / fact-gap step when something is still needed.
      *
-     * The keeper's name and address is the one input nothing can derive,
-     * because the letter is sent in their name and no uploaded document
-     * carries it. Everything else is read from the notice or defaulted
-     * with provenance (lib/rules/factDefaults.ts).
+     * Blocking material facts come from the fact-gap resolver (allegation
+     * → issues → missing required facts). Keeper name/address is also
+     * collected on that page when the letter needs them.
      *
-     * This decision is deliberately made from data already in hand. An
-     * earlier version asked /readiness here so it could also route on
-     * "evidence would help", but that endpoint runs the full sufficiency
-     * analysis — on a cold server it took over 30 seconds, which left the
-     * customer staring at the confirm screen. The evidence prompt now
-     * lives on the review page, which already loads readiness and already
-     * shows a spinner while it does.
+     * If neither is needed, continue to review.
      */
-    if (needsKeeperDetails(answers, confirmed.notice_route)) {
+    const needsKeeper = needsKeeperDetails(answers, confirmed.notice_route);
+    let needsFactGap = false;
+    if (caseId) {
+      const gap = await fetchFactGap(caseId);
+      if (gap.ok && gap.data.question && !gap.data.question.optional) {
+        needsFactGap = true;
+      }
+    }
+
+    if (needsKeeper || needsFactGap) {
       setStep("evidence");
       router.push("/appeal/evidence");
       return;

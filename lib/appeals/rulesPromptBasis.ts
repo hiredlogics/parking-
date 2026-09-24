@@ -23,11 +23,14 @@ export async function buildRulesPromptBasis(input: {
   confirmed: ConfirmedPcn;
   answers: AnswerMap;
   evidenceTypes?: string[];
+  /** Case Intelligence routes — required so pack content cannot invent grounds. */
+  allowedRoutes?: readonly string[];
 }): Promise<RulesPromptBasis> {
   const letter = await buildRulesBasedLetter({
     confirmed: input.confirmed,
     answers: input.answers,
     evidenceTypes: input.evidenceTypes,
+    allowedRoutes: input.allowedRoutes,
   });
 
   const descriptions: string[] = [];

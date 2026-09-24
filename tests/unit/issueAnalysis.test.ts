@@ -354,13 +354,15 @@ describe("Code applicability and manual review", () => {
     expect(a.codeVersionId).toBe("CODE-SINGLE-V1-1");
   });
 
-  it("routes to manual review when the Code version cannot be resolved", () => {
+  it("routes to manual review when no route is supported (e.g. missing event date)", () => {
     const a = analyseCase({
       confirmed: pcn({ parking_event_date: undefined }),
       answers: answers(),
     });
     expect(a.codeVersion).toBeNull();
-    expect(a.manualReview?.reason).toBe("CODE_VERSION_UNRESOLVED");
+    // Without an event date there is no PoFA defect and no conduct route
+    // from defaults alone — NO_SUPPORTED_ROUTE, not a weak keeper letter.
+    expect(a.manualReview?.reason).toBe("NO_SUPPORTED_ROUTE");
     expect(a.missingFacts).toContain("applicable_code_version");
   });
 
@@ -426,14 +428,15 @@ describe("Hybrid structured retrieval", () => {
     expect(failedMachine.output.moduleIds).not.toContain("KB-PAY-03");
   });
 
-  it("retrieves only the keeper-liability threshold module when no defect exists", () => {
+  it("does not retrieve a weak keeper-only PoFA module when no defect exists", () => {
     const postal = retrieveFor({});
-    expect(postal.output.moduleIds).toContain("KB-POFA-01");
-    // The timing modules exist to support an allegation. With no
-    // established failure there is nothing for them to say, so they are
-    // dropped rather than retrieved and then left unused.
+    // Defaults alone must not open PoFA grounding — that produced
+    // generic keeper letters. Established timing/content defects still
+    // retrieve KB-POFA-* (covered by the late-notice test below).
+    expect(postal.output.moduleIds).not.toContain("KB-POFA-01");
     expect(postal.output.moduleIds).not.toContain("KB-POFA-02");
     expect(postal.output.moduleIds).not.toContain("KB-POFA-03");
+    expect(postal.analysis.primaryRoute).toBeNull();
   });
 
   it("gates the timing module to the statutory route once a failure exists", () => {

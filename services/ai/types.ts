@@ -90,6 +90,11 @@ export interface DraftingContext {
     knowledgeRefs: string[];
     outstandingFacts: string[];
   };
+  /**
+   * AppealAnalysis — sole drafting authority object. When present the
+   * model must argue only these grounds with these facts.
+   */
+  appealAnalysis?: import("@/lib/drafting/appealAnalysis").AppealAnalysis | null;
 }
 
 export interface DraftResult {

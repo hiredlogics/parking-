@@ -139,16 +139,16 @@ function tagsMatchTrigger(tags: Set<string>, trigger: string): boolean {
 }
 
 /**
- * Project the notice's free-text allegation onto synthetic tags
- * (`allegation:<issue_code>`), merged alongside the customer's own
- * circumstance tags. This is an input to applicability, never a
- * decision: an issue whose applicability condition only looks at real
- * circumstance tags (e.g. RESIDENTIAL, AUTHORISATION) is unaffected —
- * it simply never references the allegation tags, which is how
- * "unauthorised parking" on a hospital notice stops short of a
- * residential-lease interview until the customer names circumstances.
+ * Allegation keyword → synthetic tags used to be merged into
+ * applicability and opened ANPR/GRACE/CONSIDERATION from "overstayed"
+ * alone. That is V1 decision-tree authority.
+ *
+ * Case Intelligence (`lib/cases/groundsAuthority.ts`) now owns ground
+ * selection. Allegation text is a soft candidate signal there only.
+ * This helper remains exported for audits/tests; evaluateIssues must
+ * NOT inject these tags.
  */
-function allegationTags(facts: KnownFacts): Set<string> {
+export function allegationTagsForAudit(facts: KnownFacts): Set<string> {
   const breach = factStr(facts, FACT.ALLEGED_BREACH);
   if (!breach) return new Set();
   const { routes, category } = classifyAllegation(breach);
@@ -158,23 +158,6 @@ function allegationTags(facts: KnownFacts): Set<string> {
       tags.add(`allegation:${code.toLowerCase()}`);
     }
   }
-  /*
-   * The classifier's own category, alongside the route-derived tags.
-   *
-   * Route tags are too coarse for some decisions. "No valid permit
-   * displayed" and "Unauthorised parking" both classify to the routes
-   * PERMIT + AUTHORIZATION, so a condition written against those cannot
-   * tell them apart — yet they deserve different treatment. The first
-   * names a specific requirement the operator says was unmet, and
-   * asking whether permission was held answers it directly. The second
-   * is a conclusion, not an allegation of fact, and opening a permit
-   * interview on the strength of it is how a hospital notice ends up
-   * interrogating someone about a lease.
-   *
-   * So the category is published too, and an issue that should open
-   * only for the specific phrasing says so:
-   * `{tag: "allegation_category:no_permit"}`.
-   */
   if (category !== "UNKNOWN") {
     tags.add(`allegation_category:${category.toLowerCase()}`);
   }
@@ -230,9 +213,13 @@ export async function evaluateIssues(input: {
    * the one place still comparing them raw.
    */
   const evidence = new Set(expandEvidenceKinds(input.evidenceTypes ?? []));
+  /*
+   * Circumstance tags from the notice/customer only. Allegation keyword
+   * tags are deliberately NOT merged — they must not activate grounds.
+   */
   const baseFacts: KnownFacts = {
     ...input.facts,
-    tags: new Set([...input.facts.tags, ...allegationTags(input.facts)]),
+    tags: new Set([...input.facts.tags]),
     evidence,
   };
 

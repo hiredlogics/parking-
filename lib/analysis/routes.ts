@@ -115,19 +115,17 @@ export function assessRoutes(input: RouteInput): RouteAssessment[] {
         : "Confirmed Schedule 4 content defect.",
       { rank: 10, evidenceBacked: true },
     );
-  } else if (input.pofa.applicable && driverUnidentified) {
-    // The keeper-liability threshold point (KB-POFA-01) is still
-    // available, but it is NOT dispositive without an established
-    // defect. KB §16 priority 1 requires a *confirmed* dispositive
-    // keeper-liability point to lead, so an unconfirmed threshold point
-    // sits with the framing/Code tier and must not displace a strong
-    // fact-specific ground such as payment or keying.
-    add(
-      "POFA",
-      "Registered keeper with unidentified driver — keeper liability must be established, but no specific Schedule 4 defect is alleged.",
-      { rank: 55 },
-    );
   }
+  /*
+   * Do NOT open a weak keeper-only PoFA route from defaults alone.
+   *
+   * Registered-keeper + unidentified-driver defaults used to add a rank-55
+   * POFA candidate on every case, which became the primary ground whenever
+   * payment/ANPR/keying facts had not yet been collected — producing generic
+   * keeper letters. PoFA may lead only when a defect is actually established
+   * (above). Keeper-liability framing without a defect is handled by the
+   * drafting context serialiser when another primary ground is present.
+   */
 
   /* ---------- Residential (V2 Part 7) ---------- */
   if (f.tags.has("resident_parking_rights")) {

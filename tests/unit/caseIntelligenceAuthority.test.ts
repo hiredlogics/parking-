@@ -1,0 +1,133 @@
+/**
+ * Case Intelligence authority — allegation keywords must not open grounds;
+ * document timing establishes ANPR images without asking the customer.
+ */
+import { describe, expect, it } from "vitest";
+import { buildCaseIntelligence } from "@/lib/cases/caseIntelligence";
+import { classifyGrounds } from "@/lib/cases/groundsAuthority";
+import { deriveKnownFacts, FACT } from "@/lib/facts/facts";
+import {
+  applyDocumentImplications,
+  documentImpliedFacts,
+} from "@/lib/facts/documentImplications";
+import { resolveFactGap } from "@/lib/facts/gapResolver";
+import type { ConfirmedPcn } from "@/types";
+
+const euroLike: ConfirmedPcn = {
+  operator_name: "Euro Car Parks",
+  pcn_number: "88812303053",
+  vrm: "KS58OPW",
+  parking_location: "Sainsburys - Harringay",
+  parking_event_date: "2026-07-17",
+  notice_issue_date: "2026-07-30",
+  notice_route: "POSTAL",
+  entry_time: "13:39",
+  exit_time: "17:06",
+  total_recorded_duration: 207,
+  charge_amount: 100,
+  alleged_breach:
+    "Your vehicle has overstayed the maximum time period allowed",
+  uk_jurisdiction: "ENGLAND_WALES",
+  case_stage: "INITIAL_OPERATOR_APPEAL",
+  confirmedAt: "2026-09-24T18:07:25.019Z",
+} as ConfirmedPcn;
+
+describe("Case Intelligence authority model", () => {
+  it("does not support GRACE/CONSIDERATION from allegation keywords alone", () => {
+    const grounds = classifyGrounds({
+      confirmed: euroLike,
+      answers: { jurisdiction: "ENGLAND_WALES", registered_keeper: "YES" },
+      evidenceTypes: [],
+    });
+    expect(
+      grounds.supported_grounds.map((g) => g.code),
+    ).not.toContain("GRACE_PERIOD");
+    expect(
+      grounds.supported_grounds.map((g) => g.code),
+    ).not.toContain("CONSIDERATION_PERIOD");
+  });
+
+  it("supports POFA_TIMING from event + notice dates", () => {
+    const grounds = classifyGrounds({
+      confirmed: euroLike,
+      answers: {
+        jurisdiction: "ENGLAND_WALES",
+        registered_keeper: "YES",
+        driver_identified: "NO",
+      },
+      evidenceTypes: [],
+    });
+    expect(grounds.supported_grounds.some((g) => g.code === "POFA_TIMING")).toBe(
+      true,
+    );
+    expect(grounds.pofa_analysis.timingStatus).toBe("FAILED");
+    expect(grounds.pofa_analysis.daysLate).toBe(3);
+    expect(grounds.routes_in_play).toContain("POFA");
+  });
+
+  it("implies anpr_images_on_notice from entry/exit and does not ask it", async () => {
+    const facts = applyDocumentImplications(
+      deriveKnownFacts({
+        confirmed: euroLike,
+        answers: { registered_keeper: "YES", driver_identified: "NO" },
+        evidenceTypes: [],
+      }),
+    );
+    expect(documentImpliedFacts(facts)[FACT.ANPR_IMAGES_ON_NOTICE] ?? facts.known.has(FACT.ANPR_IMAGES_ON_NOTICE)).toBeTruthy();
+    expect(facts.known.has(FACT.ANPR_IMAGES_ON_NOTICE)).toBe(true);
+    expect(facts.values[FACT.ANPR_IMAGES_ON_NOTICE]).toBe("YES");
+
+    const ci = buildCaseIntelligence({
+      confirmed: euroLike,
+      answers: { registered_keeper: "YES", driver_identified: "NO" },
+      evidenceTypes: [],
+      knownFactsOverride: facts,
+    });
+    const gap = await resolveFactGap({
+      facts,
+      evidenceTypes: [],
+      caseIntelligence: ci,
+    });
+    expect(gap.outstanding.map((m) => m.factKey)).not.toContain(
+      "anpr_images_on_notice",
+    );
+    expect(gap.gap?.factKey).not.toBe("anpr_images_on_notice");
+  });
+
+  it("lists ANPR_OVERSTAY as possible/unresolved without forcing ANPR questions when PoFA is supported", async () => {
+    const ci = buildCaseIntelligence({
+      confirmed: euroLike,
+      answers: {
+        registered_keeper: "YES",
+        driver_identified: "NO",
+        jurisdiction: "ENGLAND_WALES",
+      },
+      evidenceTypes: [],
+    });
+    expect(ci.supported_grounds.some((g) => g.code === "POFA_TIMING")).toBe(
+      true,
+    );
+    const anpr = [
+      ...ci.possible_grounds,
+      ...ci.unresolved_grounds,
+    ].find((g) => g.code === "ANPR_OVERSTAY");
+    expect(anpr).toBeTruthy();
+    const gap = await resolveFactGap({
+      facts: applyDocumentImplications(
+        deriveKnownFacts({
+          confirmed: euroLike,
+          answers: {
+            registered_keeper: "YES",
+            driver_identified: "NO",
+            jurisdiction: "ENGLAND_WALES",
+          },
+          evidenceTypes: [],
+        }),
+      ),
+      evidenceTypes: [],
+      caseIntelligence: ci,
+    });
+    // With PoFA supported, ANPR follow-ups are optional and not asked.
+    expect(gap.complete).toBe(true);
+  });
+});

@@ -15,22 +15,27 @@
  * Does NOT invent appeal wording. Does NOT add question bank entries.
  */
 import type { ConfirmedPcn } from "@/types";
-import type { AnswerMap, FactSource } from "@/lib/facts/types";
+import type { AnswerMap, FactSource, KnownFacts } from "@/lib/facts/types";
 import { deriveKnownFacts, FACT, factStr } from "@/lib/facts/facts";
 import { analyseCase } from "@/lib/analysis/engine";
 import {
-  analysePofa,
   assessPossibleLateNoticeFromDates,
   type PossibleLateNoticeAssessment,
 } from "@/lib/analysis/pofa";
-import type { IssueAnalysis, PofaAnalysis } from "@/lib/analysis/types";
+import type { IssueAnalysis, PofaAnalysis, RouteAssessment } from "@/lib/analysis/types";
 import {
   isServiceNotSupported,
   type DurableDocumentUnderstanding,
 } from "@/lib/cases/documentUnderstanding";
 import type { DetectedCaseStage, DocumentKind } from "@/types/triage";
+import {
+  classifyGrounds,
+  type GroundRecord,
+} from "@/lib/cases/groundsAuthority";
+import { applyDocumentImplications } from "@/lib/facts/documentImplications";
+import type { RouteFamily } from "@/types/caseState";
 
-export const CASE_INTELLIGENCE_VERSION = "case-intelligence-v2";
+export const CASE_INTELLIGENCE_VERSION = "case-intelligence-v3";
 
 /**
  * What the document is, who sent it, and what it concerns.
@@ -94,6 +99,8 @@ export interface CaseIntelligence {
   facts: Record<string, unknown>;
   /** Only what was confirmed on the notice itself. */
   confirmedFacts: Record<string, unknown>;
+  /** Evidence type inventory available on the case. */
+  evidence: string[];
   identifiedIssues: IdentifiedIssue[];
   technicalFindings: TechnicalFinding[];
   suitability: Suitability;
@@ -102,10 +109,27 @@ export interface CaseIntelligence {
   dateTiming: PossibleLateNoticeAssessment | null;
   /** Full PoFA checklist when the facts allow; else partial. */
   pofa: PofaAnalysis | null;
+  /** Alias used by authority consumers — same as pofa. */
+  pofa_analysis: PofaAnalysis | null;
   /** Union of clarification facts still needed across identified issues. */
   missingFacts: string[];
+  /** Material facts still needed — authority for Adaptive Questions. */
+  missing_material_facts: Array<{
+    factKey: string;
+    groundCode: string;
+    reasonCode: string;
+    optional: boolean;
+    priority: number;
+  }>;
   knowledgeRefs: string[];
-  /** Full issue analysis snapshot, reused by drafting. */
+  possible_grounds: GroundRecord[];
+  supported_grounds: GroundRecord[];
+  rejected_grounds: GroundRecord[];
+  unresolved_grounds: GroundRecord[];
+  applicable_rules: string[];
+  code_version: string | null;
+  prohibited_claims: string[];
+  /** Full issue analysis snapshot, reused by drafting / validators. */
   analysis: IssueAnalysis | null;
   analysisVersion: string;
 }
@@ -167,17 +191,30 @@ export function buildCaseIntelligence(input: {
   suitabilityDetail?: string | null;
   /** See AnalysisInput.answerProvenance — threaded through to analyseCase. */
   answerProvenance?: Partial<Record<string, FactSource>>;
+  /** Pre-computed facts (e.g. after document implications). */
+  knownFactsOverride?: KnownFacts;
 }): CaseIntelligence {
   const answers = input.answers ?? {};
   const evidenceTypes = input.evidenceTypes ?? [];
-  const facts = deriveKnownFacts({
+  const baseFacts =
+    input.knownFactsOverride ??
+    deriveKnownFacts({
+      confirmed: input.confirmed,
+      answers,
+      evidenceTypes,
+      answerProvenance: input.answerProvenance,
+    });
+  const facts = applyDocumentImplications(baseFacts);
+
+  const grounds = classifyGrounds({
     confirmed: input.confirmed,
     answers,
     evidenceTypes,
     answerProvenance: input.answerProvenance,
+    knownFactsOverride: facts,
   });
 
-  const flatFacts: Record<string, unknown> = { ...facts.values };
+  const flatFacts: Record<string, unknown> = { ...grounds.facts.values };
   const warnings: string[] = [];
 
   const durable = input.documentUnderstanding ?? null;
@@ -227,18 +264,11 @@ export function buildCaseIntelligence(input: {
 
   const identifiedIssues: IdentifiedIssue[] = [];
   const technicalFindings: TechnicalFinding[] = [];
-  const missing = new Set<string>();
   const knowledgeRefs = new Set<string>();
 
-  const pofa = analysePofa({ facts });
+  const pofa = grounds.pofa_analysis;
   const pofaEstablished = pofa.timingStatus === "FAILED" && pofa.applicable;
 
-  /*
-   * A late notice is recorded whenever EITHER the date screen or the
-   * full checklist establishes it. The date screen needs no keeper
-   * answer, which is the whole point: the ground is identified from the
-   * document before the customer is asked anything.
-   */
   if (pofaEstablished || dateTiming.possible) {
     const confidence: "possible" | "established" = pofaEstablished
       ? "established"
@@ -248,8 +278,8 @@ export function buildCaseIntelligence(input: {
       ? pofa.unresolved
       : dateTiming.missingFacts;
     const evidence: Record<string, unknown> = {
-      eventDate: factStr(facts, FACT.PARKING_EVENT_DATE),
-      noticeDate: factStr(facts, FACT.NOTICE_ISSUE_DATE),
+      eventDate: factStr(grounds.facts, FACT.PARKING_EVENT_DATE),
+      noticeDate: factStr(grounds.facts, FACT.NOTICE_ISSUE_DATE),
       noticeRoute: documentUnderstanding.noticeRoute,
       paragraph: source.paragraph,
       deadline: source.deadline,
@@ -269,14 +299,9 @@ export function buildCaseIntelligence(input: {
       reasons: source.reasons,
     });
 
-    /*
-     * `identifiedIssues` keeps the snake_case shape the question engine
-     * and the acceptance tests already rely on; `technicalFindings`
-     * carries the canonical record. Same facts, two audiences.
-     */
     const supportingFacts: Record<string, unknown> = {
-      parking_event_date: factStr(facts, FACT.PARKING_EVENT_DATE),
-      notice_issue_date: factStr(facts, FACT.NOTICE_ISSUE_DATE),
+      parking_event_date: factStr(grounds.facts, FACT.PARKING_EVENT_DATE),
+      notice_issue_date: factStr(grounds.facts, FACT.NOTICE_ISSUE_DATE),
       notice_route: documentUnderstanding.noticeRoute,
       paragraph: source.paragraph,
       deadline: source.deadline,
@@ -297,19 +322,74 @@ export function buildCaseIntelligence(input: {
       reasons: source.reasons,
     });
 
-    for (const f of factsStillNeeded) missing.add(f);
     for (const k of POFA_TIMING_KNOWLEDGE) knowledgeRefs.add(k);
   }
 
+  for (const g of grounds.supported_grounds) {
+    for (const k of g.knowledgeRefs) knowledgeRefs.add(k);
+  }
+
+  /*
+   * Legacy IssueAnalysis snapshot for validators / retrieval.
+   * Routes come from Case Intelligence grounds authority — not from
+   * allegation keyword activation.
+   */
   let analysis: IssueAnalysis | null = null;
   try {
-    analysis = analyseCase({
+    const base = analyseCase({
       confirmed: input.confirmed,
       answers,
       evidenceTypes,
       answerProvenance: input.answerProvenance,
     });
-    for (const f of analysis.missingFacts) missing.add(f);
+    const assessments: RouteAssessment[] = grounds.supported_grounds.map(
+      (g, i) => ({
+        route: g.routeFamily,
+        rank: 10 + i,
+        basis: g.reasons,
+        moduleIds: g.knowledgeRefs,
+        evidenceBacked: true,
+      }),
+    );
+    // Include unresolved routes only when nothing is supported yet.
+    if (assessments.length === 0) {
+      for (const g of grounds.unresolved_grounds) {
+        assessments.push({
+          route: g.routeFamily,
+          rank: 50,
+          basis: g.reasons,
+          moduleIds: g.knowledgeRefs,
+          evidenceBacked: false,
+        });
+      }
+    }
+    const primaryRoute =
+      (grounds.routes_in_play[0] as RouteFamily | undefined) ??
+      assessments[0]?.route ??
+      null;
+    const secondaryRoutes = grounds.routes_in_play.filter(
+      (r) => r !== primaryRoute,
+    );
+    analysis = {
+      ...base,
+      primaryRoute,
+      secondaryRoutes,
+      assessments:
+        assessments.length > 0 ? assessments : base.assessments,
+      pofa: grounds.pofa_analysis,
+      codeVersion: grounds.code_version,
+      codeVersionId: grounds.code_version_id,
+      prohibitedClaims: grounds.prohibited_claims,
+      missingFacts: grounds.missing_material_facts.map((m) => m.factKey),
+      manualReview:
+        primaryRoute == null
+          ? {
+              reason: "NO_SUPPORTED_ROUTE",
+              detail:
+                "No appeal route is supported by the confirmed facts. A person should review this case rather than the system generating an unsupported appeal.",
+            }
+          : null,
+    };
   } catch (err) {
     analysis = null;
     warnings.push(
@@ -325,14 +405,24 @@ export function buildCaseIntelligence(input: {
     documentUnderstanding,
     facts: flatFacts,
     confirmedFacts: confirmedFactsOf(input.confirmed),
+    evidence: evidenceTypes,
     identifiedIssues,
     technicalFindings,
     suitability,
     warnings,
     dateTiming,
     pofa,
-    missingFacts: [...missing].sort(),
+    pofa_analysis: pofa,
+    missingFacts: grounds.missing_material_facts.map((m) => m.factKey),
+    missing_material_facts: grounds.missing_material_facts,
     knowledgeRefs: [...knowledgeRefs].sort(),
+    possible_grounds: grounds.possible_grounds,
+    supported_grounds: grounds.supported_grounds,
+    rejected_grounds: grounds.rejected_grounds,
+    unresolved_grounds: grounds.unresolved_grounds,
+    applicable_rules: grounds.applicable_rules,
+    code_version: grounds.code_version,
+    prohibited_claims: grounds.prohibited_claims,
     analysis,
     analysisVersion: ANALYSIS_VERSION_LABEL,
   };

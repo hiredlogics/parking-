@@ -54,17 +54,53 @@ async function loadResolution(
   confirmed: Parameters<typeof deriveKnownFacts>[0]["confirmed"],
   serviceCode: string,
   evidenceTypes: string[],
+  documentUnderstanding?: import("@/lib/cases/documentUnderstanding").DurableDocumentUnderstanding | null,
 ): Promise<GapResolution> {
+  const { applyDocumentImplications } = await import(
+    "@/lib/facts/documentImplications"
+  );
+  const { buildCaseIntelligence } = await import(
+    "@/lib/cases/caseIntelligence"
+  );
+  const facts = applyDocumentImplications(
+    deriveKnownFacts({ confirmed, answers, evidenceTypes }),
+  );
+  const intelligence = buildCaseIntelligence({
+    confirmed: confirmed!,
+    answers,
+    evidenceTypes,
+    documentUnderstanding: documentUnderstanding ?? null,
+    knownFactsOverride: facts,
+  });
   return resolveFactGap({
-    facts: deriveKnownFacts({ confirmed, answers, evidenceTypes }),
+    facts,
     serviceCode,
     evidenceTypes,
+    caseIntelligence: intelligence,
   });
 }
 
 async function evidenceTypesFor(caseId: string): Promise<string[]> {
   const docs = await repo.listCaseDocuments(caseId);
   return docs.map((d) => d.evidenceType ?? "other");
+}
+
+async function understandingOf(appealCase: {
+  documentType?: unknown;
+  senderName?: string | null;
+  parkingOperatorName?: string | null;
+  caseStage?: unknown;
+  serviceDecision?: unknown;
+}): Promise<
+  import("@/lib/cases/documentUnderstanding").DurableDocumentUnderstanding
+> {
+  return {
+    documentType: (appealCase.documentType as never) ?? null,
+    senderName: appealCase.senderName ?? null,
+    parkingOperatorName: appealCase.parkingOperatorName ?? null,
+    caseStage: (appealCase.caseStage as never) ?? null,
+    serviceDecision: (appealCase.serviceDecision as never) ?? null,
+  };
 }
 
 /** The one question to put to this customer now. */
@@ -86,11 +122,13 @@ export async function nextFactQuestion(
   }
 
   const evidenceTypes = await evidenceTypesFor(caseId);
+  const understanding = await understandingOf(appealCase);
   const resolution = await loadResolution(
     appealCase.adaptiveAnswers,
     appealCase.confirmed,
     appealCase.serviceType,
     evidenceTypes,
+    understanding,
   );
 
   if (!resolution.gap) {
@@ -161,11 +199,13 @@ export async function recordFactAnswer(
   }
 
   const evidenceTypes = await evidenceTypesFor(caseId);
+  const understanding = await understandingOf(appealCase);
   const before = await loadResolution(
     appealCase.adaptiveAnswers,
     appealCase.confirmed,
     appealCase.serviceType,
     evidenceTypes,
+    understanding,
   );
 
   const askable = new Set(before.outstanding.map((m) => m.factKey));
@@ -205,6 +245,7 @@ export async function recordFactAnswer(
     appealCase.confirmed,
     appealCase.serviceType,
     evidenceTypes,
+    understanding,
   );
 
   await repo.saveAnswers(caseId, {

@@ -19,7 +19,6 @@ import {
 import { getDraftingProvider } from "@/services/ai/drafting";
 import type { AnswerMap, FactSource } from "@/lib/facts/types";
 import type { IssueAnalysis } from "@/lib/analysis/types";
-import type { RouteFamily } from "@/types/caseState";
 import {
   buildRulesBasedLetter,
   isAppealBodyTooThin,
@@ -29,38 +28,15 @@ import { assessGroundSufficiency } from "./groundGuard";
 
 export const GENERATION_VERSION = "generation-v1";
 
-const RULE_ROUTE_TO_FAMILY: Record<string, RouteFamily> = {
-  KEEPER_ROUTE: "POFA",
-  PAYMENT_ROUTE: "PAYMENT",
-  KEYING_ROUTE: "KEYING",
-  CONSIDERATION_ROUTE: "CONSIDERATION",
-  GRACE_ROUTE: "GRACE",
-  ANPR_ROUTE: "ANPR",
-  AUTHORISATION_ROUTE: "AUTHORIZATION",
-  SIGNAGE_ROUTE: "SIGNAGE",
-  LANDOWNER_ROUTE: "LANDOWNER",
-};
-
+/**
+ * Do NOT merge rules-letter routes into Case Intelligence analysis.
+ * rulesLetter is a content pack only; CI owns ground selection.
+ */
 function withRulesRoutes(
   analysis: IssueAnalysis,
-  activeRoutes: string[],
+  _activeRoutes: string[],
 ): IssueAnalysis {
-  const mapped = activeRoutes
-    .map((r) => RULE_ROUTE_TO_FAMILY[r])
-    .filter((r): r is RouteFamily => Boolean(r));
-  if (mapped.length === 0) return analysis;
-  const primary = analysis.primaryRoute ?? mapped[0] ?? null;
-  const secondary = [
-    ...new Set([
-      ...(analysis.secondaryRoutes ?? []),
-      ...mapped.filter((r) => r !== primary),
-    ]),
-  ];
-  return {
-    ...analysis,
-    primaryRoute: primary,
-    secondaryRoutes: secondary,
-  };
+  return analysis;
 }
 
 /**
@@ -212,6 +188,11 @@ export async function generateValidatedAppeal(
     // Same identified facts the AI path works from, so neither path
     // selects grounds the other cannot see.
     identifiedTags: [...facts.tags],
+    // Case Intelligence owns grounds — content pack may only support them.
+    allowedRoutes: [
+      ...(analysis.primaryRoute ? [analysis.primaryRoute] : []),
+      ...(analysis.secondaryRoutes ?? []),
+    ],
   });
   warnings.push(...rulesLetter.warnings.map((w) => `[rules] ${w}`));
 
@@ -458,6 +439,12 @@ export async function generateValidatedAppeal(
       moduleId: m.moduleId,
       routeFamily: m.routeFamily,
     })),
+    groundCodes: input.intelligence
+      ? [
+          ...(input.intelligence.supported_grounds ?? []).map((g) => g.code),
+          ...(input.intelligence.unresolved_grounds ?? []).map((g) => g.code),
+        ]
+      : undefined,
   });
 
   if (!ground.ok) {

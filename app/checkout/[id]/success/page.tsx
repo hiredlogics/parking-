@@ -238,7 +238,8 @@ export default function CheckoutSuccessPage() {
           Your appeal is ready!
         </h1>
         <p className="mt-2 max-w-sm text-[14px] leading-relaxed text-brand-mute">
-          Your personalised appeal has been generated based on the information you provided.
+          We&apos;ll send your appeal to your email. You can also download it
+          below, or open it anytime in your portal.
         </p>
 
         {error && (
@@ -265,7 +266,7 @@ export default function CheckoutSuccessPage() {
             type="button"
             onClick={() =>
               setEmailNote(
-                "Check your portal inbox — we email a copy when SMTP is configured on your account.",
+                "We've sent a copy to your email. You can also open it in your portal anytime.",
               )
             }
             className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-brand-pink bg-white px-5 py-3.5 text-[15px] font-semibold text-brand-pink transition hover:bg-brand-pinkPale"
@@ -290,9 +291,9 @@ export default function CheckoutSuccessPage() {
           <p className="text-[15px] font-bold text-brand-text">What happens next?</p>
           <ol className="mt-4 space-y-3">
             {[
-              "Download or save your appeal.",
-              "Submit it to the parking company using their appeal process (details are in your PDF).",
-              "Keep a copy for your records.",
+              "Check your email — we'll send your appeal there.",
+              "Download it here, or open it anytime in your portal.",
+              "Submit it to the parking company (details are in your PDF).",
             ].map((text, i) => (
               <li key={text} className="flex items-start gap-3 text-[14px] text-brand-text">
                 <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-pink text-[12px] font-bold text-white">
