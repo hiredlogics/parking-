@@ -326,6 +326,11 @@ export function deriveKnownFacts(input: {
   const known = new Set(Object.keys(values));
   const rawTags = values[FACT.SCENARIOS];
   const tags = new Set<string>(Array.isArray(rawTags) ? rawTags : []);
+  // A confirmed permit/authorisation answer opens the auth enquiry tag
+  // so KB-AUTH modules can gate correctly after Case Intelligence asks.
+  if (values[FACT.PERMISSION_HELD] === "YES") {
+    tags.add("authorised_or_permit");
+  }
   const evidence = new Set<string>(input.evidenceTypes ?? []);
 
   return { values, known, provenance, tags, evidence };

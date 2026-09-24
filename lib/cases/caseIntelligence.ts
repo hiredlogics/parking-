@@ -351,17 +351,16 @@ export function buildCaseIntelligence(input: {
         evidenceBacked: true,
       }),
     );
-    // Include unresolved routes only when nothing is supported yet.
-    if (assessments.length === 0) {
-      for (const g of grounds.unresolved_grounds) {
-        assessments.push({
-          route: g.routeFamily,
-          rank: 50,
-          basis: g.reasons,
-          moduleIds: g.knowledgeRefs,
-          evidenceBacked: false,
-        });
-      }
+    for (const g of grounds.unresolved_grounds) {
+      if (!grounds.routes_in_play.includes(g.routeFamily)) continue;
+      if (assessments.some((a) => a.route === g.routeFamily)) continue;
+      assessments.push({
+        route: g.routeFamily,
+        rank: 50,
+        basis: g.reasons,
+        moduleIds: g.knowledgeRefs,
+        evidenceBacked: false,
+      });
     }
     const primaryRoute =
       (grounds.routes_in_play[0] as RouteFamily | undefined) ??

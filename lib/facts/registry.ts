@@ -330,7 +330,7 @@ export const FACT_REGISTRY: readonly FactRegistryEntry[] = [
   },
   {
     factKey: "continuous_presence",
-    label: "Continuous presence",
+    label: "Continuous presence on site",
     valueType: "ENUM",
     allowedValues: [
       "NO",
@@ -338,7 +338,7 @@ export const FACT_REGISTRY: readonly FactRegistryEntry[] = [
       "YES",
     ],
     guidance:
-      "Camera systems record a first-in and last-out pair. If the vehicle left and returned, the recorded duration is not a single stay.",
+      "ANPR cameras record a first entry and last exit. Tell us whether the vehicle was there continuously the whole time, or left and came back (including pick-up/drop-off or separate visits). We only use what you tell us — we do not assume a double visit.",
     source: "ANSWER",
   },
   {
@@ -466,11 +466,11 @@ export const FACT_REGISTRY: readonly FactRegistryEntry[] = [
   },
   {
     factKey: "permission_held",
-    label: "Permission held",
-    valueType: "STRING",
-    allowedValues: [],
+    label: "Permit or parking authorisation",
+    valueType: "ENUM",
+    allowedValues: ["NO", "UNSURE", "YES"],
     guidance:
-      "Permission to park defeats the alleged breach outright, so whether it existed is the primary fact.",
+      "The notice says there was no permit. Tell us whether the vehicle or driver had any permit, parking entitlement, hospital/visitor pass, or other authorisation for that site — we work out the legal ground from your answer.",
     source: "ANSWER",
   },
   {

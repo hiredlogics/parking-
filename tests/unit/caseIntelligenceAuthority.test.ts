@@ -108,10 +108,13 @@ describe("Case Intelligence authority model", () => {
       true,
     );
     const anpr = [
+      ...ci.supported_grounds,
       ...ci.possible_grounds,
       ...ci.unresolved_grounds,
     ].find((g) => g.code === "ANPR_OVERSTAY");
     expect(anpr).toBeTruthy();
+    // Overstay allegation may support ANPR; PoFA already supported so
+    // ANPR follow-up questions must not block the journey.
     const gap = await resolveFactGap({
       facts: applyDocumentImplications(
         deriveKnownFacts({
@@ -127,7 +130,123 @@ describe("Case Intelligence authority model", () => {
       evidenceTypes: [],
       caseIntelligence: ci,
     });
-    // With PoFA supported, ANPR follow-ups are optional and not asked.
     expect(gap.complete).toBe(true);
+  });
+
+  it("No Permit: PERMIT + ANPR_EVIDENCE (not OVERSTAY); asks permit then continuous presence", async () => {
+    const wise: ConfirmedPcn = {
+      operator_name: "Wise Parking Ltd",
+      pcn_number: "AP539112",
+      vrm: "LX71UNS",
+      parking_location: "Queen Elizabeth Hospital - Car Park 1, London, SE18 4QH",
+      parking_event_date: "2026-09-08",
+      notice_issue_date: "2026-09-14",
+      notice_route: "POSTAL",
+      entry_time: "09:07",
+      exit_time: "16:28",
+      total_recorded_duration: 441,
+      charge_amount: 80,
+      alleged_breach: "No Permit",
+      uk_jurisdiction: "ENGLAND_WALES",
+      case_stage: "INITIAL_OPERATOR_APPEAL",
+      confirmedAt: "2026-09-24T18:07:25.019Z",
+    } as ConfirmedPcn;
+
+    const answers = {
+      registered_keeper: "YES",
+      driver_identified: "NO",
+      jurisdiction: "ENGLAND_WALES",
+    };
+
+    const grounds = classifyGrounds({ confirmed: wise, answers, evidenceTypes: [] });
+    expect(grounds.pofa_analysis.timingStatus).toBe("COMPLIANT");
+    expect(grounds.primary_ground).toBe("PERMIT");
+    expect(grounds.supported_grounds.map((g) => g.code)).not.toContain(
+      "ANPR_OVERSTAY",
+    );
+    expect(grounds.unresolved_grounds.map((g) => g.code)).toContain("PERMIT");
+    expect(grounds.unresolved_grounds.map((g) => g.code)).toContain(
+      "ANPR_EVIDENCE",
+    );
+    expect(grounds.unresolved_grounds.map((g) => g.code)).not.toContain(
+      "ANPR_OVERSTAY",
+    );
+    expect(grounds.missing_material_facts.map((m) => m.factKey)).toEqual(
+      expect.arrayContaining(["permission_held", "continuous_presence"]),
+    );
+    expect(
+      grounds.missing_material_facts.find((m) => m.factKey === "permission_held")!
+        .priority,
+    ).toBeLessThan(
+      grounds.missing_material_facts.find(
+        (m) => m.factKey === "continuous_presence",
+      )!.priority,
+    );
+
+    const ci = buildCaseIntelligence({
+      confirmed: wise,
+      answers,
+      evidenceTypes: [],
+    });
+    const gap = await resolveFactGap({
+      facts: applyDocumentImplications(
+        deriveKnownFacts({ confirmed: wise, answers, evidenceTypes: [] }),
+      ),
+      evidenceTypes: [],
+      caseIntelligence: ci,
+    });
+    expect(gap.complete).toBe(false);
+    expect(gap.gap?.factKey).toBe("permission_held");
+
+    const afterPermit = classifyGrounds({
+      confirmed: wise,
+      answers: { ...answers, permission_held: "YES", permission_source: "other" },
+      evidenceTypes: [],
+    });
+    expect(afterPermit.supported_grounds.some((g) => g.code === "PERMIT")).toBe(
+      true,
+    );
+    expect(afterPermit.unresolved_grounds.some((g) => g.code === "ANPR_EVIDENCE")).toBe(
+      true,
+    );
+    expect(afterPermit.missing_material_facts.map((m) => m.factKey)).toContain(
+      "continuous_presence",
+    );
+
+    const afterPresenceNo = classifyGrounds({
+      confirmed: wise,
+      answers: {
+        ...answers,
+        permission_held: "YES",
+        permission_source: "other",
+        continuous_presence: "NO",
+        visit_count: 2,
+      },
+      evidenceTypes: [],
+    });
+    expect(
+      afterPresenceNo.supported_grounds.some((g) => g.code === "ANPR_EVIDENCE"),
+    ).toBe(true);
+    expect(
+      afterPresenceNo.supported_grounds.map((g) => g.code),
+    ).not.toContain("ANPR_OVERSTAY");
+
+    const afterPresenceYes = classifyGrounds({
+      confirmed: wise,
+      answers: {
+        ...answers,
+        permission_held: "YES",
+        permission_source: "other",
+        continuous_presence: "YES",
+      },
+      evidenceTypes: [],
+    });
+    const anprPossible = afterPresenceYes.possible_grounds.find(
+      (g) => g.code === "ANPR_EVIDENCE",
+    );
+    expect(anprPossible?.status).toBe("possible");
+    expect(
+      afterPresenceYes.supported_grounds.map((g) => g.code),
+    ).not.toContain("ANPR_EVIDENCE");
   });
 });

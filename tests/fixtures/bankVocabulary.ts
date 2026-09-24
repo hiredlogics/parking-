@@ -298,8 +298,12 @@ export const FROZEN_BANK_VOCABULARY: Readonly<
     "values": null
   },
   "permission_held": {
-    "enumerated": false,
-    "values": null
+    "enumerated": true,
+    "values": [
+      "NO",
+      "UNSURE",
+      "YES"
+    ]
   },
   "permission_source": {
     "enumerated": true,

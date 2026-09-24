@@ -21,10 +21,26 @@ import {
 import { analysePofa } from "@/lib/analysis/pofa";
 import { resolveCodeVersion } from "@/lib/kb/seed/codeVersions";
 import { moduleAllowed, type GateInput } from "@/lib/retrieval/gates";
-import { classifyAllegation } from "@/lib/reasoning/allegation";
+import {
+  classifyAllegation,
+  factsImpliedByAllegation,
+  type AllegationCategory,
+} from "@/lib/reasoning/allegation";
 import { computeProhibitedClaims } from "@/lib/analysis/prohibited";
 import type { PofaAnalysis } from "@/lib/analysis/types";
 import type { KbModule } from "@/lib/kb/types";
+
+/** Allegations whose substantive case is duration / camera pairing. */
+const DURATION_ALLEGATION: ReadonlySet<AllegationCategory> = new Set([
+  "OVERSTAY",
+  "ANPR_DURATION",
+]);
+
+/** Allegations that turn on permit / authorisation — not readable from the notice alone. */
+const PERMIT_ALLEGATION: ReadonlySet<AllegationCategory> = new Set([
+  "NO_PERMIT",
+  "UNAUTHORISED",
+]);
 
 export type GroundStatus = "possible" | "supported" | "rejected" | "unresolved";
 
@@ -72,27 +88,12 @@ const ANPR_KNOWLEDGE = ["KB-ANPR-01", "KB-ANPR-02", "KB-ANPR-03", "KB-TIME-01"];
 
 /** Soft route candidates from allegation — signals only, not activation. */
 function softAllegationRoutes(allegedBreach: string | null): {
-  category: string;
+  category: AllegationCategory;
   routes: RouteFamily[];
   matched: string | null;
 } {
   const { category, routes, matched } = classifyAllegation(allegedBreach);
   return { category, routes: routes as RouteFamily[], matched };
-}
-
-/**
- * Document-structure candidates (not keyword activation).
- * Entry/exit/duration on a notice → camera-duration challenge is possible.
- */
-function softDocumentCandidates(facts: KnownFacts): RouteFamily[] {
-  const out: RouteFamily[] = [];
-  const entry = factStr(facts, FACT.ENTRY_TIME);
-  const exit = factStr(facts, FACT.EXIT_TIME);
-  const duration = factNum(facts, FACT.TOTAL_RECORDED_DURATION);
-  if ((entry && exit) || (typeof duration === "number" && duration > 0)) {
-    out.push("ANPR");
-  }
-  return out;
 }
 
 function evaluatePofaGround(pofa: PofaAnalysis, facts: KnownFacts): GroundRecord {
@@ -163,14 +164,21 @@ function evaluatePofaGround(pofa: PofaAnalysis, facts: KnownFacts): GroundRecord
 }
 
 /**
- * ANPR / duration: possible/supported only from document camera timing
- * or module use_when. Allegation text is never enough to put ANPR in
- * routes_in_play or to ask customer facts.
+ * ANPR grounds — two distinct classifications:
+ *
+ *   ANPR_OVERSTAY  — alleged breach is duration (OVERSTAY / ANPR_DURATION).
+ *   ANPR_EVIDENCE  — ANPR is the detection method for a non-duration
+ *                    allegation (e.g. No Permit). Entry/exit do not by
+ *                    themselves prove the vehicle was parked in the
+ *                    circumstances the operator alleges. Ask what happened
+ *                    during the recorded period; assert multi-visit /
+ *                    pairing only when the customer supports it.
  */
 function evaluateAnprGround(
   facts: KnownFacts,
   gate: GateInput,
   softSignal: string | null,
+  allegationCategory: AllegationCategory,
 ): GroundRecord | null {
   const entry = factStr(facts, FACT.ENTRY_TIME);
   const exit = factStr(facts, FACT.EXIT_TIME);
@@ -179,70 +187,253 @@ function evaluateAnprGround(
     (entry !== null && exit !== null) ||
     (typeof duration === "number" && duration > 0);
 
+  const presence = factStr(facts, FACT.CONTINUOUS_PRESENCE);
+  const visitCount = factNum(facts, FACT.VISIT_COUNT);
+
   const supportingFacts: Record<string, unknown> = {
     entry_time: entry,
     exit_time: exit,
     total_recorded_duration: duration,
     alleged_breach: factStr(facts, FACT.ALLEGED_BREACH),
     anpr_images_on_notice: factStr(facts, FACT.ANPR_IMAGES_ON_NOTICE),
+    continuous_presence: presence,
+    visit_count: visitCount,
   };
 
+  /* ---------- Duration allegation → ANPR_OVERSTAY ---------- */
+  if (DURATION_ALLEGATION.has(allegationCategory)) {
+    const moduleHits = ANPR_KNOWLEDGE.filter((id) => moduleAllowed(id, gate));
+    if (moduleHits.length > 0 && hasDocTiming) {
+      return {
+        code: "ANPR_OVERSTAY",
+        routeFamily: "ANPR",
+        status: "supported",
+        reasons: [
+          "Duration allegation with document camera timing; ANPR / duration knowledge modules are satisfied.",
+        ],
+        supportingFacts,
+        missingFacts: [],
+        knowledgeRefs: moduleHits,
+        signal: softSignal ?? "document_camera_timing",
+      };
+    }
+
+    if (hasDocTiming) {
+      const candidateMissing = [
+        FACT.CONTINUOUS_PRESENCE,
+        FACT.VISIT_COUNT,
+        FACT.VEHICLE_LEFT_SITE_EVIDENCE,
+        FACT.TIMESTAMP_DISCREPANCY,
+        FACT.ANPR_DISPUTE_DETAIL,
+      ].filter((k) => !facts.known.has(k) && !isDocumentEstablished(facts, k));
+
+      return {
+        code: "ANPR_OVERSTAY",
+        routeFamily: "ANPR",
+        status: "unresolved",
+        reasons: [
+          "Duration allegation with notice entry/exit or duration. Further customer facts are needed only if a double-visit or pairing challenge is pursued.",
+        ],
+        supportingFacts,
+        missingFacts: candidateMissing,
+        knowledgeRefs: [...ANPR_KNOWLEDGE],
+        signal: "document_camera_timing",
+      };
+    }
+
+    if (softSignal) {
+      return {
+        code: "ANPR_OVERSTAY",
+        routeFamily: "ANPR",
+        status: "possible",
+        reasons: [
+          `Soft allegation signal (${softSignal}) noted; not activated without document camera timing.`,
+        ],
+        supportingFacts,
+        missingFacts: [],
+        knowledgeRefs: [...ANPR_KNOWLEDGE],
+        signal: softSignal,
+      };
+    }
+    return null;
+  }
+
+  /* ---------- Non-duration + ANPR timestamps → ANPR_EVIDENCE ---------- */
+  if (!hasDocTiming) return null;
+
+  const pairingSupported =
+    presence === "NO" ||
+    (typeof visitCount === "number" && visitCount > 1) ||
+    facts.tags.has("multiple_visits_same_day") ||
+    facts.tags.has("anpr_disputed");
+
+  const evidenceMissing: string[] = [];
+  if (
+    presence == null &&
+    !facts.known.has(FACT.CONTINUOUS_PRESENCE) &&
+    !isDocumentEstablished(facts, FACT.CONTINUOUS_PRESENCE)
+  ) {
+    evidenceMissing.push(FACT.CONTINUOUS_PRESENCE);
+  }
+  if (
+    presence === "NO" &&
+    visitCount == null &&
+    !facts.known.has(FACT.VISIT_COUNT)
+  ) {
+    evidenceMissing.push(FACT.VISIT_COUNT);
+  }
+
   const moduleHits = ANPR_KNOWLEDGE.filter((id) => moduleAllowed(id, gate));
-  if (moduleHits.length > 0 && hasDocTiming) {
+
+  if (pairingSupported && evidenceMissing.length === 0) {
     return {
-      code: "ANPR_OVERSTAY",
+      code: "ANPR_EVIDENCE",
       routeFamily: "ANPR",
       status: "supported",
       reasons: [
-        "ANPR / duration knowledge modules are satisfied by the established document facts.",
+        `ANPR is the evidence mechanism for a ${allegationCategory} allegation. Customer answers support that the entry/exit pair does not establish a single continuous parking event as alleged.`,
       ],
       supportingFacts,
       missingFacts: [],
-      knowledgeRefs: moduleHits,
-      signal: softSignal ?? "document_camera_timing",
+      knowledgeRefs: moduleHits.length > 0 ? moduleHits : ["KB-ANPR-01", "KB-TIME-01"],
+      signal: softSignal ?? "anpr_evidence_mechanism",
     };
   }
 
-  if (hasDocTiming) {
-    const candidateMissing = [
-      FACT.CONTINUOUS_PRESENCE,
-      FACT.VISIT_COUNT,
-      FACT.VEHICLE_LEFT_SITE_EVIDENCE,
-      FACT.TIMESTAMP_DISCREPANCY,
-      FACT.ANPR_DISPUTE_DETAIL,
-    ].filter((k) => !facts.known.has(k) && !isDocumentEstablished(facts, k));
-
+  if (presence === "YES") {
     return {
-      code: "ANPR_OVERSTAY",
-      routeFamily: "ANPR",
-      status: "unresolved",
-      reasons: [
-        "Notice records entry/exit or duration (camera timing). Further customer facts are needed only if a double-visit or pairing challenge is pursued.",
-      ],
-      supportingFacts,
-      missingFacts: candidateMissing,
-      knowledgeRefs: [...ANPR_KNOWLEDGE],
-      signal: "document_camera_timing",
-    };
-  }
-
-  // Allegation soft-signal only — logged as possible, never activated.
-  if (softSignal) {
-    return {
-      code: "ANPR_OVERSTAY",
+      code: "ANPR_EVIDENCE",
       routeFamily: "ANPR",
       status: "possible",
       reasons: [
-        `Soft allegation signal (${softSignal}) noted; not activated without document camera timing or supporting facts.`,
+        "Customer confirms continuous presence; a separate-visits / pairing challenge is not pursued. ANPR remains the detection method and does not by itself prove the alleged permit breach.",
       ],
       supportingFacts,
       missingFacts: [],
-      knowledgeRefs: [...ANPR_KNOWLEDGE],
-      signal: softSignal,
+      knowledgeRefs: ["KB-TIME-01"],
+      signal: softSignal ?? "anpr_evidence_mechanism",
     };
   }
 
-  return null;
+  return {
+    code: "ANPR_EVIDENCE",
+    routeFamily: "ANPR",
+    status: "unresolved",
+    reasons: [
+      `Alleged breach is ${allegationCategory.replace(/_/g, " ").toLowerCase()}; ANPR entry/exit is the evidence mechanism. Whether those captures establish the alleged parking event (including separate visits, pick-up/drop-off, or other circumstances) cannot be determined from the notice alone.`,
+    ],
+    supportingFacts,
+    missingFacts: evidenceMissing,
+    knowledgeRefs: [...ANPR_KNOWLEDGE],
+    signal: softSignal ?? "anpr_evidence_mechanism",
+  };
+}
+
+/**
+ * Permit / authorisation — document alleges the breach; the notice
+ * cannot say whether a permit or entitlement existed. Those facts must
+ * be asked; CI then supports or rejects the ground from the answer.
+ */
+function evaluatePermitAuthGround(
+  route: "PERMIT" | "AUTHORIZATION",
+  code: string,
+  moduleIds: string[],
+  facts: KnownFacts,
+  gate: GateInput,
+  softSignal: string | null,
+  allegationCategory: AllegationCategory,
+): GroundRecord {
+  const held = factStr(facts, FACT.PERMISSION_HELD);
+  const source = factStr(facts, FACT.PERMISSION_SOURCE);
+  const supportingFacts: Record<string, unknown> = {
+    alleged_breach: factStr(facts, FACT.ALLEGED_BREACH),
+    permission_held: held,
+    permission_source: source,
+  };
+
+  const missingFacts: string[] = [];
+  if (
+    held == null &&
+    !isDocumentEstablished(facts, FACT.PERMISSION_HELD) &&
+    !facts.known.has(FACT.PERMISSION_HELD)
+  ) {
+    missingFacts.push(FACT.PERMISSION_HELD);
+  }
+  if (
+    held === "YES" &&
+    source == null &&
+    !facts.known.has(FACT.PERMISSION_SOURCE)
+  ) {
+    missingFacts.push(FACT.PERMISSION_SOURCE);
+  }
+
+  const hits = moduleIds.filter((id) => moduleAllowed(id, gate));
+
+  if (held === "YES" && missingFacts.length === 0) {
+    return {
+      code,
+      routeFamily: route,
+      status: "supported",
+      reasons: [
+        hits.length > 0
+          ? `Customer confirms permit/authorisation was held; ${route} knowledge modules are satisfied.`
+          : "Customer confirms a permit or parking authorisation was held for this location.",
+      ],
+      supportingFacts,
+      missingFacts: [],
+      knowledgeRefs: hits.length > 0 ? hits : moduleIds,
+      signal: softSignal ?? undefined,
+    };
+  }
+
+  if (held === "YES" && missingFacts.length > 0) {
+    return {
+      code,
+      routeFamily: route,
+      status: "unresolved",
+      reasons: [
+        "Permit/authorisation was indicated; the source of that entitlement is still needed.",
+      ],
+      supportingFacts,
+      missingFacts,
+      knowledgeRefs: moduleIds,
+      signal: softSignal ?? undefined,
+    };
+  }
+
+  if (held === "NO") {
+    return {
+      code,
+      routeFamily: route,
+      status: "rejected",
+      reasons: [
+        "Customer confirms no permit or parking authorisation was held; this ground is not pursued.",
+      ],
+      supportingFacts,
+      missingFacts: [],
+      knowledgeRefs: [],
+      signal: softSignal ?? undefined,
+    };
+  }
+
+  // UNSURE / unknown — factual gap the document cannot close.
+  return {
+    code,
+    routeFamily: route,
+    status: "unresolved",
+    reasons: [
+      `Notice alleges ${allegationCategory.replace(/_/g, " ").toLowerCase()}; whether a permit, parking entitlement or other authorisation existed cannot be determined from the document alone.`,
+    ],
+    supportingFacts,
+    missingFacts:
+      missingFacts.length > 0
+        ? missingFacts
+        : [FACT.PERMISSION_HELD, ...factsImpliedByAllegation(allegationCategory)].filter(
+            (k, i, arr) => arr.indexOf(k) === i,
+          ),
+    knowledgeRefs: moduleIds,
+    signal: softSignal ?? undefined,
+  };
 }
 
 function evaluateModuleRoute(
@@ -347,6 +538,7 @@ export function classifyGrounds(input: {
   const allegation = softAllegationRoutes(
     factStr(facts, FACT.ALLEGED_BREACH),
   );
+  const allegationCategory = allegation.category as AllegationCategory;
   const softSignal =
     allegation.matched != null
       ? `allegation:${allegation.category}:${allegation.matched}`
@@ -357,12 +549,45 @@ export function classifyGrounds(input: {
   const pofaGround = evaluatePofaGround(pofa, facts);
   all.push(pofaGround);
 
-  const docRoutes = softDocumentCandidates(facts);
-  const anpr = evaluateAnprGround(facts, gate, softSignal);
+  const anpr = evaluateAnprGround(
+    facts,
+    gate,
+    softSignal,
+    allegationCategory,
+  );
   if (anpr) all.push(anpr);
 
+  /*
+   * Permit / authorisation: allegation makes the factual gap material.
+   * Prefer a single primary route (PERMIT for no-permit; AUTHORIZATION
+   * for unauthorised) so we do not ask permission_held twice.
+   */
+  if (PERMIT_ALLEGATION.has(allegationCategory)) {
+    const primaryRoute: "PERMIT" | "AUTHORIZATION" =
+      allegationCategory === "NO_PERMIT" ? "PERMIT" : "AUTHORIZATION";
+    const meta = SOFT_ROUTE_MODULES[primaryRoute]!;
+    all.push(
+      evaluatePermitAuthGround(
+        primaryRoute,
+        meta.code,
+        meta.modules,
+        facts,
+        gate,
+        softSignal,
+        allegationCategory,
+      ),
+    );
+  }
+
   // Soft allegation routes → possible only (evaluateModuleRoute). Never activate.
+  // Skip PERMIT/AUTHORIZATION when already handled as allegation-material above.
   for (const route of allegation.routes) {
+    if (
+      PERMIT_ALLEGATION.has(allegationCategory) &&
+      (route === "PERMIT" || route === "AUTHORIZATION")
+    ) {
+      continue;
+    }
     const meta = SOFT_ROUTE_MODULES[route];
     if (!meta) continue;
     if (all.some((g) => g.routeFamily === route)) continue;
@@ -395,36 +620,74 @@ export function classifyGrounds(input: {
     });
   }
 
-  const possible_grounds = all.filter((g) => g.status === "possible");
-  const supported_grounds = all.filter((g) => g.status === "supported");
-  const rejected_grounds = all.filter((g) => g.status === "rejected");
-  const unresolved_grounds = all.filter((g) => g.status === "unresolved");
+  const rankGround = (g: GroundRecord): number => {
+    if (g.routeFamily === "POFA") return 0;
+    if (g.routeFamily === "PERMIT" || g.routeFamily === "AUTHORIZATION") return 1;
+    if (g.code === "ANPR_EVIDENCE") return 2;
+    if (g.code === "ANPR_OVERSTAY") return 3;
+    return 4;
+  };
 
-  // Unresolved ANPR/etc. that are only soft-possible without doc timing
-  // should not force a question budget when PoFA is already supported —
-  // missing facts are still listed for unresolved with document timing.
+  const possible_grounds = all.filter((g) => g.status === "possible");
+  const supported_grounds = all
+    .filter((g) => g.status === "supported")
+    .sort((a, b) => rankGround(a) - rankGround(b));
+  const rejected_grounds = all.filter((g) => g.status === "rejected");
+  const unresolved_grounds = all
+    .filter((g) => g.status === "unresolved")
+    .sort((a, b) => rankGround(a) - rankGround(b));
+
+  /*
+   * Missing material facts from unresolved grounds.
+   * - Permit/auth allegation gaps: required, high priority.
+   * - ANPR_EVIDENCE circumstance gaps: required but lower priority
+   *   (asked after permit); never classified as overstay.
+   * - ANPR_OVERSTAY soft follow-ups: optional when another ground is supported.
+   */
   const missing_material_facts: MissingMaterialFact[] = [];
-  let priority = 40;
+  const seenFact = new Set<string>();
+  let priority = 20;
   for (const g of unresolved_grounds) {
+    const allegationMaterial =
+      g.routeFamily === "PERMIT" || g.routeFamily === "AUTHORIZATION";
+    const anprEvidence = g.code === "ANPR_EVIDENCE";
     for (const factKey of g.missingFacts) {
+      if (seenFact.has(factKey)) continue;
       if (isDocumentEstablished(facts, factKey)) continue;
       if (facts.known.has(factKey)) continue;
+      seenFact.add(factKey);
       missing_material_facts.push({
         factKey,
         groundCode: g.code,
         reasonCode: `${g.code}_FACT_UNRESOLVED`,
-        optional: supported_grounds.length > 0, // optional when a supported ground already exists
-        priority: priority++,
+        optional:
+          allegationMaterial || anprEvidence
+            ? false
+            : supported_grounds.length > 0,
+        priority: allegationMaterial
+          ? priority++
+          : anprEvidence
+            ? 30 + priority++
+            : 50 + priority++,
       });
     }
   }
+  missing_material_facts.sort((a, b) => a.priority - b.priority);
 
   const routes_in_play: RouteFamily[] = [
     ...new Set(supported_grounds.map((g) => g.routeFamily)),
   ];
-  // Unresolved grounds with document basis may be pursued only when
-  // nothing is yet supported (so PoFA-only cases do not open ANPR Qs).
-  if (routes_in_play.length === 0) {
+  // Allegation-material and ANPR_EVIDENCE unresolved stay in play.
+  for (const g of unresolved_grounds) {
+    const keep =
+      g.routeFamily === "PERMIT" ||
+      g.routeFamily === "AUTHORIZATION" ||
+      g.code === "ANPR_EVIDENCE";
+    if (keep && !routes_in_play.includes(g.routeFamily)) {
+      routes_in_play.push(g.routeFamily);
+    }
+  }
+  if (supported_grounds.length === 0) {
     for (const g of unresolved_grounds) {
       if (!routes_in_play.includes(g.routeFamily)) {
         routes_in_play.push(g.routeFamily);
@@ -432,6 +695,7 @@ export function classifyGrounds(input: {
     }
   }
 
+  // Prefer PoFA / permit-auth before ANPR evidential grounds.
   const ordered = [
     ...supported_grounds,
     ...unresolved_grounds.filter((g) => routes_in_play.includes(g.routeFamily)),
