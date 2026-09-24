@@ -1,6 +1,7 @@
 import { FACT, factStr } from "@/lib/facts/facts";
 import type { KnownFacts } from "@/lib/facts/types";
 import type { PofaAnalysis, PofaTimingStatus } from "./types";
+import { isEnglandWalesWorkingDay } from "./englandWalesHolidays";
 
 /**
  * Protection of Freedoms Act 2012 Schedule 4 checklist.
@@ -30,11 +31,9 @@ import type { PofaAnalysis, PofaTimingStatus } from "./types";
  *                 the Notice to Driver was given.
  *
  * Postal notices are treated as given on the second working day after
- * posting. Because bank holidays vary by year and nation, working days
- * here count Monday–Friday only; a result inside BOUNDARY_TOLERANCE_DAYS
- * of the deadline is therefore reported UNRESOLVED rather than FAILED so
- * a bank holiday can never turn a compliant notice into an alleged
- * defect.
+ * posting. Working days are England/Wales business days: Monday–Friday
+ * excluding bank holidays. BOUNDARY_TOLERANCE_DAYS remains as a
+ * safety margin for residual calendar edge cases.
  */
 
 /** Days of slack within which we refuse to allege a failure. */
@@ -81,14 +80,16 @@ function addDays(d: Date, n: number): Date {
   return new Date(d.getTime() + n * DAY_MS);
 }
 
-/** Add n working days (Mon–Fri) to a date. */
+/**
+ * Add n England/Wales working days (Mon–Fri, excluding bank holidays)
+ * to a date. Used for postal deemed service under Schedule 4.
+ */
 export function addWorkingDays(d: Date, n: number): Date {
   let out = d;
   let remaining = n;
   while (remaining > 0) {
     out = addDays(out, 1);
-    const day = out.getUTCDay();
-    if (day !== 0 && day !== 6) remaining -= 1;
+    if (isEnglandWalesWorkingDay(out)) remaining -= 1;
   }
   return out;
 }

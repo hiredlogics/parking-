@@ -256,9 +256,11 @@ describe("production-reachable notices", () => {
   });
 
   it("dates the deemed-service deadline from working days", async () => {
-    // Event 10/08, +14 days = 24/08 deadline. Issued Thu 27/08, deemed
-    // given two working days later = 31/08, so seven days late.
+    // Event 10/08, +14 days = 24/08 deadline. Issued Thu 27/08;
+    // Fri 28 = WD1, Mon 31 Aug 2026 bank holiday excluded, Tue 1 Sep = WD2
+    // → deemed given 2026-09-01 = 8 days late.
     const { analysis } = await runNotice(PRODUCTION_NOTICES[0].confirmed);
-    expect(analysis.pofa.daysLate).toBe(7);
+    expect(analysis.pofa.noticeGivenDate).toBe("2026-09-01");
+    expect(analysis.pofa.daysLate).toBe(8);
   });
 });

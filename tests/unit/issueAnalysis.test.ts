@@ -48,6 +48,12 @@ describe("PoFA working-day arithmetic", () => {
     const d = new Date(Date.UTC(2026, 4, 8));
     expect(addWorkingDays(d, 2).toISOString().slice(0, 10)).toBe("2026-05-12");
   });
+
+  it("skips England/Wales summer bank holiday (Mon 31 Aug 2026)", () => {
+    // Posted Thu 27 Aug 2026 → Fri 28 (WD1), Mon 31 bank holiday, Tue 1 Sep (WD2).
+    const d = new Date(Date.UTC(2026, 7, 27));
+    expect(addWorkingDays(d, 2).toISOString().slice(0, 10)).toBe("2026-09-01");
+  });
 });
 
 describe("PoFA paragraph 9 (postal NTK, no prior Notice to Driver)", () => {
