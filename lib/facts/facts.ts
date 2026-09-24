@@ -7,6 +7,7 @@ import {
   tagsFromEvidence,
 } from "./fromEvidence";
 import { classifyNarrative } from "@/lib/reasoning/narrative";
+import { factsFromNarrative } from "@/lib/reasoning/narrativeFacts";
 
 /**
  * Material fact keys.
@@ -257,21 +258,13 @@ export function deriveKnownFacts(input: {
   }
 
   /*
-   * Circumstances read out of the customer's own account.
+   * Circumstances + clear facts from the customer's free-text account.
    *
-   * `situation_other` is free text — "anything else we should know" —
-   * and it is the only route left by which a customer can raise a
-   * circumstance the notice cannot state: a breakdown, a lease over the
-   * bay, a disability. The appeal-reason checklist that used to carry
-   * those has been retired, so without this the BREAKDOWN, RESIDENTIAL
-   * and EQUALITY issues could never open for anyone.
-   *
-   * Unioned, never overriding, for the same reason as the evidence tags
-   * above. Provenance is "inferred" deliberately: the customer wrote
-   * the sentence, but they did not assert the tag, and "inferred" is
-   * outside ASSERTABLE_PROVENANCE — so a tag read out of prose can open
-   * a line of enquiry and can never itself be stated in the letter. The
-   * facts that issue then requires are asked and answered properly.
+   * Tags open lines of enquiry (provenance "inferred" — not assertable).
+   * High-confidence narrative facts (left-and-returned → continuous_presence
+   * NO) are CUSTOMER_FACT with provenance "answer" so VAL-FACT may state
+   * them and the adaptive stage does not re-ask what the customer already
+   * wrote.
    */
   const narrativeText = values[PROFILE.SITUATION_OTHER];
   if (typeof narrativeText === "string" && narrativeText.trim().length > 0) {
@@ -284,6 +277,13 @@ export function deriveKnownFacts(input: {
         ...new Set([...existing, ...narrativeTags]),
       ].sort();
       if (existing.length === 0) provenance[FACT.SCENARIOS] = "inferred";
+    }
+
+    for (const hit of factsFromNarrative(narrativeText)) {
+      if (isEstablished(values[hit.field])) continue;
+      values[hit.field] = hit.value;
+      // Customer wrote the fact — treat as answer for VAL-FACT / gap skip.
+      provenance[hit.field] = "answer";
     }
   }
 

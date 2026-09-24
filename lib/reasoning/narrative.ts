@@ -106,7 +106,7 @@ const PATTERNS: Array<{ tag: ScenarioTag; re: RegExp }> = [
   },
   {
     tag: "multiple_visits_same_day",
-    re: /\b(?:two|2|three|3|twice|three\s+times)\s+(?:separate\s+)?(?:visits?|trips?)\b|\bcame\s+back\s+(?:later|again)\b|\bleft\s+and\s+returned\b|\bsame\s+day\b/i,
+    re: /\b(?:two|2|three|3|twice|three\s+times)\s+(?:separate\s+)?(?:visits?|trips?)\b|\bcame\s+back\s+(?:later|again)\b|\bleft\s+and\s+(?:returned|came\s+back)\b|\bleft\s+(?:the\s+)?(?:site|car\s*park|park)\b.{0,40}\b(?:returned|came\s+back)\b|\bsame\s+day\b/i,
   },
   {
     tag: "authorised_or_permit",

@@ -249,4 +249,77 @@ describe("Case Intelligence authority model", () => {
       afterPresenceYes.supported_grounds.map((g) => g.code),
     ).not.toContain("ANPR_EVIDENCE");
   });
+
+  it("free-text left-and-returned sets continuous_presence and skips re-asking it", async () => {
+    const willesden: ConfirmedPcn = {
+      operator_name: "Euro Car Parks",
+      pcn_number: "88812545842",
+      vrm: "KJ19KYN",
+      parking_location: "Sainsburys - Willesden Green",
+      parking_event_date: "2026-08-29",
+      notice_issue_date: "2026-09-04",
+      notice_route: "POSTAL",
+      entry_time: "13:05",
+      exit_time: "14:14",
+      total_recorded_duration: 69,
+      charge_amount: 100,
+      alleged_breach:
+        "A voucher/receipt was not validated at the kiosk during the time period the vehicle was on site",
+      uk_jurisdiction: "ENGLAND_WALES",
+      case_stage: "INITIAL_OPERATOR_APPEAL",
+      confirmedAt: "2026-09-24T18:07:25.019Z",
+    } as ConfirmedPcn;
+
+    const answers = {
+      registered_keeper: "YES",
+      driver_identified: "NO",
+      jurisdiction: "ENGLAND_WALES",
+      situation_other:
+        "I left the site and returned later the same day — it was two separate visits.",
+    };
+
+    const facts = deriveKnownFacts({
+      confirmed: willesden,
+      answers,
+      evidenceTypes: [],
+    });
+    expect(facts.values.continuous_presence).toBe("NO");
+    expect(facts.values.visit_count).toBe(2);
+    expect(facts.provenance.continuous_presence).toBe("answer");
+
+    const grounds = classifyGrounds({
+      confirmed: willesden,
+      answers,
+      evidenceTypes: [],
+    });
+    expect(grounds.primary_ground).toBe("PAYMENT");
+    expect(grounds.unresolved_grounds.map((g) => g.code)).toContain("PAYMENT");
+    expect(grounds.supported_grounds.map((g) => g.code)).toContain(
+      "ANPR_EVIDENCE",
+    );
+    expect(grounds.supported_grounds.map((g) => g.code)).not.toContain(
+      "ANPR_OVERSTAY",
+    );
+    expect(grounds.missing_material_facts.map((m) => m.factKey)).toContain(
+      "payment_made",
+    );
+    expect(grounds.missing_material_facts.map((m) => m.factKey)).not.toContain(
+      "continuous_presence",
+    );
+
+    const ci = buildCaseIntelligence({
+      confirmed: willesden,
+      answers,
+      evidenceTypes: [],
+    });
+    const gap = await resolveFactGap({
+      facts: applyDocumentImplications(
+        deriveKnownFacts({ confirmed: willesden, answers, evidenceTypes: [] }),
+      ),
+      evidenceTypes: [],
+      caseIntelligence: ci,
+    });
+    expect(gap.gap?.factKey).toBe("payment_made");
+    expect(gap.gap?.factKey).not.toBe("continuous_presence");
+  });
 });

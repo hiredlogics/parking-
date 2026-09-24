@@ -86,7 +86,118 @@ export interface GroundsAuthorityResult {
 const POFA_KNOWLEDGE = ["KB-POFA-01", "KB-POFA-02", "KB-POFA-05"];
 const ANPR_KNOWLEDGE = ["KB-ANPR-01", "KB-ANPR-02", "KB-ANPR-03", "KB-TIME-01"];
 
-/** Soft route candidates from allegation — signals only, not activation. */
+/** Allegations that turn on payment / kiosk validation. */
+const PAYMENT_ALLEGATION: ReadonlySet<AllegationCategory> = new Set([
+  "NO_PAYMENT",
+  "NO_VALIDATION",
+]);
+
+/**
+ * Payment / kiosk-validation — the notice alleges non-payment or failure
+ * to validate; the document cannot say whether the customer paid or
+ * validated. Ask; then support or reject from the answer.
+ */
+function evaluatePaymentGround(
+  facts: KnownFacts,
+  gate: GateInput,
+  softSignal: string | null,
+  allegationCategory: AllegationCategory,
+): GroundRecord {
+  const made = factStr(facts, FACT.PAYMENT_MADE);
+  const method = factStr(facts, FACT.PAYMENT_METHOD);
+  const moduleIds = ["KB-PAY-01", "KB-PAY-02", "KB-PAY-03"];
+  const supportingFacts: Record<string, unknown> = {
+    alleged_breach: factStr(facts, FACT.ALLEGED_BREACH),
+    payment_made: made,
+    payment_method: method,
+  };
+
+  const missingFacts: string[] = [];
+  if (made == null && !facts.known.has(FACT.PAYMENT_MADE)) {
+    missingFacts.push(FACT.PAYMENT_MADE);
+  }
+  if (
+    (made === "YES" || made === "ATTEMPTED_FAILED") &&
+    method == null &&
+    !facts.known.has(FACT.PAYMENT_METHOD)
+  ) {
+    missingFacts.push(FACT.PAYMENT_METHOD);
+  }
+
+  const hits = moduleIds.filter((id) => moduleAllowed(id, gate));
+  const label =
+    allegationCategory === "NO_VALIDATION"
+      ? "voucher/kiosk validation"
+      : "payment";
+
+  if (
+    (made === "YES" || made === "ATTEMPTED_FAILED") &&
+    missingFacts.length === 0
+  ) {
+    return {
+      code: "PAYMENT",
+      routeFamily: "PAYMENT",
+      status: "supported",
+      reasons: [
+        hits.length > 0
+          ? `Customer answers establish a ${label} position; payment knowledge modules are satisfied.`
+          : `Customer answers establish a ${label} position relevant to the alleged breach.`,
+      ],
+      supportingFacts,
+      missingFacts: [],
+      knowledgeRefs: hits.length > 0 ? hits : moduleIds,
+      signal: softSignal ?? undefined,
+    };
+  }
+
+  if (made === "YES" || made === "ATTEMPTED_FAILED") {
+    return {
+      code: "PAYMENT",
+      routeFamily: "PAYMENT",
+      status: "unresolved",
+      reasons: [
+        `Payment/${label} was indicated; the method is still needed to select the correct ground.`,
+      ],
+      supportingFacts,
+      missingFacts,
+      knowledgeRefs: moduleIds,
+      signal: softSignal ?? undefined,
+    };
+  }
+
+  if (made === "NO") {
+    return {
+      code: "PAYMENT",
+      routeFamily: "PAYMENT",
+      status: "rejected",
+      reasons: [
+        `Customer confirms no ${label} occurred; a payment-made ground is not pursued.`,
+      ],
+      supportingFacts,
+      missingFacts: [],
+      knowledgeRefs: [],
+      signal: softSignal ?? undefined,
+    };
+  }
+
+  return {
+    code: "PAYMENT",
+    routeFamily: "PAYMENT",
+    status: "unresolved",
+    reasons: [
+      allegationCategory === "NO_VALIDATION"
+        ? "Notice alleges voucher/receipt was not validated at the kiosk; whether a validation or payment was made cannot be determined from the document alone."
+        : "Notice alleges non-payment; whether a payment was made or attempted cannot be determined from the document alone.",
+    ],
+    supportingFacts,
+    missingFacts:
+      missingFacts.length > 0
+        ? missingFacts
+        : factsImpliedByAllegation(allegationCategory),
+    knowledgeRefs: moduleIds,
+    signal: softSignal ?? undefined,
+  };
+}
 function softAllegationRoutes(allegedBreach: string | null): {
   category: AllegationCategory;
   routes: RouteFamily[];
@@ -579,13 +690,22 @@ export function classifyGrounds(input: {
     );
   }
 
+  if (PAYMENT_ALLEGATION.has(allegationCategory)) {
+    all.push(
+      evaluatePaymentGround(facts, gate, softSignal, allegationCategory),
+    );
+  }
+
   // Soft allegation routes → possible only (evaluateModuleRoute). Never activate.
-  // Skip PERMIT/AUTHORIZATION when already handled as allegation-material above.
+  // Skip routes already handled as allegation-material above.
   for (const route of allegation.routes) {
     if (
       PERMIT_ALLEGATION.has(allegationCategory) &&
       (route === "PERMIT" || route === "AUTHORIZATION")
     ) {
+      continue;
+    }
+    if (PAYMENT_ALLEGATION.has(allegationCategory) && route === "PAYMENT") {
       continue;
     }
     const meta = SOFT_ROUTE_MODULES[route];
@@ -622,7 +742,14 @@ export function classifyGrounds(input: {
 
   const rankGround = (g: GroundRecord): number => {
     if (g.routeFamily === "POFA") return 0;
-    if (g.routeFamily === "PERMIT" || g.routeFamily === "AUTHORIZATION") return 1;
+    if (
+      g.routeFamily === "PERMIT" ||
+      g.routeFamily === "AUTHORIZATION" ||
+      g.routeFamily === "PAYMENT" ||
+      g.routeFamily === "KEYING"
+    ) {
+      return 1;
+    }
     if (g.code === "ANPR_EVIDENCE") return 2;
     if (g.code === "ANPR_OVERSTAY") return 3;
     return 4;
@@ -649,7 +776,10 @@ export function classifyGrounds(input: {
   let priority = 20;
   for (const g of unresolved_grounds) {
     const allegationMaterial =
-      g.routeFamily === "PERMIT" || g.routeFamily === "AUTHORIZATION";
+      g.routeFamily === "PERMIT" ||
+      g.routeFamily === "AUTHORIZATION" ||
+      g.routeFamily === "PAYMENT" ||
+      g.routeFamily === "KEYING";
     const anprEvidence = g.code === "ANPR_EVIDENCE";
     for (const factKey of g.missingFacts) {
       if (seenFact.has(factKey)) continue;
@@ -682,6 +812,8 @@ export function classifyGrounds(input: {
     const keep =
       g.routeFamily === "PERMIT" ||
       g.routeFamily === "AUTHORIZATION" ||
+      g.routeFamily === "PAYMENT" ||
+      g.routeFamily === "KEYING" ||
       g.code === "ANPR_EVIDENCE";
     if (keep && !routes_in_play.includes(g.routeFamily)) {
       routes_in_play.push(g.routeFamily);
@@ -695,11 +827,11 @@ export function classifyGrounds(input: {
     }
   }
 
-  // Prefer PoFA / permit-auth before ANPR evidential grounds.
+  // Prefer allegation grounds (even unresolved) before ANPR evidential grounds.
   const ordered = [
     ...supported_grounds,
     ...unresolved_grounds.filter((g) => routes_in_play.includes(g.routeFamily)),
-  ];
+  ].sort((a, b) => rankGround(a) - rankGround(b));
   const primary = ordered[0] ?? null;
   const secondary = ordered.slice(1).map((g) => g.code);
 

@@ -264,7 +264,7 @@ export const FACT_REGISTRY: readonly FactRegistryEntry[] = [
       "YES",
     ],
     guidance:
-      "Whether a payment was made or attempted decides between the payment-made, failed-machine and digital-failure modules.",
+      "Whether a payment was made, a voucher/receipt was validated at the kiosk, or an attempt failed decides which payment modules apply.",
     source: "ANSWER",
   },
   {
