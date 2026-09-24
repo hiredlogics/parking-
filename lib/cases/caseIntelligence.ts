@@ -206,18 +206,20 @@ export function buildCaseIntelligence(input: {
     });
   const facts = applyDocumentImplications(baseFacts);
 
+  const durable = input.documentUnderstanding ?? null;
+
   const grounds = classifyGrounds({
     confirmed: input.confirmed,
     answers,
     evidenceTypes,
     answerProvenance: input.answerProvenance,
     knownFactsOverride: facts,
+    incompleteNotice: durable?.incompleteNotice === true,
   });
 
   const flatFacts: Record<string, unknown> = { ...grounds.facts.values };
   const warnings: string[] = [];
 
-  const durable = input.documentUnderstanding ?? null;
   const documentUnderstanding: DocumentUnderstanding = {
     documentType: durable?.documentType ?? null,
     sender: durable?.senderName ?? null,
@@ -237,10 +239,19 @@ export function buildCaseIntelligence(input: {
     );
   }
 
-  const suitability = suitabilityFromUnderstanding(
+  let suitability = suitabilityFromUnderstanding(
     durable,
     input.suitabilityDetail ?? null,
   );
+  if (grounds.primary_ground === "NOTICE_INCOMPLETE") {
+    suitability = {
+      decision: "MANUAL_REVIEW",
+      reasonCode: "MISSING_REVERSE_PAGE",
+      detail:
+        "Upload the reverse/back of the Notice to Keeper before the appeal can be completed.",
+    };
+    warnings.push(suitability.detail!);
+  }
   if (suitability.decision === "NOT_SUPPORTED") {
     warnings.push(
       "This document is not suitable for the standard private parking appeal service.",

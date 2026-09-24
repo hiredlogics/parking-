@@ -27,6 +27,11 @@ export interface DurableDocumentUnderstanding {
   parkingOperatorName: string | null;
   caseStage: DetectedCaseStage | null;
   serviceDecision: TriageServiceDecision | null;
+  /**
+   * True when the uploaded notice set is incomplete (e.g. reverse page
+   * missing). Case Intelligence must ask for the reverse before merits.
+   */
+  incompleteNotice?: boolean;
 }
 
 export function isServiceSupported(

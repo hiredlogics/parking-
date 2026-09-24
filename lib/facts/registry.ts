@@ -254,6 +254,32 @@ export const FACT_REGISTRY: readonly FactRegistryEntry[] = [
     source: "ANSWER",
   },
   {
+    factKey: "hire_documents_received",
+    label: "Hire documents with the notice",
+    valueType: "ENUM",
+    allowedValues: ["NO", "UNSURE", "YES"],
+    guidance:
+      "For a hire vehicle, Schedule 4 requires certain documents (for example the hire agreement and statement of liability) to accompany the notice. Tell us whether those documents were received with the notice — do not try to interpret the statute yourself.",
+    source: "ANSWER",
+  },
+  {
+    factKey: "notice_reverse_present",
+    label: "Notice reverse / back page",
+    valueType: "ENUM",
+    allowedValues: ["NO", "UNSURE", "YES"],
+    guidance:
+      "Many Notices to Keeper carry mandatory wording on the reverse. Upload the back of the notice if you have not already.",
+    source: "ANSWER",
+  },
+  {
+    factKey: "pofa_content_defects",
+    label: "Confirmed PoFA content defects",
+    valueType: "STRING",
+    allowedValues: [],
+    guidance: null,
+    source: "ANSWER",
+  },
+  {
     factKey: "payment_made",
     label: "Payment made",
     valueType: "ENUM",

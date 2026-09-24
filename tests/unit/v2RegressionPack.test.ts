@@ -300,3 +300,247 @@ describe("V2 Regression Pack — baseline real notices (CI)", () => {
     expect(g.pofa_analysis.daysLate).toBe(8);
   });
 });
+
+describe("V2 Regression Pack — remaining scenarios", () => {
+  it("T06 — No Permit pick-up/drop-off: ANPR_EVIDENCE without double-dip", async () => {
+    const confirmed = pcn({
+      parking_location: "Hospital car park",
+      parking_event_date: "2026-09-08",
+      notice_issue_date: "2026-09-14",
+      entry_time: "09:00",
+      exit_time: "09:12",
+      total_recorded_duration: 12,
+      alleged_breach: "No Permit",
+    });
+    const answers = {
+      ...keeper,
+      situation_other: "I only stopped briefly to pick up a patient — drop-off.",
+    };
+    const { grounds, facts } = await gapFor(confirmed, answers);
+    expect(facts.tags.has("loading_or_dropoff")).toBe(true);
+    expect(grounds.supported_grounds.map((g) => g.code)).toContain(
+      "ANPR_EVIDENCE",
+    );
+    expect(grounds.supported_grounds.map((g) => g.code)).not.toContain(
+      "ANPR_OVERSTAY",
+    );
+    const anpr = grounds.supported_grounds.find((g) => g.code === "ANPR_EVIDENCE");
+    expect(anpr?.reasons.join(" ")).toMatch(/pick-up|drop-off|loading/i);
+    expect(anpr?.reasons.join(" ")).not.toMatch(/two visits|double/i);
+    expect(grounds.unresolved_grounds.map((g) => g.code)).toContain("PERMIT");
+  });
+
+  it("T09 — Consideration period from short-stay narrative", () => {
+    const confirmed = pcn({
+      parking_event_date: "2026-09-01",
+      notice_issue_date: "2026-09-05",
+      entry_time: "10:00",
+      exit_time: "10:04",
+      total_recorded_duration: 4,
+      alleged_breach: "Parked without a valid ticket",
+    });
+    const g = classifyGrounds({
+      confirmed,
+      answers: {
+        ...keeper,
+        situation_other:
+          "I entered, read the signs for a few minutes and drove straight out — changed my mind.",
+        initial_period_reason: "reading_signs",
+      },
+    });
+    expect(g.supported_grounds.map((x) => x.code)).toContain(
+      "CONSIDERATION_PERIOD",
+    );
+    expect(g.supported_grounds.map((x) => x.code)).not.toContain(
+      "GRACE_PERIOD",
+    );
+  });
+
+  it("T10 — Grace after short overstay with exit delay", () => {
+    const confirmed = pcn({
+      parking_event_date: "2026-09-01",
+      notice_issue_date: "2026-09-05",
+      entry_time: "10:00",
+      exit_time: "10:25",
+      total_recorded_duration: 25,
+      alleged_breach: "Overstayed the maximum permitted stay",
+    });
+    const g = classifyGrounds({
+      confirmed,
+      answers: {
+        ...keeper,
+        situation_other:
+          "I was waiting a few minutes in a queue to exit the car park.",
+        exit_delay_reason: "queue_to_exit",
+        alleged_overstay_minutes: 5,
+      },
+    });
+    expect(g.supported_grounds.map((x) => x.code)).toContain("GRACE_PERIOD");
+    expect(g.supported_grounds.map((x) => x.code)).not.toContain(
+      "CONSIDERATION_PERIOD",
+    );
+  });
+
+  it("T11 — Payment made with method supports PAYMENT", () => {
+    const confirmed = pcn({
+      parking_event_date: "2026-09-01",
+      notice_issue_date: "2026-09-05",
+      alleged_breach: "Failure to make a valid payment",
+    });
+    const g = classifyGrounds({
+      confirmed,
+      answers: {
+        ...keeper,
+        payment_made: "YES",
+        payment_method: "machine",
+        payment_evidence: "YES",
+      },
+    });
+    expect(g.supported_grounds.map((x) => x.code)).toContain("PAYMENT");
+    expect(g.pofa_analysis.timingStatus).not.toBe("FAILED");
+  });
+
+  it("T12 — Residential narrative opens RESIDENTIAL when agreement present", () => {
+    const confirmed = pcn({
+      parking_event_date: "2026-09-01",
+      notice_issue_date: "2026-09-05",
+      parking_location: "Residential courtyard",
+      alleged_breach: "Unauthorised parking",
+    });
+    const g = classifyGrounds({
+      confirmed,
+      answers: {
+        ...keeper,
+        situation_other: "I live in the building and park in my allocated bay as a leaseholder.",
+        agreement_uploaded: "YES",
+        occupier_status: "leaseholder",
+      },
+      evidenceTypes: ["tenancy_agreement"],
+    });
+    expect(
+      [...g.supported_grounds, ...g.possible_grounds, ...g.unresolved_grounds].map(
+        (x) => x.code,
+      ),
+    ).toContain("RESIDENTIAL");
+  });
+
+  it("T13 — Hire vehicle missing docs: ask hire_documents_received", async () => {
+    const confirmed = pcn({
+      parking_event_date: "2026-09-01",
+      notice_issue_date: "2026-09-20",
+    });
+    const { grounds, gap } = await gapFor(confirmed, {
+      ...keeper,
+      vehicle_hire_status: "HIRE",
+    });
+    expect(grounds.pofa_analysis.applicable).toBe(false);
+    expect(grounds.unresolved_grounds.map((g) => g.code)).toContain(
+      "HIRE_STATUTORY_DOCS",
+    );
+    expect(gap.gap?.factKey).toBe("hire_documents_received");
+  });
+
+  it("T14 — Hire docs present: no missing-documents ground", () => {
+    const confirmed = pcn({
+      parking_event_date: "2026-09-01",
+      notice_issue_date: "2026-09-05",
+    });
+    const g = classifyGrounds({
+      confirmed,
+      answers: {
+        ...keeper,
+        vehicle_hire_status: "HIRE",
+        hire_documents_received: "YES",
+      },
+    });
+    expect(g.supported_grounds.map((x) => x.code)).not.toContain(
+      "HIRE_STATUTORY_DOCS",
+    );
+    expect(g.rejected_grounds.map((x) => x.code)).toContain(
+      "HIRE_STATUTORY_DOCS",
+    );
+  });
+
+  it("T15 — Windscreen NTD→NTK uses paragraph 8 not paragraph 9", () => {
+    const confirmed = pcn({
+      parking_event_date: "2026-08-01",
+      notice_issue_date: "2026-08-10",
+      notice_route: "WINDSCREEN",
+    });
+    const p = analysePofa({
+      facts: deriveKnownFacts({ confirmed, answers: keeper }),
+    });
+    expect(p.paragraph).toBe("8");
+    expect(p.route).toBe("WINDSCREEN");
+    expect(p.reasons.join(" ")).toMatch(/paragraph 8/i);
+    expect(p.reasons.join(" ")).not.toMatch(/no prior Notice to Driver/i);
+  });
+
+  it("T16 — Missing reverse: stop merits and ask for back page", async () => {
+    const confirmed = pcn({
+      parking_event_date: "2026-09-01",
+      notice_issue_date: "2026-09-20",
+      alleged_breach: "Overstay",
+    });
+    const grounds = classifyGrounds({
+      confirmed,
+      answers: keeper,
+      incompleteNotice: true,
+    });
+    expect(grounds.primary_ground).toBe("NOTICE_INCOMPLETE");
+    expect(grounds.supported_grounds).toEqual([]);
+    expect(grounds.missing_material_facts.map((m) => m.factKey)).toEqual([
+      "notice_reverse_present",
+    ]);
+
+    const ci = buildCaseIntelligence({
+      confirmed,
+      answers: keeper,
+      evidenceTypes: [],
+      documentUnderstanding: {
+        documentType: "NOTICE_TO_KEEPER",
+        senderName: null,
+        parkingOperatorName: "Test",
+        caseStage: "INITIAL_OPERATOR_APPEAL",
+        serviceDecision: "PRIVATE_PARKING_INITIAL_APPEAL_OK",
+        incompleteNotice: true,
+      },
+    });
+    expect(ci.suitability.decision).toBe("MANUAL_REVIEW");
+    expect(ci.suitability.reasonCode).toBe("MISSING_REVERSE_PAGE");
+    const gap = await resolveFactGap({
+      facts: applyDocumentImplications(
+        deriveKnownFacts({ confirmed, answers: keeper, evidenceTypes: [] }),
+      ),
+      evidenceTypes: [],
+      caseIntelligence: ci,
+    });
+    expect(gap.gap?.factKey).toBe("notice_reverse_present");
+  });
+
+  it("T18 — Letter of Claim stage not supported for initial appeal", () => {
+    const suitability = resolveSuitability({
+      serviceDecision: "NOT_SUPPORTED",
+      triageServiceDecision: "NOT_SUPPORTED",
+      triageDetail: "Letter of claim / pre-action stage.",
+    });
+    expect(suitability.decision).toBe("NOT_SUPPORTED");
+  });
+
+  it("T19 — Content defect without timing failure → POFA_CONTENT", () => {
+    const confirmed = pcn({
+      parking_event_date: "2026-09-08",
+      notice_issue_date: "2026-09-14",
+    });
+    const g = classifyGrounds({
+      confirmed,
+      answers: {
+        ...keeper,
+        pofa_content_defects: "missing_period_of_parking,missing_invitation_to_pay",
+      },
+    });
+    expect(g.pofa_analysis.timingStatus).toBe("COMPLIANT");
+    expect(g.supported_grounds.map((x) => x.code)).toContain("POFA_CONTENT");
+    expect(g.supported_grounds.map((x) => x.code)).not.toContain("POFA_TIMING");
+  });
+});

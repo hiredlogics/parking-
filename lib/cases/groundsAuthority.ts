@@ -198,6 +198,76 @@ function evaluatePaymentGround(
     signal: softSignal ?? undefined,
   };
 }
+
+function contentDefectsFromFacts(facts: KnownFacts): string[] {
+  const v = facts.values[FACT.POFA_CONTENT_DEFECTS];
+  if (Array.isArray(v)) {
+    return v.map((x) => String(x).trim()).filter(Boolean);
+  }
+  if (typeof v === "string" && v.trim()) {
+    return v
+      .split(/[,;|]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+/**
+ * Hire vehicle — Schedule 4 hire transfer requires accompanying statutory
+ * documents. Ask whether they were received; do not ask the customer to
+ * interpret Schedule 4.
+ */
+function evaluateHireDocsGround(facts: KnownFacts): GroundRecord | null {
+  if (factStr(facts, FACT.VEHICLE_HIRE_STATUS) !== "HIRE") return null;
+
+  const docs = factStr(facts, FACT.HIRE_DOCUMENTS_RECEIVED);
+  const supportingFacts: Record<string, unknown> = {
+    vehicle_hire_status: "HIRE",
+    hire_documents_received: docs,
+  };
+
+  if (docs === "YES") {
+    return {
+      code: "HIRE_STATUTORY_DOCS",
+      routeFamily: "POFA",
+      status: "rejected",
+      reasons: [
+        "Customer confirms the required hire documents accompanied the notice; a missing-documents ground is not pursued.",
+      ],
+      supportingFacts,
+      missingFacts: [],
+      knowledgeRefs: ["KB-POFA-05"],
+    };
+  }
+
+  if (docs === "NO") {
+    return {
+      code: "HIRE_STATUTORY_DOCS",
+      routeFamily: "POFA",
+      status: "supported",
+      reasons: [
+        "Required hire documents were not received with the notice, so the Schedule 4 hire transfer conditions are not met on the customer's account.",
+      ],
+      supportingFacts,
+      missingFacts: [],
+      knowledgeRefs: ["KB-POFA-05"],
+    };
+  }
+
+  return {
+    code: "HIRE_STATUTORY_DOCS",
+    routeFamily: "POFA",
+    status: "unresolved",
+    reasons: [
+      "The vehicle is a hire vehicle. Whether the required accompanying hire documents were received with the notice cannot be determined from the notice alone.",
+    ],
+    supportingFacts,
+    missingFacts: [FACT.HIRE_DOCUMENTS_RECEIVED],
+    knowledgeRefs: ["KB-POFA-05"],
+  };
+}
+
 function softAllegationRoutes(allegedBreach: string | null): {
   category: AllegationCategory;
   routes: RouteFamily[];
@@ -408,6 +478,25 @@ function evaluateAnprGround(
       missingFacts: [],
       knowledgeRefs: moduleHits.length > 0 ? moduleHits : ["KB-ANPR-01", "KB-TIME-01"],
       signal: softSignal ?? "anpr_evidence_mechanism",
+    };
+  }
+
+  /*
+   * Pick-up / drop-off / loading (T06): presence on ANPR does not prove a
+   * parking event that required a permit. Do not assert double-visit.
+   */
+  if (facts.tags.has("loading_or_dropoff")) {
+    return {
+      code: "ANPR_EVIDENCE",
+      routeFamily: "ANPR",
+      status: "supported",
+      reasons: [
+        "Customer account indicates pick-up/drop-off or loading. ANPR entry/exit records presence on the land but does not by itself establish that the vehicle was parked in circumstances requiring a permit.",
+      ],
+      supportingFacts,
+      missingFacts: [],
+      knowledgeRefs: moduleHits.length > 0 ? moduleHits : ["KB-TIME-01"],
+      signal: softSignal ?? "loading_or_dropoff",
     };
   }
 
@@ -624,6 +713,8 @@ export function classifyGrounds(input: {
   knownFactsOverride?: KnownFacts;
   /** Optional catalog modules — used only for knowledgeRefs listing. */
   modules?: KbModule[];
+  /** Front uploaded without reverse (T16). */
+  incompleteNotice?: boolean;
 }): GroundsAuthorityResult {
   const evidenceTypes = input.evidenceTypes ?? [];
   let facts =
@@ -636,7 +727,10 @@ export function classifyGrounds(input: {
     });
   facts = applyDocumentImplications(facts);
 
-  const pofa = analysePofa({ facts });
+  const pofa = analysePofa({
+    facts,
+    confirmedContentDefects: contentDefectsFromFacts(facts),
+  });
   const ata = factStr(facts, FACT.OPERATOR_ATA) ?? "ALL";
   const code = resolveCodeVersion(
     factStr(facts, FACT.PARKING_EVENT_DATE),
@@ -696,6 +790,9 @@ export function classifyGrounds(input: {
     );
   }
 
+  const hireDocs = evaluateHireDocsGround(facts);
+  if (hireDocs) all.push(hireDocs);
+
   // Soft allegation routes → possible only (evaluateModuleRoute). Never activate.
   // Skip routes already handled as allegation-material above.
   for (const route of allegation.routes) {
@@ -741,6 +838,9 @@ export function classifyGrounds(input: {
   }
 
   const rankGround = (g: GroundRecord): number => {
+    if (g.code === "NOTICE_INCOMPLETE" || g.code === "HIRE_STATUTORY_DOCS") {
+      return 0;
+    }
     if (g.routeFamily === "POFA") return 0;
     if (
       g.routeFamily === "PERMIT" ||
@@ -754,6 +854,59 @@ export function classifyGrounds(input: {
     if (g.code === "ANPR_OVERSTAY") return 3;
     return 4;
   };
+
+  /*
+   * T16 — reverse page missing: stop merits analysis; only ask for the back.
+   */
+  const reverse = factStr(facts, FACT.NOTICE_REVERSE_PRESENT);
+  const needsReverse =
+    reverse === "NO" ||
+    (input.incompleteNotice === true && reverse !== "YES");
+
+  if (needsReverse && reverse !== "YES") {
+    const incomplete: GroundRecord = {
+      code: "NOTICE_INCOMPLETE",
+      routeFamily: "POFA",
+      status: "unresolved",
+      reasons: [
+        reverse === "NO"
+          ? "The reverse/back of the Notice to Keeper is missing. Legal analysis of Schedule 4 content cannot complete until it is uploaded."
+          : "The notice upload appears incomplete. Confirm whether the reverse/back page is available before merits analysis continues.",
+      ],
+      supportingFacts: { notice_reverse_present: reverse },
+      missingFacts: [FACT.NOTICE_REVERSE_PRESENT],
+      knowledgeRefs: [],
+    };
+    return {
+      facts,
+      evidence: evidenceTypes,
+      possible_grounds: [incomplete],
+      supported_grounds: [],
+      rejected_grounds: all.filter((g) => g.status === "rejected"),
+      unresolved_grounds: [incomplete],
+      applicable_rules: code ? [`CODE:${code.id}`] : [],
+      code_version: code ? `${code.codeName} v${code.version}` : null,
+      code_version_id: code?.id ?? null,
+      pofa_analysis: pofa,
+      missing_material_facts: [
+        {
+          factKey: FACT.NOTICE_REVERSE_PRESENT,
+          groundCode: "NOTICE_INCOMPLETE",
+          reasonCode: "NOTICE_REVERSE_MISSING",
+          optional: false,
+          priority: 1,
+        },
+      ],
+      prohibited_claims: computeProhibitedClaims({
+        facts,
+        pofa,
+        evidence: evidenceSet,
+      }),
+      routes_in_play: [],
+      primary_ground: "NOTICE_INCOMPLETE",
+      secondary_grounds: [],
+    };
+  }
 
   const possible_grounds = all.filter((g) => g.status === "possible");
   const supported_grounds = all
@@ -779,7 +932,8 @@ export function classifyGrounds(input: {
       g.routeFamily === "PERMIT" ||
       g.routeFamily === "AUTHORIZATION" ||
       g.routeFamily === "PAYMENT" ||
-      g.routeFamily === "KEYING";
+      g.routeFamily === "KEYING" ||
+      g.code === "HIRE_STATUTORY_DOCS";
     const anprEvidence = g.code === "ANPR_EVIDENCE";
     for (const factKey of g.missingFacts) {
       if (seenFact.has(factKey)) continue;
@@ -814,7 +968,8 @@ export function classifyGrounds(input: {
       g.routeFamily === "AUTHORIZATION" ||
       g.routeFamily === "PAYMENT" ||
       g.routeFamily === "KEYING" ||
-      g.code === "ANPR_EVIDENCE";
+      g.code === "ANPR_EVIDENCE" ||
+      g.code === "HIRE_STATUTORY_DOCS";
     if (keep && !routes_in_play.includes(g.routeFamily)) {
       routes_in_play.push(g.routeFamily);
     }

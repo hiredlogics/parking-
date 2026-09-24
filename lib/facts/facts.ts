@@ -41,6 +41,12 @@ export const FACT = {
   // --- Scope gates ---
   JURISDICTION: "jurisdiction",
   VEHICLE_HIRE_STATUS: "vehicle_hire_status",
+  /** Whether required Schedule 4 hire documents accompanied the notice. */
+  HIRE_DOCUMENTS_RECEIVED: "hire_documents_received",
+  /** Whether the reverse/back of the NTK was uploaded. */
+  NOTICE_REVERSE_PRESENT: "notice_reverse_present",
+  /** Confirmed Schedule 4 content defects (admin/CI), JSON array or CSV. */
+  POFA_CONTENT_DEFECTS: "pofa_content_defects",
 
   // --- Payment / keying ---
   PAYMENT_MADE: "payment_made",
