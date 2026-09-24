@@ -9,6 +9,7 @@ import { ALL_VALIDATOR_CODES } from "@/lib/kb/types";
 import { generateValidatedAppeal } from "@/lib/generation/engine";
 import { analyseCase, factsForCase } from "@/lib/analysis/engine";
 import { retrieveKnowledge } from "@/lib/retrieval/engine";
+import { formatUkDate } from "@/lib/format/ukDate";
 import { resetDraftingProvider } from "@/services/ai/drafting";
 import { FACT } from "@/lib/facts/facts";
 import type { AnswerMap } from "@/lib/facts/types";
@@ -47,6 +48,25 @@ function answers(extra: AnswerMap = {}): AnswerMap {
   };
 }
 
+/**
+ * A payment ground with the facts that actually support it.
+ *
+ * The scenario tag alone is not a ground: with no payment facts
+ * answered, every KB-PAY module is fact-gated out of retrieval and the
+ * only knowledge left is KB-POFA-01, so the ground gate refuses to
+ * draft rather than release a keeper-liability template. That refusal is
+ * the intended behaviour (lib/generation/groundGuard.ts), so a test that
+ * wants a releasable letter has to supply the facts.
+ */
+const PAYMENT_GROUND: AnswerMap = {
+  [FACT.SCENARIOS]: ["payment_made"],
+  payment_made: "YES",
+  payment_method: "app",
+  payment_evidence: "YES",
+  vrm_entered: "AB12CDE",
+  keying_error: "No keying error — the registration was entered correctly.",
+};
+
 /** Build a validator context with an arbitrary body. */
 function ctxFor(
   body: string,
@@ -75,6 +95,14 @@ function ctxFor(
       vrm: confirmed.vrm ?? "",
       pcn_number: confirmed.pcn_number ?? "",
       operator_name: confirmed.operator_name ?? "",
+      /*
+       * Formatted exactly as buildVariableMap does, because VAL-POFA
+       * checks the body against these strings when a timing failure is
+       * established. Leaving them out made the harness unable to model
+       * a compliant letter at all.
+       */
+      parking_event_date: formatUkDate(confirmed.parking_event_date) ?? "",
+      notice_issue_date: formatUkDate(confirmed.notice_issue_date) ?? "",
     },
   };
 }
@@ -277,7 +305,29 @@ describe("VAL-POFA", () => {
     expect(run.byValidator["VAL-POFA"].length).toBeGreaterThan(0);
   });
 
-  it("allows the timing allegation once a failure is established", () => {
+  it("allows the timing allegation once a failure is established and the dates are stated", () => {
+    const ctx = ctxFor(
+      "The Notice to Keeper was not delivered within the relevant statutory period.",
+      {},
+      [],
+      { notice_issue_date: "2026-06-10" },
+    );
+    const run = validateDraft({
+      ...ctx,
+      body:
+        `The parking event occurred on ${ctx.variables.parking_event_date} and ` +
+        `the Notice to Keeper is dated ${ctx.variables.notice_issue_date}. ` +
+        "The Notice to Keeper was not delivered within the relevant statutory period.",
+    });
+    expect(run.byValidator["VAL-POFA"]).toEqual([]);
+  });
+
+  /*
+   * The converse, which is the point of the rule: an established
+   * failure asserted without its dates is unanswerable to an operator
+   * and indistinguishable from boilerplate, so it must not ship.
+   */
+  it("blocks the timing allegation when the dates are not stated", () => {
     const run = validateDraft(
       ctxFor(
         "The Notice to Keeper was not delivered within the relevant statutory period.",
@@ -286,7 +336,10 @@ describe("VAL-POFA", () => {
         { notice_issue_date: "2026-06-10" },
       ),
     );
-    expect(run.byValidator["VAL-POFA"]).toEqual([]);
+    const issues = run.byValidator["VAL-POFA"];
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues[0].severity).toBe("BLOCKING");
+    expect(issues[0].message).toMatch(/does not state/i);
   });
 
   it("blocks asserting the charge itself is void", () => {
@@ -646,7 +699,8 @@ describe("Generation pipeline", () => {
   it("does not retry a deterministic provider", async () => {
     const r = await generateValidatedAppeal({
       confirmed: pcn(),
-      answers: answers({ [FACT.SCENARIOS]: ["payment_made"] }),
+      answers: answers(PAYMENT_GROUND),
+      evidenceTypes: ["payment_receipt"],
     });
     expect(r.attempts.length).toBeLessThanOrEqual(1);
   });
@@ -654,7 +708,8 @@ describe("Generation pipeline", () => {
   it("records the provider and validator versions for audit", async () => {
     const r = await generateValidatedAppeal({
       confirmed: pcn(),
-      answers: answers({ [FACT.SCENARIOS]: ["payment_made"] }),
+      answers: answers(PAYMENT_GROUND),
+      evidenceTypes: ["payment_receipt"],
     });
     expect(r.provider?.providerId).toBe("deterministic-draft");
     expect(r.generationVersion).toBe("generation-v1");
@@ -664,7 +719,8 @@ describe("Generation pipeline", () => {
   it("surfaces warnings without blocking release", async () => {
     const r = await generateValidatedAppeal({
       confirmed: pcn(),
-      answers: answers({ [FACT.SCENARIOS]: ["payment_made"] }),
+      answers: answers(PAYMENT_GROUND),
+      evidenceTypes: ["payment_receipt"],
     });
     expect(r.status).toBe("READY");
     expect(r.warnings.join(" ")).toMatch(/not bespoke/i);

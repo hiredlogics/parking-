@@ -9,7 +9,7 @@ import {
   upsertKbModule,
   upsertLegalSource,
 } from "../repo";
-import type { KbModule } from "../types";
+import type { DraftingBlock, KbModule } from "../types";
 import { GRAPH_MODULES } from "../graph";
 import { LEGAL_SOURCES } from "./sources";
 import { CODE_VERSIONS } from "./codeVersions";
@@ -39,16 +39,34 @@ const FINGERPRINT_KEY = "kb_seed_fingerprint";
  *
  * Only the fields the upserts actually set are hashed, so an
  * administrator toggling a module's status does not make the seed look
- * stale and trigger a pointless re-run.
+ * stale and trigger a pointless re-run. Block text IS hashed — see the
+ * note on `blocks` below.
  */
-function seedFingerprint(blockIds: string[]): string {
+function seedFingerprint(blocks: DraftingBlock[]): string {
   const h = createHash("sha256");
   h.update(
     JSON.stringify({
       sources: LEGAL_SOURCES.map((s) => s.sourceId),
       codeVersions: CODE_VERSIONS.map((c) => `${c.id}:${c.version}`),
       modules: ALL_KB_MODULES.map((m) => `${m.moduleId}:${m.version}`),
-      blocks: blockIds,
+      /*
+       * Block TEXT, not just the IDs.
+       *
+       * Fingerprinting the IDs alone meant an edit to approved wording
+       * never re-seeded: `upsertDraftingBlock` would have written the
+       * new text, but the seed skipped itself because the ID list was
+       * unchanged, so the database kept the old paragraph forever while
+       * the compiled pack showed the new one. Corrected wording silently
+       * not reaching customers is the worst failure mode available to
+       * this table, and it is invisible — both sources look right on
+       * their own.
+       *
+       * Hashed rather than listed to keep the fingerprint small.
+       */
+      blocks: blocks.map(
+        (b) =>
+          `${b.blockId}:${b.version}:${createHash("sha256").update(b.text).digest("hex").slice(0, 16)}`,
+      ),
       links: ALL_KB_MODULES.map(
         (m) => `${m.moduleId}>${m.sourceIds.join(",")}|${m.blockIds.join(",")}`,
       ),
@@ -89,7 +107,7 @@ export async function ensureKbSeeded(): Promise<KbSeedSummary> {
     await ensureSchema();
 
     const blocks = buildAllDraftingBlocks();
-    const fingerprint = seedFingerprint(blocks.map((b) => b.blockId));
+    const fingerprint = seedFingerprint(blocks);
     const sql = getSql();
 
     const res = (await sql.query(

@@ -525,7 +525,11 @@ describe("draftAppeal end to end", () => {
       answers: answers(),
     });
     expect(r.analysis.pofa.timingStatus).toBe("FAILED");
-    expect(r.body).toMatch(/not delivered within the relevant statutory period/i);
+    expect(r.body).toMatch(/not given within the relevant statutory period/i);
+    // The amended PP-POFA-003 shows the dates the failure is computed
+    // from, so the operator can check it. See the AMENDED note in
+    // tests/unit/paragraphsVerbatim.test.ts.
+    expect(r.body).toMatch(/\d{1,2} \w+ \d{4}/);
   });
 });
 

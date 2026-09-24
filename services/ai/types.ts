@@ -28,6 +28,19 @@ export interface DraftingContext {
   /** Evidence types actually available on the case. */
   availableEvidence: string[];
   /**
+   * Issue codes the engine identified, from the admin configuration.
+   *
+   * The model previously had to infer the grounds from the route
+   * families and the module list. These are what was actually decided.
+   */
+  activeIssues?: string[];
+  /**
+   * Those active issues that describe the parking event, as opposed to
+   * POFA and TRIAGE_SCOPE which are procedural. A letter whose only
+   * grounds are procedural is the generic letter this exists to expose.
+   */
+  substantiveIssues?: string[];
+  /**
    * Validator feedback from a rejected previous attempt. Present only on
    * a regeneration cycle, so the drafter can correct rather than repeat
    * the same failure.

@@ -28,6 +28,23 @@ const PRIMARY_FIELDS: {
   { key: "vrm", label: "Vehicle registration", type: "text" },
   { key: "parking_event_date", label: "Date of parking event", type: "date", format: "dateUk" },
   { key: "parking_location", label: "Location", type: "text" },
+  /*
+   * The allegation is a primary field, not an optional extra.
+   *
+   * It used to sit in EXTRA_FIELDS, hidden behind "my details are
+   * wrong", and it was absent from `required` below. When vision
+   * extraction fell back to the text reader on a photographed notice,
+   * this came back empty, nobody was asked, and the pipeline continued
+   * with no contravention at all: classifyAllegation("") is UNKNOWN, no
+   * substantive route opens, and every fact the remaining issues need
+   * has a `fact_defaults` row — so zero questions were asked and the
+   * customer received a generic keeper-liability letter. The whole
+   * chain looked healthy from outside.
+   *
+   * Without the allegation there is no case to answer, so it is asked
+   * for here rather than inferred later.
+   */
+  { key: "alleged_breach", label: "What the notice says you did", type: "text" },
   { key: "charge_amount", label: "Amount", type: "number", format: "currency" },
 ];
 
@@ -51,7 +68,7 @@ const EXTRA_FIELDS: {
     ],
   },
   { key: "vehicle_make", label: "Vehicle make", type: "text" },
-  { key: "alleged_breach", label: "Alleged breach", type: "text" },
+  // alleged_breach moved to PRIMARY_FIELDS — see the note there.
   { key: "entry_time", label: "Entry time", type: "text" },
   { key: "exit_time", label: "Exit time", type: "text" },
   { key: "total_recorded_duration", label: "Recorded duration (minutes)", type: "number" },
@@ -140,7 +157,18 @@ export default function ConfirmPage() {
       setError(null);
       return;
     }
-    const required = ["operator_name", "pcn_number", "vrm", "parking_location", "parking_event_date"] as const;
+    /*
+     * `alleged_breach` is required here. An unreadable notice must stop
+     * at this screen rather than continue silently — see PRIMARY_FIELDS.
+     */
+    const required = [
+      "alleged_breach",
+      "operator_name",
+      "pcn_number",
+      "vrm",
+      "parking_location",
+      "parking_event_date",
+    ] as const;
     const missing = required.filter((k) => !values[k]);
     if (missing.length > 0) {
       setError(`Please provide: ${missing.map(labelFor).join(", ")}`);
@@ -569,6 +597,7 @@ function labelFor(k: keyof ExtractedPcn): string {
     vrm: "vehicle registration",
     parking_location: "location",
     parking_event_date: "date of parking event",
+    alleged_breach: "what the notice says you did",
   };
   return map[k] ?? k;
 }

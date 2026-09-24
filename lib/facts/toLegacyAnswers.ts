@@ -92,9 +92,55 @@ function legacyPermitType(
   }
 }
 
+/**
+ * PoFA defects the analysis layer has ESTABLISHED, not ones a customer
+ * asserted or a tag hinted at.
+ *
+ * These have to be passed in rather than read from the answer map,
+ * because they are conclusions of the Schedule 4 arithmetic in
+ * lib/analysis/pofa.ts — nothing ever writes them back as answers. Until
+ * this existed, a notice proven to be served out of time could not
+ * satisfy rule PP-R004 (rules/rules.ts:61), so PP-POFA-003 — the
+ * paragraph that actually argues the late Notice to Keeper — was
+ * unreachable, and the rules letter went out arguing only the generic
+ * keeper-liability threshold. That was the whole of the "generic appeal"
+ * complaint on the Smart Parking notice.
+ *
+ * Passing these is therefore not a guess being laundered into a fact:
+ * the provenance is "computed", the same as any other analysis output.
+ */
+export interface EstablishedPofaDefects {
+  /** Postal-route Notice to Keeper served outside the statutory period. */
+  postalTimingFailure?: boolean;
+  /** Windscreen route, subsequent Notice to Keeper served out of time. */
+  windscreenTimingFailure?: boolean;
+}
+
+/**
+ * Map the PoFA analysis onto the flags the Master Pack rules test.
+ *
+ * Takes primitives rather than the IssueAnalysis object so the legacy
+ * bridge does not import the analysis layer that imports it.
+ *
+ * The postal/windscreen split matters: PP-R004 tests the postal flag
+ * against a POSTAL route and PP-R005 the windscreen flag against a
+ * WINDSCREEN one, so putting a failure on the wrong flag silently
+ * matches nothing.
+ */
+export function establishedPofaDefects(input: {
+  timingStatus: string | null | undefined;
+  noticeRoute: string | null | undefined;
+}): EstablishedPofaDefects {
+  if (input.timingStatus !== "FAILED") return {};
+  return input.noticeRoute === "WINDSCREEN"
+    ? { windscreenTimingFailure: true }
+    : { postalTimingFailure: true };
+}
+
 export function toLegacyAnswers(
   adaptive: AnswerMap,
   confirmed?: ConfirmedPcn | null,
+  established?: EstablishedPofaDefects,
 ): AllAnswers {
   const core: CoreAnswers = { ...EMPTY_ANSWERS.core, scenarios: [] };
   const branch: BranchAnswers = {};
@@ -122,13 +168,23 @@ export function toLegacyAnswers(
     (core.registered_keeper === "YES" && core.driver_identified === "NO") ||
     has("no_ntk_received") ||
     has("postal_ntk_timing_issue") ||
-    core.notice_route === "POSTAL"
+    core.notice_route === "POSTAL" ||
+    established?.postalTimingFailure === true ||
+    established?.windscreenTimingFailure === true
   ) {
     branch.keeper = {
       registered_keeper: core.registered_keeper,
       driver_identified: core.driver_identified,
       notice_route: core.notice_route,
       notice_to_keeper_received: has("no_ntk_received") ? "NO" : undefined,
+      // Only ever set true. Leaving it undefined rather than writing
+      // false keeps "not established" distinct from "established as
+      // compliant" — the rules test is `=== true`, and a false here
+      // would read as a positive finding the arithmetic never made.
+      pofa_postal_timing_failure:
+        established?.postalTimingFailure === true ? true : undefined,
+      pofa_windscreen_ntk_timing_failure:
+        established?.windscreenTimingFailure === true ? true : undefined,
     };
   }
 

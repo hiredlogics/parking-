@@ -8,7 +8,11 @@ import { TransportError } from "@/services/ai/transport";
 import type { DraftResult, DraftingContext } from "@/services/ai/types";
 import type { IssueAnalysis } from "@/lib/analysis/types";
 import type { AnswerMap } from "@/lib/facts/types";
-import { toLegacyAnswers } from "@/lib/facts/toLegacyAnswers";
+import {
+  establishedPofaDefects,
+  toLegacyAnswers,
+} from "@/lib/facts/toLegacyAnswers";
+import { withoutRedundantParagraphs } from "@/lib/appeals/paragraphSelection";
 import { buildVariableMap } from "@/lib/variables";
 
 export const DRAFTING_ENGINE_VERSION = "drafting-v1";
@@ -66,6 +70,19 @@ export interface DraftAppealInput {
   modules?: import("@/lib/kb/types").KbModule[];
   sources?: import("@/lib/kb/types").LegalSource[];
   blocks?: import("@/lib/kb/types").DraftingBlock[];
+  /**
+   * Issues the engine identified for this case, from the ground gate.
+   *
+   * The drafter previously received route families and a module list
+   * and had to infer the grounds back out of them. The issue codes are
+   * what the admin configuration actually decided, so passing them
+   * removes a guess from the most important step.
+   */
+  activeIssues?: string[];
+  /** Active issues that describe the parking event, not just procedure. */
+  substantiveIssues?: string[];
+  /** Required facts still unresolved — the model must not invent these. */
+  outstandingFacts?: string[];
 }
 
 export interface DraftAppealResult {
@@ -121,7 +138,17 @@ export async function draftAppeal(
   // variable builder, so the adaptive flow and the legacy pipeline
   // resolve placeholders identically. Computed up front so every return
   // path can hand them to the validation pass.
-  const legacy = toLegacyAnswers(input.answers, input.confirmed);
+  // The established PoFA findings travel with the legacy map here too,
+  // so the rules basis handed to the model reflects the same grounds the
+  // rules letter would assemble.
+  const legacy = toLegacyAnswers(
+    input.answers,
+    input.confirmed,
+    establishedPofaDefects({
+      timingStatus: input.analysis?.pofa.timingStatus,
+      noticeRoute: input.confirmed.notice_route,
+    }),
+  );
   const variables = buildVariableMap(input.confirmed, legacy) as Record<
     string,
     string
@@ -257,14 +284,27 @@ export async function draftAppeal(
   }
 
   const ci = input.intelligence ?? null;
+  /*
+   * Same redundant-conclusion suppression the rules path applies, on the
+   * same shared table. Both paths draw on one paragraph library, so a
+   * duplicate pair left in here would fail validation on this path while
+   * passing on the other — which is how the two paths diverged before.
+   */
+  const draftingBlocks = withoutRedundantParagraphs(
+    retrieval.blocks,
+    (b) => b.blockId,
+  );
+
   const context: DraftingContext = {
     caseId: input.caseId ?? null,
     analysis,
     modules: retrieval.modules,
-    blocks: retrieval.blocks,
+    blocks: draftingBlocks,
     sources: retrieval.sources,
     variables,
     availableEvidence: input.evidenceTypes ?? [],
+    activeIssues: input.activeIssues ?? [],
+    substantiveIssues: input.substantiveIssues ?? [],
     feedback: input.feedback,
     rulesBasis,
     ragRules,
@@ -288,6 +328,35 @@ export async function draftAppeal(
         }
       : undefined,
   };
+
+  /*
+   * The payload audit.
+   *
+   * Logged immediately before the provider call, so what the model was
+   * given is recoverable from the logs without reproducing the case.
+   * The generic-letter investigation cost a day precisely because this
+   * did not exist: the letter was visible and its input was not.
+   *
+   * Counts and identifiers only — no fact VALUES and no prose. This
+   * line goes to ordinary server logs, which are not a lawful home for
+   * a keeper's name, address or the free text they typed.
+   */
+  console.info(
+    [
+      "[drafting] payload",
+      `case=${input.caseId ?? "-"}`,
+      `CASE FACTS SENT=${context.analysis.verifiedFacts.filter((f) => !f.field.startsWith("__")).length}`,
+      `ISSUES SENT=[${(input.activeIssues ?? []).join(",") || "none"}]`,
+      `SUBSTANTIVE=[${(input.substantiveIssues ?? []).join(",") || "none"}]`,
+      `KNOWLEDGE MODULES SENT=[${context.modules.map((m) => m.moduleId).join(",") || "none"}]`,
+      `BLOCKS SENT=${context.blocks.length}`,
+      `EVIDENCE SENT=[${context.availableEvidence.join(",") || "none"}]`,
+      `MISSING FACTS=[${(input.outstandingFacts ?? []).join(",") || "none"}]`,
+      `allegation=${context.variables.alleged_breach ? "present" : "ABSENT"}`,
+      `pofa=${context.analysis.pofa.timingStatus}`,
+      `primary=${context.analysis.primaryRoute ?? "none"}`,
+    ].join(" "),
+  );
 
   const provider = getDraftingProvider();
   let draft: DraftResult;

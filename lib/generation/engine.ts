@@ -24,6 +24,8 @@ import {
   buildRulesBasedLetter,
   isAppealBodyTooThin,
 } from "@/lib/appeals/rulesLetter";
+import { establishedPofaDefects } from "@/lib/facts/toLegacyAnswers";
+import { assessGroundSufficiency } from "./groundGuard";
 
 export const GENERATION_VERSION = "generation-v1";
 
@@ -200,6 +202,16 @@ export async function generateValidatedAppeal(
     confirmed: input.confirmed,
     answers: input.answers,
     evidenceTypes,
+    // Without this the rules engine cannot see an established timing
+    // failure, so PP-R004 never fires and the letter argues only the
+    // generic keeper-liability threshold. See EstablishedPofaDefects.
+    establishedPofa: establishedPofaDefects({
+      timingStatus: analysis.pofa.timingStatus,
+      noticeRoute: input.confirmed.notice_route,
+    }),
+    // Same identified facts the AI path works from, so neither path
+    // selects grounds the other cannot see.
+    identifiedTags: [...facts.tags],
   });
   warnings.push(...rulesLetter.warnings.map((w) => `[rules] ${w}`));
 
@@ -418,6 +430,48 @@ export async function generateValidatedAppeal(
     };
   }
 
+  /*
+   * ---- The ground gate ----
+   *
+   * Retrieval returning modules is not the same as the case having an
+   * argument. KB-POFA-01 opens on the two defaulted facts every case
+   * carries, so "modules > 0" was never a real test of whether there
+   * was anything to say. See lib/generation/groundGuard.ts.
+   *
+   * This runs after retrieval because it needs the analysis, and before
+   * the attempt loop because its whole purpose is to avoid paying for a
+   * draft that cannot be case-specific. Refusing routes to
+   * MANUAL_REVIEW with the rules letter attached, exactly as the other
+   * pre-drafting refusals do — the customer has already paid by this
+   * point, so the answer is a person, never nothing.
+   */
+  // No serviceCode: this engine is service-agnostic, and evaluateIssues
+  // falls back to the default service graph when none is named.
+  const ground = await assessGroundSufficiency({
+    facts,
+    analysis,
+    evidenceTypes: input.evidenceTypes,
+    // What retrieval actually kept, so an issue whose knowledge was all
+    // gated out does not count as a ground. See the guard's header.
+    retainedModuleIds: retrieval.modules.map((m) => m.moduleId),
+  });
+
+  if (!ground.ok) {
+    return {
+      ...base,
+      status: "MANUAL_REVIEW",
+      body: rulesLetter.body || null,
+      reason: ground.reason,
+      detail: ground.detail,
+      warnings: [
+        ...warnings,
+        `Ground gate refused drafting: allegation=${ground.allegation.category}, ` +
+          `active=[${ground.activeIssues.join(",")}], ` +
+          `assertable facts=${ground.assertableFactCount}.`,
+      ],
+    };
+  }
+
   const provider = getDraftingProvider();
   const maxAttempts = Math.max(
     1,
@@ -431,6 +485,12 @@ export async function generateValidatedAppeal(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const draft = await draftAppeal({
       ...analysisInput,
+      // The issues the engine identified, so the drafter argues the
+      // grounds the case actually raises rather than inferring them
+      // back out of the module list.
+      activeIssues: ground.activeIssues,
+      substantiveIssues: ground.substantiveIssues,
+      outstandingFacts: ground.missingFacts,
       caseId: input.caseId ?? null,
       analysis,
       intelligence: input.intelligence ?? null,
@@ -587,53 +647,22 @@ export async function generateValidatedAppeal(
   }
 
   /*
-   * Every AI/deterministic attempt was rejected. The rules letter is a
-   * candidate substitute, but — exactly as with the in-loop fallback
-   * above — it must clear the same validator, checklist and keeper-safety
-   * gates before release. Trusting `isAppealBodyTooThin` alone would ship
-   * an unvalidated, un-keeper-checked letter whenever every AI attempt
-   * failed for a reason the rules letter shares (e.g. its own repeated
-   * wording, or driver-identifying phrasing).
+   * Every attempt was rejected, including any regeneration. A failed
+   * draft is NOT downgraded to the rules letter.
+   *
+   * This path used to release the Master Pack letter here, and that is
+   * what produced the "generic appeal" the client reported. The two
+   * bodies are not interchangeable: the rules letter is selected from a
+   * smaller wording vocabulary (paragraphs/library.ts holds no AI-*
+   * blocks at all), so substituting it silently swaps a case-specific
+   * argument for a weaker one — and it did so precisely when the
+   * case-specific draft had failed, i.e. when the case most needed a
+   * person to look.
+   *
+   * The letter is still attached below for the reviewer, because the
+   * customer has paid by this point and the answer to a hard case is a
+   * human, never nothing. It is attached as MANUAL_REVIEW, not released.
    */
-  const finalRulesCtx = {
-    body: rulesLetter.body ?? "",
-    analysis,
-    modules: retrieval.modules,
-    sources: retrieval.sources,
-    facts,
-    evidence: new Set(evidenceTypes),
-    variables: {},
-    ruleConfig,
-    judge: judgeCtx,
-  };
-  const rulesLetterFinallyReleasable =
-    !isAppealBodyTooThin(rulesLetter.body) &&
-    rulesLetter.keeperSafe &&
-    validateDraft(finalRulesCtx).status === "PASS" &&
-    runReleaseChecklist(finalRulesCtx).passed;
-
-  if (rulesLetterFinallyReleasable) {
-    return {
-      ...base,
-      analysis: withRulesRoutes(analysis, rulesLetter.activeRoutes),
-      status: "READY",
-      body: rulesLetter.body,
-      moduleIds: retrieval.modules.map((m) => m.moduleId),
-      provider: {
-        providerId: "rules-engine",
-        promptVersion: "pack-v1",
-        model: null,
-        bespoke: false,
-      },
-      reason: null,
-      detail: null,
-      warnings: [
-        ...warnings,
-        "Validation failed on AI draft; used Master Pack rules letter.",
-      ],
-    };
-  }
-
   const finalAttempt = attempts[attempts.length - 1];
   const blockingCodes = finalAttempt
     ? [

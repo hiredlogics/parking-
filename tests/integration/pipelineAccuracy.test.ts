@@ -24,6 +24,8 @@ import { retrieveKnowledge } from "@/lib/retrieval/engine";
 import { validateDraft } from "@/lib/validation/engine";
 import { validateKeeperSafe } from "@/lib/keeperSafe";
 import { resolveAnswersWithDefaults } from "@/lib/rules/factDefaults";
+import { buildVariableMap } from "@/lib/variables";
+import { toLegacyAnswers } from "@/lib/facts/toLegacyAnswers";
 import { UAT_FIXTURES, byUatId, BASE, type UatFixture } from "../fixtures/uatCases";
 import type { ConfirmedPcn } from "@/types";
 
@@ -94,7 +96,19 @@ function recheck(f: UatFixture, body: string) {
     sources: retrieval.sources,
     facts,
     evidence: new Set(f.evidenceTypes),
-    variables: {},
+    /*
+     * The real variable map, not {}.
+     *
+     * Validators compare the body against these values — VAL-POFA checks
+     * that an established timing failure states the dates it is computed
+     * from — so an empty map makes this re-check stricter than the
+     * pipeline it is meant to mirror, and fails letters the engine
+     * correctly released.
+     */
+    variables: buildVariableMap(
+      f.confirmed,
+      toLegacyAnswers(f.answers, f.confirmed),
+    ) as Record<string, string>,
   });
 }
 

@@ -65,6 +65,26 @@ export function serialiseDraftingContext(ctx: DraftingContext): string {
     lines.push(a.secondaryRoutes.join(", "));
   }
 
+  /*
+   * The issues the engine identified, ahead of the route families.
+   *
+   * Routes are a drafting taxonomy; issues are what the admin
+   * configuration decided this case raises. Naming them explicitly
+   * stops the model inferring the grounds from the module list, which
+   * is a guess it should never have been asked to make.
+   */
+  if (ctx.activeIssues && ctx.activeIssues.length > 0) {
+    lines.push("");
+    lines.push("=== IDENTIFIED ISSUES (decided by the rules engine) ===");
+    lines.push(ctx.activeIssues.join(", "));
+    const substantive = ctx.substantiveIssues ?? [];
+    lines.push(
+      substantive.length > 0
+        ? `Argue these grounds: ${substantive.join(", ")}. POFA and TRIAGE_SCOPE are procedural context, not the argument.`
+        : "No conduct issue was identified; the argument rests on the established keeper-liability defect below.",
+    );
+  }
+
   lines.push("");
   lines.push("=== WHY EACH ROUTE IS IN PLAY ===");
   for (const asmt of a.assessments) {

@@ -65,7 +65,7 @@ export const PARAGRAPH_LIBRARY: Paragraph[] = [
     priority: 54,
     active: true,
     text:
-      "The Notice to Keeper was not delivered within the relevant statutory period prescribed by Schedule 4 of the Protection of Freedoms Act 2012 for a case where no Notice to Driver was issued. The operator has therefore failed to satisfy a condition required to transfer liability for the parking charge from the driver to the registered keeper. Accordingly, the registered keeper cannot be held liable under Schedule 4.",
+      "The parking event is stated to have occurred on {{parking_event_date}}, and the Notice to Keeper is dated {{notice_issue_date}}. The Notice to Keeper was therefore not given within the relevant statutory period prescribed by Schedule 4 of the Protection of Freedoms Act 2012 for a case where no Notice to Driver was issued. That period is not a formality: the right to recover a parking charge from the registered keeper, rather than from the driver, arises only where the notice is given within it, and a notice given outside that period cannot operate to transfer liability. The operator has therefore failed to satisfy a condition required to transfer liability for the parking charge from the driver to the registered keeper, and the registered keeper cannot be held liable under Schedule 4.",
   },
   {
     id: "PP-POFA-004",
@@ -75,7 +75,7 @@ export const PARAGRAPH_LIBRARY: Paragraph[] = [
     priority: 56,
     active: true,
     text:
-      "A Notice to Driver was issued in relation to the alleged parking event. Where an operator subsequently seeks to transfer liability to the registered keeper, the subsequent Notice to Keeper must comply with the applicable timing requirements contained within Schedule 4 of the Protection of Freedoms Act 2012. The Notice to Keeper in this case was not given within the applicable statutory period. The conditions necessary to establish keeper liability have therefore not been satisfied.",
+      "A Notice to Driver was issued in relation to the alleged parking event of {{parking_event_date}}. Where an operator subsequently seeks to transfer liability to the registered keeper, the subsequent Notice to Keeper must comply with the applicable timing requirements contained within Schedule 4 of the Protection of Freedoms Act 2012. The Notice to Keeper in this case is dated {{notice_issue_date}} and was not given within the applicable statutory period. The conditions necessary to establish keeper liability have therefore not been satisfied.",
   },
   {
     id: "PP-POFA-005A",

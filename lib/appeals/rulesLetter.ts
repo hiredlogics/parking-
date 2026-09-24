@@ -1,6 +1,9 @@
 import type { ConfirmedPcn, EvidenceItem } from "@/types";
 import type { AnswerMap } from "@/lib/facts/types";
-import { toLegacyAnswers } from "@/lib/facts/toLegacyAnswers";
+import {
+  toLegacyAnswers,
+  type EstablishedPofaDefects,
+} from "@/lib/facts/toLegacyAnswers";
 import { FACT } from "@/lib/facts/facts";
 import { evaluate } from "@/rules/engine";
 import { assembleAppeal } from "@/lib/assembly";
@@ -8,6 +11,7 @@ import { getEffectiveParagraphs, getEffectiveRules } from "@/lib/appealLogic";
 import { RULES } from "@/rules";
 import { PARAGRAPH_LIBRARY } from "@/paragraphs/library";
 import { isGraceGroundSupportable } from "@/lib/appeals/graceSupport";
+import { withoutRedundantParagraphs } from "@/lib/appeals/paragraphSelection";
 
 /**
  * Enrich adaptive answers from uploaded evidence so the Master Pack
@@ -17,6 +21,7 @@ import { isGraceGroundSupportable } from "@/lib/appeals/graceSupport";
 function enrichAnswersFromEvidence(
   answers: AnswerMap,
   evidenceTypes: string[],
+  identifiedTags: readonly string[] = [],
 ): AnswerMap {
   const next: AnswerMap = { ...answers };
   const types = new Set(evidenceTypes.map((t) => t.toLowerCase()));
@@ -29,11 +34,27 @@ function enrichAnswersFromEvidence(
     next[FACT.DRIVER_IDENTIFIED] = "NO";
   }
 
-  const scenarios = new Set<string>(
-    Array.isArray(next[FACT.SCENARIOS])
+  /*
+   * Situation tags Case Intelligence identified.
+   *
+   * These are derived inside deriveKnownFacts — from evidence types and
+   * from the customer's own free-text account — and written to
+   * facts.values[FACT.SCENARIOS], NOT back into the answer map. This
+   * function only ever saw the raw answer map, so core.scenarios arrived
+   * empty and every scenario-gated rule silently failed to match. That
+   * is the second half of the fallback blindness: the first was the
+   * established PoFA findings.
+   *
+   * Unioned, never overriding, for the same reason deriveKnownFacts
+   * unions them: a tag is a line of enquiry being open, and a
+   * customer's own selection must not be narrowed by a derivation.
+   */
+  const scenarios = new Set<string>([
+    ...(Array.isArray(next[FACT.SCENARIOS])
       ? (next[FACT.SCENARIOS] as string[])
-      : [],
-  );
+      : []),
+    ...identifiedTags,
+  ]);
 
   const hasPaymentEvidence =
     types.has("payment_receipt") ||
@@ -69,6 +90,18 @@ export async function buildRulesBasedLetter(input: {
   confirmed: ConfirmedPcn;
   answers: AnswerMap;
   evidenceTypes?: string[];
+  /**
+   * PoFA defects the analysis established. Omitting these does not
+   * merely lose a paragraph — it loses the ground, because the timing
+   * rules key on them. See EstablishedPofaDefects.
+   */
+  establishedPofa?: EstablishedPofaDefects;
+  /**
+   * Situation tags the fact layer identified (`KnownFacts.tags`). Passed
+   * in rather than re-derived so both drafting paths select grounds from
+   * one set of identified facts.
+   */
+  identifiedTags?: readonly string[];
 }): Promise<{
   body: string;
   paragraphs: Array<{ id: string; text: string }>;
@@ -78,8 +111,16 @@ export async function buildRulesBasedLetter(input: {
   warnings: string[];
 }> {
   const evidenceTypes = input.evidenceTypes ?? [];
-  const enriched = enrichAnswersFromEvidence(input.answers, evidenceTypes);
-  const legacy = toLegacyAnswers(enriched, input.confirmed);
+  const enriched = enrichAnswersFromEvidence(
+    input.answers,
+    evidenceTypes,
+    input.identifiedTags ?? [],
+  );
+  const legacy = toLegacyAnswers(
+    enriched,
+    input.confirmed,
+    input.establishedPofa,
+  );
   const evidence: EvidenceItem[] = evidenceTypes.map((type, i) => ({
     id: `ev_${i}`,
     type: type as EvidenceItem["type"],
@@ -129,6 +170,13 @@ export async function buildRulesBasedLetter(input: {
       (r) => r !== "GRACE_ROUTE",
     );
   }
+
+  // One conclusion per letter, using the same suppression the AI path
+  // applies to its block list. See lib/appeals/paragraphSelection.ts.
+  evaluation.matchedParagraphIds = withoutRedundantParagraphs(
+    evaluation.matchedParagraphIds,
+    (id) => id,
+  );
 
   const assembled = assembleAppeal(
     input.confirmed,

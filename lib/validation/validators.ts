@@ -257,6 +257,50 @@ const valPofa: Validator = {
     const p = ctx.analysis.pofa;
     const defectEstablished =
       p.timingStatus === "FAILED" || p.confirmedContentDefects.length > 0;
+
+    /*
+     * An established timing failure must be shown, not merely asserted.
+     *
+     * "The Notice to Keeper was not given within the statutory period"
+     * is an unanswerable sentence to an operator: it states a conclusion
+     * with nothing for them to check, and it reads as boilerplate
+     * because it is indistinguishable from boilerplate. The dates are
+     * the whole argument — they are what makes the point verifiable
+     * against the operator's own notice.
+     *
+     * Blocking rather than a warning: a letter that alleges the defect
+     * without the dates is weaker than one that never raised it, since
+     * it invites a flat denial on the strongest ground available.
+     */
+    if (p.timingStatus === "FAILED") {
+      const allegesTiming = findAll(
+        ctx.body,
+        /\bnot\s+(?:given|delivered|served)\s+within\b/gi,
+      );
+      if (allegesTiming.length > 0) {
+        const eventDate = ctx.variables.parking_event_date;
+        const noticeDate = ctx.variables.notice_issue_date;
+        const statesDate = (value: string | undefined): boolean =>
+          typeof value === "string" &&
+          value.trim().length > 0 &&
+          ctx.body.includes(value);
+        const missing: string[] = [];
+        if (!statesDate(eventDate)) missing.push("the parking event date");
+        if (!statesDate(noticeDate)) missing.push("the notice date");
+        if (missing.length > 0) {
+          issues.push(
+            issue(
+              "VAL-POFA",
+              "BLOCKING",
+              `Draft alleges the Notice to Keeper was served out of time but does not state ${missing.join(" or ")}. An established timing failure must show the dates it is calculated from.`,
+              ctx.body,
+              allegesTiming[0],
+            ),
+          );
+        }
+      }
+    }
+
     if (defectEstablished) return issues;
 
     for (const { re, why } of POFA_DEFECT_PATTERNS) {

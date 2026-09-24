@@ -27,11 +27,24 @@ export default defineConfig({
      * The setup cost itself has been cut where it was avoidable (see
      * the seed fingerprints and the single-round-trip graph load); what
      * is left is round trips to a remote Postgres, which no amount of
-     * local work removes. 20s leaves room for that floor plus a real
-     * test, while still being far short of a hang.
+     * local work removes.
+     *
+     * 20s was tried first and was still too tight. Measured against
+     * Neon, the test that absorbs a file's cold start has been seen to
+     * take anywhere from 9.5s to over 20s for the SAME assertions —
+     * pipelineAccuracy's first fixture passed in 9.5s on one run and
+     * timed out on the next two. The variance is remote-database
+     * latency, not the code under test, so a timeout tuned to the good
+     * case just converts that variance into intermittent red builds and
+     * teaches everyone to re-run the suite.
+     *
+     * 60s is deliberately generous. It is not a performance target:
+     * nothing here should take 60s, and if something does, the fix is
+     * to make it faster rather than to raise this again. It exists only
+     * so that a slow network cannot masquerade as a broken assertion.
      */
-    testTimeout: 20_000,
-    hookTimeout: 30_000,
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
