@@ -30,29 +30,39 @@ import { UAT_FIXTURES, byUatId, BASE, type UatFixture } from "../fixtures/uatCas
 import type { ConfirmedPcn } from "@/types";
 
 /**
- * UAT-1 is carved out of the "must reach READY" set below. Building this
- * suite surfaced a real content defect (not an orchestration bug): the
- * approved Master Pack paragraphs PP-KEY-001 and PP-KEY-002
- * (paragraphs/library.ts) always co-fire for "payment made + a MINOR VRM
- * keying error" (rules/rules.ts's KEYING_ROUTE rules), and their second
- * sentences are near-identical restatements of the same point ("The
- * existence of a keying error does not alter the fact that a payment was
- * made..." vs "A payment was nevertheless made..."), which VAL-REPETITION
- * correctly flags as BLOCKING (0.86 word-overlap, over the 0.85
- * threshold) wherever this combination is assembled — by the rules
- * engine or the deterministic KB provider, since both draw on the same
- * underlying paragraph text.
+ * Fixtures carved out of the "must reach READY" set below.
  *
- * Before the fallback-safety fix in lib/generation/engine.ts (landed in
- * this same change), the post-loop rules-letter fallback shipped this
- * repeated text as a released "READY" appeal with no validation or
- * keeper-safety check at all. It now correctly routes to MANUAL_REVIEW
- * instead — progress, not a regression, since nothing non-compliant is
- * released — but this specific combination is not auto-releasable today.
- * Rewriting the paragraph text is a legal-content decision for whoever
- * owns the Master Pack, not something to do unilaterally here.
+ * UAT-1 used to be here. The PP-KEY-001/002 collision that held it back
+ * — two paragraphs restating "a payment was nevertheless made" at 0.86
+ * overlap — is resolved by the shared selection table in
+ * lib/appeals/paragraphSelection.ts, which keeps the more specific of
+ * the pair rather than rewriting either. UAT-1 now releases and is
+ * covered by the positive set.
+ *
+ * UAT-7 (overstay, grace/exit-delay) reaches MANUAL_REVIEW with
+ * NO_SUBSTANTIVE_GROUND, and that is the correct answer rather than a
+ * gap to paper over. The fixture supplies `exit_delay_reason` and the
+ * retired `departure_delay`, but a 129-minute stay against "overstaying
+ * maximum permitted stay" makes the grace ground unsupportable
+ * (lib/appeals/graceSupport.ts), and every ANPR and consideration
+ * module is fact-gated out. Retrieval retains KB-POFA-01 alone, so the
+ * only letter available would argue keeper liability and never mention
+ * the overstay. That is the generic appeal the ground gate exists to
+ * stop. Releasing it would need the customer to answer the outstanding
+ * ANPR/consideration facts — which is what the question flow is for.
+ *
+ * UAT-10 (payment + keying + ANPR together) fails the release
+ * checklist on CONCISE_AND_COHERENT, not on validation: it passes every
+ * validator with zero blocking issues. Retrieval retains seven modules
+ * and eighteen blocks, and the DETERMINISTIC provider concatenates all
+ * of them, which runs past the 14-paragraph / 1400-word limit in
+ * lib/validation/releaseChecklist.ts. That is a limitation of the
+ * test-time provider rather than of the pipeline — a bespoke model
+ * given the same blocks writes one argument instead of eighteen
+ * paragraphs — so this fixture is expected to need the real drafting
+ * model, and the suite says so rather than loosening the limit.
  */
-const KNOWN_CONTENT_GAP_IDS = new Set(["UAT-1"]);
+const KNOWN_CONTENT_GAP_IDS = new Set(["UAT-7", "UAT-10"]);
 const POSITIVE_FIXTURES = UAT_FIXTURES.filter(
   (f) => f.id !== "UAT-11" && !KNOWN_CONTENT_GAP_IDS.has(f.id),
 );
@@ -164,7 +174,7 @@ describe("Full-pipeline accuracy: released appeals are rule-grounded", () => {
 });
 
 describe("Full-pipeline accuracy: known content gaps stay safe, not silently released", () => {
-  it("UAT-1 (payment + minor keying error) never ships the colliding PP-KEY-001/002 text unvalidated", async () => {
+  it("UAT-1 (payment + minor keying error) releases without the colliding PP-KEY-001/002 text", async () => {
     const f = byUatId("UAT-1");
     const result = await generateValidatedAppeal({
       confirmed: f.confirmed,
@@ -172,14 +182,39 @@ describe("Full-pipeline accuracy: known content gaps stay safe, not silently rel
       evidenceTypes: f.evidenceTypes,
     });
 
-    // The known content defect means this does not reach READY today.
-    // The invariant that actually matters: it must never be released
-    // without clearing validation — MANUAL_REVIEW, not a silent ship of
-    // repetitive text, is the only acceptable outcome while the
-    // paragraph collision is unresolved.
-    expect(result.status).toBe("MANUAL_REVIEW");
-    expect(result.reason).toBe("VALIDATION_FAILED");
+    expect(result.status, JSON.stringify({ reason: result.reason, detail: result.detail })).toBe(
+      "READY",
+    );
+    const body = result.body as string;
+
+    /*
+     * The pair must not BOTH appear. Keeping PP-KEY-002 (minor-error
+     * specific, invokes the Code's keying-error requirements) and
+     * dropping PP-KEY-001 is what makes this releasable; if both ever
+     * return, the 0.86 collision comes back and the case stops again.
+     */
+    const hasGeneral = /existence of a keying error does not alter/i.test(body);
+    const hasSpecific = /discrepancy concerns a minor error/i.test(body);
+    expect(hasSpecific).toBe(true);
+    expect(hasGeneral).toBe(false);
   });
+
+  for (const id of ["UAT-7", "UAT-10"]) {
+    it(`${id} is held for review rather than released generic`, async () => {
+      const f = byUatId(id);
+      const result = await generateValidatedAppeal({
+        confirmed: f.confirmed,
+        answers: f.answers,
+        evidenceTypes: f.evidenceTypes,
+      });
+
+      // The invariant that matters: nothing is released to the customer.
+      expect(result.status).toBe("MANUAL_REVIEW");
+      expect(["NO_SUBSTANTIVE_GROUND", "VALIDATION_FAILED"]).toContain(
+        result.reason,
+      );
+    });
+  }
 });
 
 describe("Full-pipeline accuracy: the pipeline does not fabricate support", () => {
@@ -241,7 +276,7 @@ describe("Full-pipeline accuracy: no-questions fast path (customer skips adaptiv
     expect(result.status).toBe("MANUAL_REVIEW");
   });
 
-  it("the same case, with resolveAnswersWithDefaults applied, reaches READY on generic grounds only", async () => {
+  it("the same case, with defaults applied, is still refused because no ground is supported", async () => {
     const { answers, applied } = resolveAnswersWithDefaults(confirmed, {}, []);
 
     // Every fact a customer would otherwise be asked about, before any

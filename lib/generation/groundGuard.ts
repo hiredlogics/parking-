@@ -55,10 +55,24 @@
  * mentions the permit. Generic, by any reading, and to the customer
  * indistinguishable from the defect this gate was built for.
  *
- * So a substantive issue counts only when retrieval retained at least
- * one of ITS modules. Where `retainedModuleIds` is not supplied the
- * check is skipped rather than guessed at, so a caller without a
- * retrieval result behaves as before.
+ * So the gate asks a second question: did retrieval retain any
+ * knowledge that is not itself procedural? That is read from each
+ * retained module's own `routeFamily`, which is the same vocabulary the
+ * route assessment uses.
+ *
+ * It is deliberately NOT computed by intersecting the retained modules
+ * with each issue's configured `moduleIds`. That was tried and was
+ * wrong: the admin issue configuration points CONSIDERATION at
+ * "KB-CONSID-01" while the knowledge base ships "KB-CON-01" and
+ * "KB-CON-02", so the intersection was empty for a case that had two
+ * perfectly good consideration modules retained, and the gate refused
+ * it. Two independently maintained identifier lists is not a sound
+ * thing to gate a customer's appeal on. (The mismatch itself is worth
+ * fixing, but it is an admin-configuration defect, not this gate's.)
+ *
+ * Where `retainedModules` is not supplied the check is skipped rather
+ * than guessed at, so a caller without a retrieval result behaves as
+ * before.
  */
 import type { IssueAnalysis } from "@/lib/analysis/types";
 import type { KnownFacts } from "@/lib/facts/types";
@@ -80,6 +94,18 @@ import { ASSERTABLE_PROVENANCE } from "@/lib/facts/types";
 export const PROCEDURAL_ISSUES: ReadonlySet<string> = new Set([
   "POFA",
   "TRIAGE_SCOPE",
+]);
+
+/**
+ * Route families that carry no account of the parking event.
+ *
+ * POFA is keeper liability and GOVERNANCE is Code/source housekeeping;
+ * a letter whose retained knowledge is drawn only from these argues
+ * nothing about what happened.
+ */
+const PROCEDURAL_ROUTES: ReadonlySet<string> = new Set([
+  "POFA",
+  "GOVERNANCE",
 ]);
 
 export type GroundRefusal = "NO_SUBSTANTIVE_GROUND";
@@ -105,11 +131,12 @@ export interface GroundAssessment {
   /** Required facts still outstanding, for the log and the reviewer. */
   missingFacts: string[];
   /**
-   * Substantive issues that actually contributed retained knowledge.
-   * Empty with a non-empty `substantiveIssues` means every ground the
-   * case opened was gated out of the payload.
+   * Retained modules that speak to the parking event rather than to
+   * keeper liability or governance. Empty alongside a non-empty
+   * `substantiveIssues` means every ground the case opened was gated
+   * out of the payload.
    */
-  supportedIssues: string[];
+  supportingModules: string[];
 }
 
 export async function assessGroundSufficiency(input: {
@@ -118,10 +145,11 @@ export async function assessGroundSufficiency(input: {
   serviceCode?: string;
   evidenceTypes?: string[];
   /**
-   * Module IDs retrieval actually retained. Omit to skip the support
-   * check — see "A SUBSTANTIVE ISSUE IS NOT THE SAME AS A SUPPORTED ONE".
+   * Modules retrieval actually retained, with their route families.
+   * Omit to skip the support check — see "A SUBSTANTIVE ISSUE IS NOT
+   * THE SAME AS A SUPPORTED ONE".
    */
-  retainedModuleIds?: readonly string[];
+  retainedModules?: ReadonlyArray<{ moduleId: string; routeFamily: string }>;
 }): Promise<GroundAssessment> {
   const evaluation = await evaluateIssues({
     serviceCode: input.serviceCode,
@@ -135,24 +163,16 @@ export async function assessGroundSufficiency(input: {
   );
 
   /*
-   * Which substantive issues survived retrieval.
-   *
-   * Matched through each issue's own configured moduleIds rather than by
-   * reading prefixes off module identifiers, so this stays correct when
-   * an administrator adds a module or renames a family.
+   * Knowledge retrieval kept that actually speaks to the parking event,
+   * read from each module's own route family.
    */
-  const retained = input.retainedModuleIds
-    ? new Set(input.retainedModuleIds)
-    : null;
-  const supportedIssues = retained
-    ? evaluation.activeIssues
-        .filter(
-          (i) =>
-            !PROCEDURAL_ISSUES.has(i.code) &&
-            i.moduleIds.some((id) => retained.has(id)),
-        )
-        .map((i) => i.code)
-    : substantiveIssues;
+  const supportingModules = (input.retainedModules ?? [])
+    .filter((m) => !PROCEDURAL_ROUTES.has(m.routeFamily))
+    .map((m) => m.moduleId);
+  const supportChecked = input.retainedModules !== undefined;
+  const hasSubstantiveSupport = supportChecked
+    ? supportingModules.length > 0
+    : substantiveIssues.length > 0;
 
   const pofa = input.analysis.pofa;
   const establishedPofaDefect =
@@ -173,7 +193,7 @@ export async function assessGroundSufficiency(input: {
 
   const missingFacts = evaluation.missingFacts.map((m) => m.factKey);
 
-  if (supportedIssues.length === 0 && !establishedPofaDefect) {
+  if (!hasSubstantiveSupport && !establishedPofaDefect) {
     return {
       ok: false,
       reason: "NO_SUBSTANTIVE_GROUND",
@@ -189,7 +209,7 @@ export async function assessGroundSufficiency(input: {
       establishedPofaDefect,
       assertableFactCount,
       missingFacts,
-      supportedIssues,
+      supportingModules,
     };
   }
 
@@ -203,7 +223,7 @@ export async function assessGroundSufficiency(input: {
     establishedPofaDefect,
     assertableFactCount,
     missingFacts,
-    supportedIssues,
+    supportingModules,
   };
 }
 

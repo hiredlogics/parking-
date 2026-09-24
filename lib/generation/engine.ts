@@ -451,9 +451,13 @@ export async function generateValidatedAppeal(
     facts,
     analysis,
     evidenceTypes: input.evidenceTypes,
-    // What retrieval actually kept, so an issue whose knowledge was all
-    // gated out does not count as a ground. See the guard's header.
-    retainedModuleIds: retrieval.modules.map((m) => m.moduleId),
+    // What retrieval actually kept, so a case whose substantive
+    // knowledge was all gated out does not count as having a ground.
+    // See the guard's header.
+    retainedModules: retrieval.modules.map((m) => ({
+      moduleId: m.moduleId,
+      routeFamily: m.routeFamily,
+    })),
   });
 
   if (!ground.ok) {

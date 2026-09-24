@@ -859,18 +859,46 @@ function sentences(body: string): string[] {
     .filter((s) => s.length > 40);
 }
 
+/**
+ * Significant words in a sentence — the ones that carry its point.
+ */
+function significantWords(s: string): Set<string> {
+  return new Set(
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, "")
+      .split(/\s+/)
+      .filter((w) => w.length > 3),
+  );
+}
+
+/**
+ * Fewest significant words a sentence needs before its containment in
+ * another counts as repetition.
+ *
+ * The score below is min-normalised, which measures CONTAINMENT: "is
+ * all of the shorter sentence's content also in the longer one?" That
+ * is the right question for repetition, but it has a failure mode at
+ * short lengths. A topic sentence such as "The alleged duration of
+ * parking is disputed." carries four significant words, and any
+ * detailed sentence about disputed durations contains most of them, so
+ * it scored 0.75 against PP-ANPR-007 — which argues something entirely
+ * different (that the timestamps themselves are unreliable and the
+ * equipment should be verified). Both paragraphs belong in that letter,
+ * and the validator was blocking the case outright.
+ *
+ * Eight keeps every genuine collision found in the pack, all of which
+ * are restatements a dozen words or more long: PP-KEY-001/002 at 0.86
+ * and PP-POFA-001/007 at 0.75. It only stops short openers from being
+ * read as duplicates of the sentences that develop them.
+ */
+const MIN_SIGNIFICANT_WORDS = 8;
+
 function similarity(a: string, b: string): number {
-  const norm = (s: string) =>
-    new Set(
-      s
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, "")
-        .split(/\s+/)
-        .filter((w) => w.length > 3),
-    );
-  const sa = norm(a);
-  const sb = norm(b);
+  const sa = significantWords(a);
+  const sb = significantWords(b);
   if (sa.size === 0 || sb.size === 0) return 0;
+  if (Math.min(sa.size, sb.size) < MIN_SIGNIFICANT_WORDS) return 0;
   let shared = 0;
   for (const w of sa) if (sb.has(w)) shared += 1;
   return shared / Math.min(sa.size, sb.size);
