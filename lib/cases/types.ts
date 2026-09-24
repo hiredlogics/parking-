@@ -96,7 +96,6 @@ export interface AppealCase {
   extraction: ExtractionResult | null;
   confirmed: ConfirmedPcn | null;
   adaptiveAnswers: AnswerMap;
-  askedQuestionIds: string[];
 
   /** Durable document understanding — set at extract, not overwritten on confirm. */
   documentType: string | null;
@@ -173,7 +172,6 @@ export interface CustomerCaseState {
   extraction: ExtractionResult | null;
   confirmed: ConfirmedPcn | null;
   adaptiveAnswers: AnswerMap;
-  askedQuestionIds: string[];
   evidence: EvidenceItem[];
   questioningComplete: boolean;
   sufficiencyStatus: SufficiencyStatus;

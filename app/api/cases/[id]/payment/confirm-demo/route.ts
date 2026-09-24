@@ -5,6 +5,8 @@ import { requireCaseAccess } from "@/lib/cases/service";
 import { addCaseEvent } from "@/lib/cases/repo";
 import { getDemoPaymentProvider, isDemoPaymentMode } from "@/lib/payments";
 import { getPaymentState } from "@/lib/payments/service";
+import { requiresSelfServiceConsent } from "@/lib/workflow/config";
+import { findUsableConsentForCase } from "@/lib/consent/repo";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +47,22 @@ export async function POST(
       "Demo payment provider is not active.",
       403,
     );
+  }
+
+  /*
+   * Defence in depth. startCheckout already refuses to create a session
+   * without consent, so a payment should not exist to settle — but this
+   * route settles money, and a second explicit check costs one query.
+   */
+  if (requiresSelfServiceConsent(access.appealCase.serviceType)) {
+    const consent = await findUsableConsentForCase(id);
+    if (!consent) {
+      return fail(
+        "CONSENT_REQUIRED",
+        "Please confirm all three statements before continuing to payment.",
+        409,
+      );
+    }
   }
 
   const confirmed = await demo.confirmDemoPayment(id);

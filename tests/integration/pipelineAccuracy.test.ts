@@ -230,11 +230,17 @@ describe("Full-pipeline accuracy: no-questions fast path (customer skips adaptiv
   it("the same case, with resolveAnswersWithDefaults applied, reaches READY on generic grounds only", async () => {
     const { answers, applied } = resolveAnswersWithDefaults(confirmed, {}, []);
 
-    // Both facts the question engine would have asked about are filled.
+    // Every fact a customer would otherwise be asked about, before any
+    // of it decides a ground, is filled from a provenanced default.
     // (Jurisdiction is not a gap here: deriveKnownFacts already infers it
     // from parking_location before defaults ever run.)
+    //
+    // `vehicle_hire_status` joined the other two when the fact-gap
+    // resolver landed: it was the top outstanding triage requirement on
+    // every case, so without a default "was this a hire car?" became the
+    // first question every customer was asked.
     expect(applied.map((d) => d.factKey).sort()).toEqual(
-      ["driver_identified", "registered_keeper"].sort(),
+      ["driver_identified", "registered_keeper", "vehicle_hire_status"].sort(),
     );
 
     const result = await generateValidatedAppeal({ confirmed, answers, evidenceTypes: [] });

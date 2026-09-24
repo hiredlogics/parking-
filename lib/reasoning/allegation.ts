@@ -25,11 +25,13 @@ export interface AllegationClassification {
 
 export type AllegationCategory =
   | "NO_PAYMENT"
+  | "NO_VALIDATION"
   | "OVERSTAY"
   | "NO_PERMIT"
   | "UNAUTHORISED"
   | "OUTSIDE_HOURS"
   | "WRONG_BAY"
+  | "RESTRICTED_AREA"
   | "ANPR_DURATION"
   | "UNKNOWN";
 
@@ -52,6 +54,21 @@ const PATTERNS: Array<{
     category: "NO_PAYMENT",
     re: /\bunpaid\b|\bfailure\s+to\s+pay\b|\bnon[-\s]?payment\b|\b(?:failure\s+to\s+make|did\s+not\s+pay|no|without|insufficient)\s+(?:\w+\s+){0,3}?pay(?:ment|ing)?\b/i,
     // Keying sits with payment: a mistyped VRM presents as non-payment.
+    routes: ["PAYMENT", "KEYING"],
+  },
+  {
+    /*
+     * Validation schemes: a free stay conditional on registering at a
+     * kiosk, or on a voucher/receipt being validated in store. The
+     * allegation is not that nothing was paid but that a step was
+     * missed, and it presents exactly like non-payment — including the
+     * keying failure where the registration was mistyped at the
+     * terminal. "Parked without payment" already matched; "a voucher
+     * was not validated at the kiosk" did not, and that notice reached
+     * drafting with no issue open at all.
+     */
+    category: "NO_VALIDATION",
+    re: /\b(?:not\s+)?validat(?:e|ed|ion)\b|\bvoucher\b|\bkiosk\b|\bfailure\s+to\s+register\b|\bnot\s+registered\s+(?:at|with|in)\b|\bterminal\b/i,
     routes: ["PAYMENT", "KEYING"],
   },
   {
@@ -81,6 +98,22 @@ const PATTERNS: Array<{
     category: "WRONG_BAY",
     re: /\b(?:wrong|incorrect|not\s+in\s+a?\s*(?:marked|designated))\s+(?:bay|space)\b|\boutside\s+(?:a\s+)?(?:marked\s+)?bay\b|\bdisabled\s+bay\b/i,
     routes: ["AUTHORIZATION", "EQUALITY", "SIGNAGE"],
+  },
+  {
+    /*
+     * A bay or area the vehicle was not entitled to occupy: EV charging
+     * bays, parent-and-child, loading areas, "restricted area". The
+     * ground is whether the restriction was adequately signed and
+     * whether the vehicle was in fact entitled to be there, so this
+     * sits with authorisation and signage.
+     *
+     * Listed after WRONG_BAY, which handles the marked-bay phrasings,
+     * and before ANPR_DURATION, whose broad `camera` alternative would
+     * otherwise swallow a bay allegation that happens to mention ANPR.
+     */
+    category: "RESTRICTED_AREA",
+    re: /\brestricted\s+(?:area|zone|bay|space)\b|\b(?:ev|electric\s+vehicle|charging)\s+(?:charging\s+)?bay\b|\bwithout\s+charging\b|\bloading\s+(?:bay|area|only)\b|\bparent\s+and\s+child\b|\bno\s+parking\s+(?:area|zone)\b/i,
+    routes: ["AUTHORIZATION", "SIGNAGE"],
   },
   {
     category: "ANPR_DURATION",
@@ -116,6 +149,10 @@ export function factsImpliedByAllegation(
   switch (category) {
     case "NO_PAYMENT":
       return ["payment_made", "payment_method", "vrm_entered"];
+    case "NO_VALIDATION":
+      return ["payment_made", "payment_method", "vrm_entered"];
+    case "RESTRICTED_AREA":
+      return ["permission_held", "signage_issue_basis"];
     case "OVERSTAY":
       return ["permitted_period", "departure_delay", "continuous_presence"];
     case "NO_PERMIT":

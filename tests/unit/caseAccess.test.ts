@@ -38,7 +38,6 @@ function makeCase(over: Partial<AppealCase> = {}): AppealCase {
     extraction: null,
     confirmed: null,
     adaptiveAnswers: {},
-    askedQuestionIds: [],
     candidateRoutes: [],
     primaryRoute: null,
     secondaryRoutes: [],

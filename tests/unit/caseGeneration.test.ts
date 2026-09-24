@@ -54,7 +54,6 @@ function makeCase(over: Partial<AppealCase> = {}): AppealCase {
       parking_event_date: "2025-01-05",
     } as AppealCase["confirmed"],
     adaptiveAnswers: {},
-    askedQuestionIds: [],
     candidateRoutes: [],
     primaryRoute: null,
     secondaryRoutes: [],

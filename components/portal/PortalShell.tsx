@@ -103,6 +103,16 @@ export function PortalShell({ children }: { children: React.ReactNode }) {
             >
               {signingOut ? "Signing out…" : "Log out"}
             </button>
+            {/* The policies stay reachable after purchase without putting
+                the whole document into the appeal journey. */}
+            <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-brand-mute">
+              <Link href="/terms" className="hover:text-brand-text" data-testid="portal-terms">
+                Terms &amp; Conditions
+              </Link>
+              <Link href="/privacy" className="hover:text-brand-text" data-testid="portal-privacy">
+                Privacy Policy
+              </Link>
+            </div>
           </div>
         </div>
       </aside>

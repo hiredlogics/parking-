@@ -6,6 +6,7 @@ import {
   establishedFacts,
   tagsFromEvidence,
 } from "./fromEvidence";
+import { classifyNarrative } from "@/lib/reasoning/narrative";
 
 /**
  * Material fact keys.
@@ -252,6 +253,37 @@ export function deriveKnownFacts(input: {
       // Only claim "document" when nothing else had set the fact; a
       // customer selection that we merely added to stays theirs.
       if (existing.length === 0) provenance[FACT.SCENARIOS] = "document";
+    }
+  }
+
+  /*
+   * Circumstances read out of the customer's own account.
+   *
+   * `situation_other` is free text — "anything else we should know" —
+   * and it is the only route left by which a customer can raise a
+   * circumstance the notice cannot state: a breakdown, a lease over the
+   * bay, a disability. The appeal-reason checklist that used to carry
+   * those has been retired, so without this the BREAKDOWN, RESIDENTIAL
+   * and EQUALITY issues could never open for anyone.
+   *
+   * Unioned, never overriding, for the same reason as the evidence tags
+   * above. Provenance is "inferred" deliberately: the customer wrote
+   * the sentence, but they did not assert the tag, and "inferred" is
+   * outside ASSERTABLE_PROVENANCE — so a tag read out of prose can open
+   * a line of enquiry and can never itself be stated in the letter. The
+   * facts that issue then requires are asked and answered properly.
+   */
+  const narrativeText = values[PROFILE.SITUATION_OTHER];
+  if (typeof narrativeText === "string" && narrativeText.trim().length > 0) {
+    const { tags: narrativeTags } = classifyNarrative(narrativeText);
+    if (narrativeTags.length > 0) {
+      const existing = Array.isArray(values[FACT.SCENARIOS])
+        ? (values[FACT.SCENARIOS] as string[])
+        : [];
+      values[FACT.SCENARIOS] = [
+        ...new Set([...existing, ...narrativeTags]),
+      ].sort();
+      if (existing.length === 0) provenance[FACT.SCENARIOS] = "inferred";
     }
   }
 

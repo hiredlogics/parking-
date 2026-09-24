@@ -128,6 +128,33 @@ export const BUILT_IN_FACT_DEFAULTS: FactDefaultRule[] = [
     reasonCode: SYSTEM_SAFE_DEFAULT,
     priority: 20,
   },
+  /*
+   * Hire status. The product is for privately owned vehicles, and a
+   * hire vehicle takes a different statutory path entirely — PoFA
+   * Schedule 4 reaches the hirer through paragraph 13/14, not the
+   * registered keeper, so the hire company receives the notice rather
+   * than the customer holding one.
+   *
+   * Before this default, `vehicle_hire_status` was the top outstanding
+   * requirement on TRIAGE_SCOPE for every single case, which made "was
+   * this a hire car?" the first question every customer would be asked
+   * regardless of what their notice said. That is a question with one
+   * answer in all but a rounding error of cases, and spending the
+   * customer's patience on it costs the answers that actually decide
+   * grounds.
+   *
+   * Provisional, like every default: `system_default` is not in
+   * ASSERTABLE_PROVENANCE (lib/facts/types.ts), so nothing in the
+   * letter may state it as fact, and a real value always wins.
+   */
+  {
+    id: "builtin_vehicle_hire_status",
+    factKey: "vehicle_hire_status",
+    condition: null,
+    defaultValue: "PRIVATE",
+    reasonCode: SYSTEM_SAFE_DEFAULT,
+    priority: 30,
+  },
 ];
 
 export interface AnswersWithDefaults {

@@ -5,9 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { JourneyHeader } from "@/components/app/JourneyHeader";
 import { ProgressSteps } from "@/components/ProgressSteps";
+import { FactGapQuestions } from "@/components/appeal/FactGapQuestions";
 import { useAppealStore } from "@/features/appeal/store";
 import { useCaseSession } from "@/features/appeal/useCaseSession";
-import { removeEvidence, uploadEvidence } from "@/features/appeal/caseSync";
+import {
+  fetchCase,
+  removeEvidence,
+  saveKeeperProfile,
+  uploadEvidence,
+} from "@/features/appeal/caseSync";
 import {
   KeeperDetailsForm,
   keeperProfileFrom,
@@ -113,6 +119,55 @@ export default function EvidencePage() {
   const { caseId } = useCaseSession();
 
   /*
+   * What happened, in the customer's own words.
+   *
+   * Some grounds cannot be reached any other way. A notice records the
+   * allegation, not the circumstances, so nothing on it can reveal a
+   * breakdown, a residential right or a disability — the operator had no
+   * reason to write those down. This box is the only channel for them.
+   *
+   * It is not a menu of appeal reasons. The text is classified into
+   * circumstance tags (lib/reasoning/narrative.ts) which the issue
+   * engine treats as one input among the notice facts; the customer
+   * describes events and the system decides the grounds.
+   */
+  const [situation, setSituation] = useState(
+    typeof adaptiveAnswers.situation_other === "string"
+      ? adaptiveAnswers.situation_other
+      : "",
+  );
+  const [savingSituation, setSavingSituation] = useState(false);
+  /*
+   * Bumped after anything that can change which issues are live, to
+   * remount the question component so it re-asks against the new set.
+   */
+  const [factsNonce, setFactsNonce] = useState(0);
+
+  const saveSituation = async () => {
+    if (!caseId) return;
+    setSavingSituation(true);
+    setError(null);
+    const res = await saveKeeperProfile(caseId, { situation_other: situation });
+    setSavingSituation(false);
+    if (!res.ok) {
+      setError(res.message || "We could not save that.");
+      return;
+    }
+    setAdaptiveAnswers(res.data.adaptiveAnswers);
+    setFactsNonce((n) => n + 1);
+  };
+
+  /*
+   * An answered fact can open an issue, and an open issue changes which
+   * uploads are worth suggesting, so pull the case back down.
+   */
+  const refreshCase = async () => {
+    if (!caseId) return;
+    const res = await fetchCase(caseId);
+    if (res.ok) hydrateFromCase(res.data.case);
+  };
+
+  /*
    * The keeper's name and address, collected here because the letter is
    * addressed FROM them and nothing else can supply it: a windscreen
    * ticket does not carry the keeper's details, and no document the
@@ -213,6 +268,48 @@ export default function EvidencePage() {
             >
               {error}
             </div>
+          )}
+
+          {caseId && (
+            <section
+              className="mb-6 rounded-2xl border border-brand-border bg-brand-canvas p-4 sm:p-5"
+              data-testid="situation-section"
+            >
+              <h2 className="text-[16px] font-bold text-brand-text">
+                In your own words, what happened?
+              </h2>
+              <p className="mt-1 text-[13px] leading-relaxed text-brand-mute">
+                Your notice tells us what you&apos;re accused of, but not the
+                circumstances. If the car broke down, you live there, or
+                something else was going on, tell us here — we&apos;ll work out
+                which grounds that opens.
+              </p>
+              <textarea
+                value={situation}
+                onChange={(e) => setSituation(e.target.value)}
+                rows={4}
+                data-testid="situation-input"
+                className="mt-3 w-full rounded-xl border border-brand-border bg-white px-3 py-2.5 text-[14px] leading-relaxed text-brand-text"
+                placeholder="For example: the car wouldn't start and I had to wait for recovery."
+              />
+              <button
+                type="button"
+                onClick={() => void saveSituation()}
+                disabled={savingSituation}
+                data-testid="situation-save"
+                className="btn-brand-outline mt-3 disabled:opacity-50"
+              >
+                {savingSituation ? "Saving…" : "Save"}
+              </button>
+            </section>
+          )}
+
+          {caseId && (
+            <FactGapQuestions
+              key={factsNonce}
+              caseId={caseId}
+              onAnswered={() => void refreshCase()}
+            />
           )}
 
           {needsKeeper && caseId && (

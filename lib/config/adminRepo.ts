@@ -98,7 +98,11 @@ export async function listServices(onlyActive = false): Promise<ServiceRow[]> {
 export async function getServiceByCode(code: string): Promise<ServiceRow | null> {
   const rows = await q(`SELECT * FROM services WHERE code = $1 LIMIT 1`, [code]);
   if (!rows[0]) return null;
-  const r = rows[0];
+  return rowToService(rows[0]);
+}
+
+/** Shared by the single-service read and the batched graph load. */
+function rowToService(r: Row): ServiceRow {
   return {
     id: r.id as string,
     code: r.code as string,
@@ -355,7 +359,12 @@ export async function listIssueFacts(
     `SELECT * FROM issue_required_facts ${where} ORDER BY priority, fact_key`,
     [issueId],
   );
-  return rows.map((r) => ({
+  return rows.map(rowToIssueFact);
+}
+
+/** Shared by the per-issue read and the batched graph load. */
+function rowToIssueFact(r: Row): IssueFactRow {
+  return {
     id: r.id as string,
     issueId: r.issue_id as string,
     factKey: r.fact_key as string,
@@ -366,7 +375,7 @@ export async function listIssueFacts(
     requiredWhen: r.required_when ?? null,
     skipWhen: r.skip_when ?? null,
     optional: Boolean(r.optional),
-  }));
+  };
 }
 
 export async function upsertIssueFact(input: {
@@ -795,19 +804,85 @@ export async function loadServiceGraph(
     // Cache is optional.
   }
 
-  const service = await getServiceByCode(serviceCode);
-  if (!service || service.status !== "ACTIVE") return null;
-  const issues = await listIssues(service.id, true);
-  const [enriched, factDefaults] = await Promise.all([
-    Promise.all(
-      issues.map(async (issue) => ({
-        ...issue,
-        facts: await listIssueFacts(issue.id, true),
-        knowledge: await listIssueKnowledge(issue.id, true),
-      })),
-    ),
-    listFactDefaults(service.id, true),
-  ]);
+  /*
+   * The whole graph in ONE round trip, on ONE connection.
+   *
+   * This used to read the service, then its issues, then call
+   * listIssueFacts + listIssueKnowledge once per issue. With eleven
+   * issues that is twenty-four queries, and it measured 2,434ms against
+   * Neon — the single largest item in a cold start, larger than the TLS
+   * handshake, and paid again whenever the 300s cache lapses.
+   *
+   * Batching the per-issue reads was not enough, and issuing the
+   * remainder through `Promise.all` actively hurt: the pool opens up to
+   * ten connections, so concurrent queries on a cold process pay a
+   * fresh ~1.7s TLS handshake each instead of sharing one. Latency here
+   * is dominated by round trips and handshakes, not by rows, so the
+   * only fix that helps is to stop making round trips.
+   *
+   * The row shapes are unchanged — Postgres returns each table's rows
+   * as JSON and the same `rowTo*` mappers decode them — so this is a
+   * transport change, not a behaviour change.
+   */
+  const graphRows = await q(
+    `WITH svc AS (
+       SELECT * FROM services WHERE code = $1 AND status = 'ACTIVE' LIMIT 1
+     ), iss AS (
+       SELECT i.* FROM issues i
+         JOIN svc ON i.service_id = svc.id
+        WHERE i.status = 'ACTIVE'
+        ORDER BY i.sort_order, i.code
+     )
+     SELECT
+       (SELECT row_to_json(svc) FROM svc) AS service,
+       (SELECT COALESCE(json_agg(row_to_json(iss)), '[]'::json) FROM iss) AS issues,
+       (SELECT COALESCE(json_agg(row_to_json(f) ORDER BY f.priority, f.fact_key), '[]'::json)
+          FROM issue_required_facts f
+         WHERE f.status = 'ACTIVE'
+           AND f.issue_id IN (SELECT id FROM iss)) AS facts,
+       (SELECT COALESCE(json_agg(row_to_json(k)), '[]'::json)
+          FROM issue_knowledge k
+         WHERE k.status = 'ACTIVE'
+           AND k.issue_id IN (SELECT id FROM iss)) AS knowledge,
+       (SELECT COALESCE(json_agg(row_to_json(d) ORDER BY d.priority, d.fact_key), '[]'::json)
+          FROM fact_defaults d
+         WHERE d.status = 'ACTIVE'
+           AND (d.service_id IS NULL
+                OR d.service_id = (SELECT id FROM svc))) AS defaults`,
+    [serviceCode],
+  );
+
+  const bundle = graphRows[0];
+  if (!bundle?.service) return null;
+
+  const service = rowToService(bundle.service as Row);
+  const issues = (bundle.issues as Row[]).map(rowToIssue);
+  const factDefaults = (bundle.defaults as Row[]).map(rowToFactDefault);
+
+  const factsByIssue = new Map<string, IssueFactRow[]>();
+  for (const r of bundle.facts as Row[]) {
+    const issueId = r.issue_id as string;
+    const list = factsByIssue.get(issueId) ?? [];
+    list.push(rowToIssueFact(r));
+    factsByIssue.set(issueId, list);
+  }
+  const knowledgeByIssue = new Map<string, IssueKnowledgeRow[]>();
+  for (const r of bundle.knowledge as Row[]) {
+    const issueId = r.issue_id as string;
+    const list = knowledgeByIssue.get(issueId) ?? [];
+    list.push({
+      issueId,
+      moduleId: r.module_id as string,
+      status: r.status as string,
+    });
+    knowledgeByIssue.set(issueId, list);
+  }
+
+  const enriched = issues.map((issue) => ({
+    ...issue,
+    facts: factsByIssue.get(issue.id) ?? [],
+    knowledge: knowledgeByIssue.get(issue.id) ?? [],
+  }));
   const graph: ServiceGraph = { service, issues: enriched, factDefaults };
 
   try {

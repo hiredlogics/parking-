@@ -7,7 +7,11 @@ import { JourneyHeader } from "@/components/app/JourneyHeader";
 import { ProgressSteps } from "@/components/ProgressSteps";
 import { useAppealStore } from "@/features/appeal/store";
 import { useCaseSession } from "@/features/appeal/useCaseSession";
-import { confirmCase } from "@/features/appeal/caseSync";
+import {
+  confirmCase,
+  saveKeeperProfile,
+} from "@/features/appeal/caseSync";
+import { needsKeeperDetails } from "@/features/appeal/KeeperDetails";
 import type { CaseStage, ExtractedPcn, NoticeRoute } from "@/types";
 import { triageBlocksAppealJourney } from "@/types/triage";
 import { assessDocumentDeterministic } from "@/lib/triage/deterministic";
@@ -59,11 +63,17 @@ export default function ConfirmPage() {
   const updateField = useAppealStore((s) => s.updateExtractedField);
   const setConfirmed = useAppealStore((s) => s.setConfirmedPcn);
   const setStep = useAppealStore((s) => s.setStep);
+  const adaptiveAnswers = useAppealStore((s) => s.adaptiveAnswers);
   const hydrateFromCase = useAppealStore((s) => s.hydrateFromCase);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [editingKey, setEditingKey] = useState<keyof ExtractedPcn | null>(null);
   const [showAllFields, setShowAllFields] = useState(false);
+  /*
+   * Null until the customer touches the control, so a value already
+   * stored on the case still shows after the answer map hydrates.
+   */
+  const [keeperChoice, setKeeperChoice] = useState<string | null>(null);
 
   const { caseId, status: sessionStatus } = useCaseSession();
   const values = useMemo(() => extraction?.raw ?? {}, [extraction]);
@@ -89,6 +99,8 @@ export default function ConfirmPage() {
   const effectiveTriage = triage ?? fallbackTriage;
   const blockedStage = triageBlocksAppealJourney(effectiveTriage);
   const blockDetail = blockedStage ? effectiveTriage.detail : null;
+  const registeredKeeper =
+    keeperChoice ?? String(adaptiveAnswers.registered_keeper ?? "");
 
   if (sessionStatus === "loading") {
     return (
@@ -135,6 +147,10 @@ export default function ConfirmPage() {
       setShowAllFields(true);
       return;
     }
+    if (!registeredKeeper) {
+      setError("Please tell us whether you are the registered keeper.");
+      return;
+    }
     setError(null);
     const confirmed = {
       ...(values as ExtractedPcn),
@@ -154,6 +170,7 @@ export default function ConfirmPage() {
     };
     setConfirmed(confirmed);
 
+    let answers: Record<string, unknown> = adaptiveAnswers;
     if (caseId) {
       setSaving(true);
       const saved = await confirmCase(caseId, confirmed);
@@ -163,16 +180,45 @@ export default function ConfirmPage() {
         return;
       }
       hydrateFromCase(saved.data.case);
+      answers = saved.data.case.adaptiveAnswers ?? {};
+
+      // Every keeper-liability ground depends on this fact, so it is
+      // saved before readiness is checked rather than alongside the
+      // keeper's address later in the journey.
+      const keeper = await saveKeeperProfile(caseId, {
+        registered_keeper: registeredKeeper,
+      });
+      if (!keeper.ok) {
+        setError(keeper.message || "We could not save your answer.");
+        return;
+      }
+      answers = { ...answers, ...keeper.data.adaptiveAnswers };
     }
 
     /*
-     * No adaptive questions: generation falls back to safe, provenance
-     * -tracked defaults (lib/rules/factDefaults.ts) instead of asking.
-     * The resulting appeal is generic (evidence-independent grounds
-     * only) rather than tailored to the customer's specific answers.
+     * Show step 3 only when something is actually needed.
+     *
+     * The keeper's name and address is the one input nothing can derive,
+     * because the letter is sent in their name and no uploaded document
+     * carries it. Everything else is read from the notice or defaulted
+     * with provenance (lib/rules/factDefaults.ts).
+     *
+     * This decision is deliberately made from data already in hand. An
+     * earlier version asked /readiness here so it could also route on
+     * "evidence would help", but that endpoint runs the full sufficiency
+     * analysis — on a cold server it took over 30 seconds, which left the
+     * customer staring at the confirm screen. The evidence prompt now
+     * lives on the review page, which already loads readiness and already
+     * shows a spinner while it does.
      */
-    setStep("evidence");
-    router.push("/appeal/evidence");
+    if (needsKeeperDetails(answers, confirmed.notice_route)) {
+      setStep("evidence");
+      router.push("/appeal/evidence");
+      return;
+    }
+
+    setStep("review");
+    router.push("/appeal/review");
   };
 
   return (
@@ -314,6 +360,46 @@ export default function ConfirmPage() {
             );
           })}
         </div>
+
+        {!blockedStage && (
+          <fieldset className="mt-4 rounded-2xl border border-brand-border bg-white p-4 sm:p-5">
+            <legend className="px-1 text-[13px] font-bold text-brand-text">
+              Are you the registered keeper of this vehicle?
+            </legend>
+            <p className="mt-1 text-[13px] leading-relaxed text-brand-mute">
+              The registered keeper is the person the vehicle is registered to
+              with the DVLA. Your appeal is written on their behalf.
+            </p>
+            <div className="mt-3 space-y-2">
+              {[
+                { value: "YES", label: "Yes" },
+                { value: "NO", label: "No" },
+                { value: "UNSURE", label: "I'm not sure" },
+              ].map((o) => (
+                <label
+                  key={o.value}
+                  className={[
+                    "flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 text-[14px] transition",
+                    registeredKeeper === o.value
+                      ? "border-brand-pink bg-brand-pinkPale font-semibold text-brand-text"
+                      : "border-brand-border bg-white text-brand-text hover:border-brand-pink/50",
+                  ].join(" ")}
+                >
+                  <input
+                    type="radio"
+                    name="registered_keeper"
+                    value={o.value}
+                    data-testid={`registered-keeper-${o.value.toLowerCase()}`}
+                    checked={registeredKeeper === o.value}
+                    onChange={() => setKeeperChoice(o.value)}
+                    className="h-4 w-4 accent-brand-pink"
+                  />
+                  {o.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
 
         {showAllFields && (
           <div className="mt-4 space-y-3 rounded-2xl border border-brand-borderSoft bg-white p-4 sm:p-5">

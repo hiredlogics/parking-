@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 import {
+  acceptPurchaseConsent,
+  answerRegisteredKeeper,
   fillKeeperDetailsIfAsked,
   completePaidAppeal,
   createAccount,
@@ -7,6 +9,7 @@ import {
   findFinalAppealUrl,
   uniqueEmail,
   uploadPcn,
+  waitForStepReady,
 } from "./journeyHelpers";
 
 /**
@@ -32,6 +35,8 @@ test.describe("Appeal document ownership", () => {
   let ownerDocUrl: string;
 
   test("customer A can reach their own paid appeal", async ({ browser }) => {
+    // Includes a full post-payment generation; see completePaidAppeal.
+    test.setTimeout(240_000);
     const page = await browser.newPage();
     ownerEmail = uniqueEmail("owner");
 
@@ -115,13 +120,19 @@ test.describe("Payment entitlement", () => {
     // Take the journey as far as review, then stop before paying.
     await uploadPcn(page);
     await page.waitForURL("**/appeal/confirm", { timeout: 60_000 });
+    await answerRegisteredKeeper(page);
     await page.getByTestId("confirm-continue").click();
 
-    await page.waitForURL("**/appeal/evidence", { timeout: 30_000 });
-    await fillKeeperDetailsIfAsked(page);
-    await page.getByTestId("evidence-continue").click();
-    await page.waitForURL("**/appeal/review", { timeout: 30_000 });
+    await page.waitForURL(/\/appeal\/(evidence|review)/, { timeout: 30_000 });
+    await waitForStepReady(page);
+    if (page.url().includes("/appeal/evidence")) {
+      await fillKeeperDetailsIfAsked(page);
+      await page.getByTestId("evidence-continue").click();
+      await page.waitForURL("**/appeal/review", { timeout: 30_000 });
+      await waitForStepReady(page);
+    }
 
+    await acceptPurchaseConsent(page);
     await page.getByTestId("review-continue").click();
     await page.waitForURL(/\/checkout\//, { timeout: 30_000 });
     const caseId = /\/checkout\/(case_[a-z0-9]+)/i.exec(page.url())?.[1] ?? "";

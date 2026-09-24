@@ -267,7 +267,6 @@ export async function confirmFactsForCase(
       if (!existing[FACT.JURISDICTION]) {
         await repo.saveAnswers(caseId, {
           adaptiveAnswers: { ...existing, [FACT.JURISDICTION]: inferred },
-          askedQuestionIds: access.appealCase.askedQuestionIds ?? [],
           questioningComplete: access.appealCase.questioningComplete,
           missingFacts: access.appealCase.missingFacts ?? [],
           candidateRoutes: access.appealCase.candidateRoutes ?? [],
@@ -335,6 +334,27 @@ export async function confirmFactsForCase(
     eventType: "EXTRACTION_CONFIRMED",
     actorId: session.userId ?? null,
   });
+
+  /*
+   * Derive the case state now the notice is confirmed.
+   *
+   * `questioningComplete` is what `assessSufficiency` reads to decide
+   * whether outstanding facts still block checkout. Nothing set it on
+   * this path, so a customer who never used the "I am not the registered
+   * keeper" correction reached Review with it still false and was told to
+   * "answer the remaining questions" — a journey step that no longer
+   * exists. Confirmation is the point at which there is nothing left to
+   * ask, which is exactly what persistDerivedState documents.
+   */
+  const confirmedCase = await repo.findCase(caseId);
+  if (confirmedCase) {
+    await persistDerivedState(
+      caseId,
+      confirmedCase,
+      confirmedCase.adaptiveAnswers ?? {},
+    );
+  }
+
   return { ok: true };
 }
 
@@ -414,7 +434,6 @@ async function persistDerivedState(
 
   await repo.saveAnswers(caseId, {
     adaptiveAnswers: answers,
-    askedQuestionIds: [],
     questioningComplete: true,
     missingFacts: missingRequirements(facts).map((m) => m.fact),
     candidateRoutes: openRoutes(facts),
@@ -517,6 +536,7 @@ export async function saveKeeperProfileForCase(
     keeper_town?: string;
     keeper_postcode?: string;
     situation_other?: string;
+    registered_keeper?: string;
   },
 ): Promise<
   | { ok: true; adaptiveAnswers: AnswerMap }
@@ -528,6 +548,32 @@ export async function saveKeeperProfileForCase(
   const appealCase = access.appealCase;
 
   const answers: AnswerMap = { ...appealCase.adaptiveAnswers };
+
+  /*
+   * Whether the appellant is the registered keeper.
+   *
+   * Every keeper-liability ground depends on this one fact, and nothing
+   * else can supply it: the registry declares it source "ANSWER", and
+   * when the adaptive questions were removed the fact it used to come
+   * from (CQ01) went with them. The whole Schedule 4 family then dropped
+   * out of every appeal, because PoFA cannot be argued for someone who
+   * is not recorded as the keeper.
+   *
+   * Validated against the enum here rather than trusted, so the client
+   * cannot write a value the fact registry does not recognise.
+   */
+  if (profile.registered_keeper !== undefined) {
+    const v = profile.registered_keeper.trim().toUpperCase();
+    if (v !== "YES" && v !== "NO" && v !== "UNSURE") {
+      return {
+        ok: false,
+        status: 400,
+        code: "VALIDATION_ERROR",
+        message: "Please say whether you are the registered keeper.",
+      };
+    }
+    answers.registered_keeper = v;
+  }
 
   if (profile.keeper_name !== undefined) {
     const name = profile.keeper_name.trim();
@@ -555,7 +601,6 @@ export async function saveKeeperProfileForCase(
 
   await repo.saveAnswers(caseId, {
     adaptiveAnswers: answers,
-    askedQuestionIds: appealCase.askedQuestionIds,
     questioningComplete: appealCase.questioningComplete,
     missingFacts: appealCase.missingFacts,
     candidateRoutes: appealCase.candidateRoutes,
@@ -777,7 +822,6 @@ export async function getCustomerCaseState(
       extraction: c.extraction,
       confirmed: c.confirmed,
       adaptiveAnswers: c.adaptiveAnswers,
-      askedQuestionIds: c.askedQuestionIds,
       evidence: toEvidenceItems(docs),
       questioningComplete: c.questioningComplete,
       sufficiencyStatus: c.sufficiencyStatus,

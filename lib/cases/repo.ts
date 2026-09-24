@@ -62,7 +62,6 @@ function rowToCase(r: Row): AppealCase {
     extraction: (r.extraction_json as ExtractionResult | null) ?? null,
     confirmed: (r.confirmed_json as ConfirmedPcn | null) ?? null,
     adaptiveAnswers: (r.adaptive_answers as AnswerMap) ?? {},
-    askedQuestionIds: arr<string>(r.asked_question_ids),
 
     documentType: (r.document_type as string | null) ?? null,
     senderName: (r.sender_name as string | null) ?? null,
@@ -486,7 +485,6 @@ export async function saveAnswers(
   id: string,
   input: {
     adaptiveAnswers: AnswerMap;
-    askedQuestionIds: string[];
     questioningComplete: boolean;
     missingFacts: string[];
     candidateRoutes: RouteFamily[];
@@ -497,29 +495,27 @@ export async function saveAnswers(
   const now = new Date().toISOString();
   await q(
     /*
-     * Parameters are cast explicitly. $7 and $8 appear inside COALESCE
+     * Parameters are cast explicitly. $6 and $7 appear inside COALESCE
      * and a bare `IS NOT NULL`, where Postgres cannot infer a type from
      * context and rejects the statement with 42P08.
      */
     `UPDATE appeal_cases
         SET adaptive_answers = $2::jsonb,
-            asked_question_ids = $3::jsonb,
-            questioning_complete = $4::boolean,
-            missing_facts = $5::jsonb,
-            candidate_routes = $6::jsonb,
-            driver_status = COALESCE($7::text, driver_status),
-            out_of_scope_reason = $8::text,
-            out_of_scope_detail = $9::text,
+            questioning_complete = $3::boolean,
+            missing_facts = $4::jsonb,
+            candidate_routes = $5::jsonb,
+            driver_status = COALESCE($6::text, driver_status),
+            out_of_scope_reason = $7::text,
+            out_of_scope_detail = $8::text,
             status = CASE
-              WHEN $8::text IS NOT NULL THEN 'MANUAL_REVIEW'
+              WHEN $7::text IS NOT NULL THEN 'MANUAL_REVIEW'
               WHEN status = 'AWAITING_CONFIRMATION' THEN 'QUESTIONING'
               ELSE status END,
-            updated_at = $10::text
+            updated_at = $9::text
       WHERE id = $1`,
     [
       id,
       JSON.stringify(input.adaptiveAnswers),
-      JSON.stringify(input.askedQuestionIds),
       input.questioningComplete,
       JSON.stringify(input.missingFacts),
       JSON.stringify(input.candidateRoutes),

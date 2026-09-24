@@ -12,6 +12,7 @@ import {
   type WorkflowStep,
 } from "@/lib/workflow/config";
 import { assessSufficiency } from "@/lib/cases/sufficiency";
+import { askedFactKey } from "@/lib/facts/missing";
 import { FACT } from "@/lib/facts/facts";
 import type { AppealCase } from "@/lib/cases/types";
 import type { AnswerMap } from "@/lib/facts/types";
@@ -40,18 +41,32 @@ function confirmedPcn(over: Partial<ConfirmedPcn> = {}): ConfirmedPcn {
   };
 }
 
+/**
+ * A case whose questioning has happened.
+ *
+ * Every fact passed here is recorded as answered AND as having been put
+ * to the customer. The asked marker is the point: readiness blocks while
+ * a question is still going to be asked, so a fixture that supplies
+ * answers without saying they were asked is describing a case in the
+ * middle of the loop, not one that finished it.
+ *
+ * These markers used to be question ids (`__asked:Q-PAY-METHOD`), which
+ * the question engine minted. That engine is gone and nothing reads that
+ * prefix any more; the fact-keyed marker in lib/facts/missing.ts is what
+ * both the gap resolver and the archive replay now write.
+ */
 function answers(extra: AnswerMap = {}): AnswerMap {
-  return {
+  const values: AnswerMap = {
     [FACT.JURISDICTION]: "ENGLAND_WALES",
-    "__asked:Q-SCOPE-JURISDICTION": true,
     [FACT.VEHICLE_HIRE_STATUS]: "PRIVATE",
-    "__asked:Q-SCOPE-HIRE": true,
     [FACT.REGISTERED_KEEPER]: "YES",
-    "__asked:Q-KEEPER-01": true,
     [FACT.DRIVER_IDENTIFIED]: "NO",
-    "__asked:Q-DRIVER-ID-01": true,
     ...extra,
   };
+  for (const key of Object.keys(values)) {
+    if (!key.startsWith("__")) values[askedFactKey(key)] = true;
+  }
+  return values;
 }
 
 function makeCase(over: Partial<AppealCase> = {}): AppealCase {
@@ -81,7 +96,6 @@ function makeCase(over: Partial<AppealCase> = {}): AppealCase {
     },
     confirmed: confirmedPcn(),
     adaptiveAnswers: {},
-    askedQuestionIds: [],
     candidateRoutes: [],
     primaryRoute: null,
     secondaryRoutes: [],
@@ -181,10 +195,12 @@ describe("Sufficiency check", () => {
     expect(r.blockers.join(" ")).toMatch(/confirm the details/i);
   });
 
-  it("blocks while questions remain unanswered", async () => {
+  it("blocks while a material fact is still going to be asked", async () => {
     const r = await assessSufficiency(makeCase({ adaptiveAnswers: {} }), []);
     expect(r.sufficient).toBe(false);
-    expect(r.blockers.join(" ")).toMatch(/remaining questions/i);
+    expect(r.blockers.join(" ")).toMatch(/what happened/i);
+    // The count comes from the issue configuration, not a question bank.
+    expect(r.outstandingCount).toBeGreaterThan(0);
   });
 
   it("passes once questioning is complete and a ground is supported", async () => {
@@ -192,11 +208,8 @@ describe("Sufficiency check", () => {
       makeCase({
         adaptiveAnswers: answers({
           [FACT.SCENARIOS]: ["payment_made"],
-          "__asked:Q-WHAT-HAPPENED": true,
           [FACT.PAYMENT_METHOD]: "app",
-          "__asked:Q-PAY-METHOD": true,
           [FACT.PAYMENT_EVIDENCE]: "YES",
-          "__asked:Q-PAY-EVIDENCE": true,
         }),
       }),
       ["receipt"],
@@ -224,13 +237,9 @@ describe("Sufficiency check", () => {
       makeCase({
         adaptiveAnswers: answers({
           [FACT.SCENARIOS]: ["breakdown_immobilised"],
-          "__asked:Q-WHAT-HAPPENED": true,
           [FACT.BREAKDOWN_NATURE]: "mechanical_failure",
-          "__asked:Q-BREAK-NATURE": true,
           [FACT.BREAKDOWN_PREVENTED_DEPARTURE]: "YES",
-          "__asked:Q-BREAK-PREVENTED": true,
           [FACT.BREAKDOWN_EVIDENCE]: ["none"],
-          "__asked:Q-BREAK-EVIDENCE": true,
         }),
       }),
       [],
@@ -251,13 +260,9 @@ describe("Pre-payment summary is customer-safe", () => {
       makeCase({
         adaptiveAnswers: answers({
           [FACT.SCENARIOS]: ["payment_made", "vrm_error"],
-          "__asked:Q-WHAT-HAPPENED": true,
           [FACT.PAYMENT_METHOD]: "app",
-          "__asked:Q-PAY-METHOD": true,
           [FACT.PAYMENT_EVIDENCE]: "YES",
-          "__asked:Q-PAY-EVIDENCE": true,
           [FACT.VRM_ENTERED]: "AB12CDF",
-          "__asked:Q-KEY-ENTERED": true,
         }),
       }),
       ["receipt"],

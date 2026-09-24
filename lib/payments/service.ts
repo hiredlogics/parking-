@@ -1,7 +1,22 @@
 import type { SessionData } from "@/lib/auth/session";
 import { requireCaseAccess } from "@/lib/cases/service";
-import { isPaidStep, servicePrice } from "@/lib/workflow/config";
+import {
+  isPaidStep,
+  requiresSelfServiceConsent,
+  servicePrice,
+} from "@/lib/workflow/config";
 import { paths, publicUrl } from "@/lib/config/publicUrl";
+import { currentLegalVersions } from "@/lib/legal/registry";
+import {
+  attachPaymentToConsent,
+  findUsableConsentForCase,
+  recordPurchaseConsent,
+} from "@/lib/consent/repo";
+import {
+  missingConsents,
+  type ConsentAuditMeta,
+  type ConsentInput,
+} from "@/lib/consent/types";
 import * as repo from "./repo";
 import { getPaymentService } from "./index";
 import type { CheckoutSession, PaymentStatus } from "./types";
@@ -39,11 +54,16 @@ const APP_URL = () =>
  * Start checkout for a case.
  *
  * Refuses unless the sufficient-information check has passed, so a
- * customer is never charged for a case we cannot prepare.
+ * customer is never charged for a case we cannot prepare — and, for a
+ * Self-Service product, unless the three Terms section 16 confirmations
+ * have actually been given. The consent check is here rather than in the
+ * route handler so no future caller can reach a provider session without
+ * passing it.
  */
 export async function startCheckout(
   caseId: string,
   session: SessionData,
+  options: { consent?: Partial<ConsentInput>; audit?: ConsentAuditMeta } = {},
 ): Promise<{ ok: true; checkout: CheckoutSession } | PaymentFailure> {
   const access = await requireCaseAccess(caseId, session, "write");
   if (!access.ok) return access as PaymentFailure;
@@ -92,6 +112,45 @@ export async function startCheckout(
     };
   }
 
+  /*
+   * Mandatory pre-payment consent (Terms section 16).
+   *
+   * An already-recorded consent for this case satisfies the gate, so a
+   * customer returning to an abandoned checkout is not asked twice. When
+   * there is none, the request must carry all three confirmations as
+   * explicit `true` — a missing field is a refusal, and nothing here
+   * infers, defaults or accepts on the customer's behalf.
+   */
+  let consentId: string | null = null;
+  if (requiresSelfServiceConsent(c.serviceType)) {
+    const existing = await findUsableConsentForCase(caseId);
+    if (existing) {
+      consentId = existing.id;
+    } else {
+      const missing = missingConsents(options.consent ?? {});
+      if (missing.length > 0) {
+        return {
+          ok: false,
+          status: 409,
+          code: "CONSENT_REQUIRED",
+          message:
+            "Please confirm all three statements before continuing to payment.",
+        };
+      }
+      const versions = currentLegalVersions();
+      const recorded = await recordPurchaseConsent({
+        caseId,
+        customerId: c.customerId,
+        serviceType: c.serviceType,
+        termsVersion: versions.termsVersion,
+        privacyPolicyVersion: versions.privacyVersion,
+        consent: options.consent as ConsentInput,
+        audit: options.audit,
+      });
+      consentId = recorded.id;
+    }
+  }
+
   const price = servicePrice(c.serviceType);
   const base = APP_URL();
   const svc = getPaymentService();
@@ -117,6 +176,17 @@ export async function startCheckout(
     successUrl: publicUrl(paths.checkoutSuccess(caseId)),
     cancelUrl: publicUrl(paths.checkoutCancel),
   });
+
+  // Tie the consent to the order it authorised, so the record can be
+  // produced alongside the payment it belongs to.
+  if (consentId) {
+    const payment = await repo.findPaymentForCase(caseId);
+    await attachPaymentToConsent({
+      consentId,
+      paymentId: payment?.id ?? null,
+      providerSessionId: checkout.providerSessionId,
+    });
+  }
 
   return { ok: true, checkout };
 }

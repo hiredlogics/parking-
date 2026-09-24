@@ -38,6 +38,7 @@ import {
   type FactDefaultRule,
 } from "@/lib/rules/factDefaults";
 import type { RouteFamily } from "@/types/caseState";
+import { expandEvidenceKinds } from "@/types/evidence";
 
 export interface ActiveIssue {
   code: string;
@@ -150,12 +151,32 @@ function tagsMatchTrigger(tags: Set<string>, trigger: string): boolean {
 function allegationTags(facts: KnownFacts): Set<string> {
   const breach = factStr(facts, FACT.ALLEGED_BREACH);
   if (!breach) return new Set();
-  const { routes } = classifyAllegation(breach);
+  const { routes, category } = classifyAllegation(breach);
   const tags = new Set<string>();
   for (const route of routes) {
     for (const code of ROUTE_TO_ISSUE_CODE[route] ?? []) {
       tags.add(`allegation:${code.toLowerCase()}`);
     }
+  }
+  /*
+   * The classifier's own category, alongside the route-derived tags.
+   *
+   * Route tags are too coarse for some decisions. "No valid permit
+   * displayed" and "Unauthorised parking" both classify to the routes
+   * PERMIT + AUTHORIZATION, so a condition written against those cannot
+   * tell them apart — yet they deserve different treatment. The first
+   * names a specific requirement the operator says was unmet, and
+   * asking whether permission was held answers it directly. The second
+   * is a conclusion, not an allegation of fact, and opening a permit
+   * interview on the strength of it is how a hospital notice ends up
+   * interrogating someone about a lease.
+   *
+   * So the category is published too, and an issue that should open
+   * only for the specific phrasing says so:
+   * `{tag: "allegation_category:no_permit"}`.
+   */
+  if (category !== "UNKNOWN") {
+    tags.add(`allegation_category:${category.toLowerCase()}`);
   }
   return tags;
 }
@@ -195,7 +216,20 @@ export async function evaluateIssues(input: {
     };
   }
 
-  const evidence = new Set(input.evidenceTypes ?? []);
+  /*
+   * Expanded into the knowledge base's evidence vocabulary, exactly as
+   * lib/retrieval/engine.ts does.
+   *
+   * `issue_required_facts.evidence_types` is written in the KB's terms
+   * ("lease", "receipt", "recovery_report") while an upload arrives as
+   * one of the nine tile categories ("authorisation_evidence",
+   * "payment_receipt", "breakdown_evidence"). Comparing one against the
+   * other never matched, so the "don't ask for what has already been
+   * uploaded" rule below could not fire for any fact — the same
+   * two-vocabularies bug that types/evidence.ts was written to fix, in
+   * the one place still comparing them raw.
+   */
+  const evidence = new Set(expandEvidenceKinds(input.evidenceTypes ?? []));
   const baseFacts: KnownFacts = {
     ...input.facts,
     tags: new Set([...input.facts.tags, ...allegationTags(input.facts)]),

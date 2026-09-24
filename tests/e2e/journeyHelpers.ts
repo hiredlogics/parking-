@@ -102,6 +102,68 @@ export async function fillKeeperDetailsIfAsked(page: Page): Promise<boolean> {
   return true;
 }
 
+/**
+ * Answer "are you the registered keeper?" on the confirm step.
+ *
+ * Every keeper-liability ground depends on this fact, so the confirm
+ * step refuses to continue without it. Defaults to YES, which is the
+ * ordinary case and the one the keeper-safe drafting path assumes.
+ */
+export async function answerRegisteredKeeper(
+  page: Page,
+  answer: "yes" | "no" = "yes",
+): Promise<void> {
+  const radio = page.getByTestId(`registered-keeper-${answer}`);
+  /*
+   * Wait rather than probe-and-skip. The fieldset renders a moment after
+   * the confirm page paints, and a silent skip here surfaces much later
+   * as "Please tell us whether you are the registered keeper" with no
+   * navigation — which is a confusing way to fail.
+   *
+   * It is legitimately absent only when triage has blocked the journey,
+   * in which case there is nothing to answer.
+   */
+  const appeared = await radio
+    .waitFor({ state: "visible", timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false);
+  if (appeared) await radio.check();
+}
+
+/**
+ * Wait until the step the journey landed on is actually interactive.
+ *
+ * The review page fetches readiness before it can render anything, so a
+ * scan or a click that arrives during its spinner finds an empty page.
+ */
+export async function waitForStepReady(page: Page): Promise<void> {
+  if (page.url().includes("/appeal/review")) {
+    await page
+      .getByTestId("review-continue")
+      .waitFor({ state: "visible", timeout: 90_000 });
+    return;
+  }
+  await page
+    .getByTestId("evidence-continue")
+    .waitFor({ state: "visible", timeout: 60_000 });
+}
+
+/**
+ * Tick the three mandatory pre-payment confirmations (Terms section 16).
+ *
+ * They are always unchecked on arrival, so every journey that reaches
+ * payment has to do this explicitly — which is the behaviour under test.
+ */
+export async function acceptPurchaseConsent(page: Page): Promise<void> {
+  for (const id of [
+    "consent-accuracy",
+    "consent-terms",
+    "consent-immediate-supply",
+  ]) {
+    await page.getByTestId(id).check();
+  }
+}
+
 /** Walk a fresh customer all the way to a paid, generated appeal. */
 export async function completePaidAppeal(
   page: Page,
@@ -111,14 +173,24 @@ export async function completePaidAppeal(
   await uploadPcn(page);
 
   await page.waitForURL("**/appeal/confirm", { timeout: 60_000 });
+  await answerRegisteredKeeper(page);
   await page.getByTestId("confirm-continue").click();
 
-  // Confirm now goes straight to evidence: there is no questions step.
-  await page.waitForURL("**/appeal/evidence", { timeout: 30_000 });
-  await fillKeeperDetailsIfAsked(page);
-  await page.getByTestId("evidence-continue").click();
-
-  await page.waitForURL("**/appeal/review", { timeout: 30_000 });
+  /*
+   * Confirm goes to evidence only when something is still genuinely
+   * needed — in practice the keeper's name and address. When the notice
+   * already supplies them there is nothing required on that step, so the
+   * journey skips straight to payment.
+   */
+  await page.waitForURL(/\/appeal\/(evidence|review)/, { timeout: 30_000 });
+  await waitForStepReady(page);
+  if (page.url().includes("/appeal/evidence")) {
+    await fillKeeperDetailsIfAsked(page);
+    await page.getByTestId("evidence-continue").click();
+    await page.waitForURL("**/appeal/review", { timeout: 30_000 });
+    await waitForStepReady(page);
+  }
+  await acceptPurchaseConsent(page);
   await page.getByTestId("review-continue").click();
 
   await page.waitForURL(/\/checkout\//, { timeout: 30_000 });
@@ -127,7 +199,14 @@ export async function completePaidAppeal(
 
   await page.getByTestId("complete-demo-payment").click();
   await page.waitForURL(/\/checkout\/.*\/success/, { timeout: 90_000 });
-  await page.getByTestId("download-pdf").waitFor({ state: "visible", timeout: 90_000 });
+  /*
+   * Generation is the whole pipeline against a remote database and was
+   * measured at ~90s from PAYMENT_CONFIRMED. Callers that use this helper
+   * must raise their own per-test timeout to match.
+   */
+  await page
+    .getByTestId("download-pdf")
+    .waitFor({ state: "visible", timeout: 180_000 });
 
   return { caseId };
 }

@@ -4,6 +4,7 @@
  * Idempotent. Maps current hard-coded issues/facts/modules into
  * Postgres so the generic engine can load them without code deploys.
  */
+import { createHash } from "node:crypto";
 import {
   upsertService,
   upsertIssue,
@@ -12,8 +13,11 @@ import {
   upsertEmailTemplate,
   upsertValidationRule,
   insertPromptIfAbsent,
+  upsertFactDefault,
+  setIssueApplicability,
 } from "@/lib/config/adminRepo";
 import { upsertFactRegistryEntry } from "@/lib/config/factRegistryRepo";
+import { BUILT_IN_FACT_DEFAULTS } from "@/lib/rules/factDefaults";
 import { FACT } from "@/lib/facts/facts";
 import { FACT_REGISTRY } from "@/lib/facts/registry";
 import { ensureSchema } from "@/lib/db/schema";
@@ -58,7 +62,6 @@ const ISSUE_SEEDS: IssueSeed[] = [
     sortOrder: 10,
     triggerTags: ["payment", "keying", "vrm_error"],
     facts: [
-      { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 10 },
       { factKey: FACT.PAYMENT_MADE, reasonCode: "PAYMENT_STATUS_UNRESOLVED", priority: 15 },
       { factKey: FACT.PAYMENT_METHOD, reasonCode: "PAYMENT_METHOD_UNRESOLVED", priority: 20 },
       { factKey: FACT.VRM_ENTERED, reasonCode: "VRM_ENTRY_UNRESOLVED", priority: 30 },
@@ -73,7 +76,6 @@ const ISSUE_SEEDS: IssueSeed[] = [
     sortOrder: 20,
     triggerTags: ["breakdown", "immobilised"],
     facts: [
-      { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 10 },
       { factKey: FACT.BREAKDOWN_NATURE, reasonCode: "BREAKDOWN_NATURE_UNRESOLVED", priority: 20 },
       { factKey: FACT.BREAKDOWN_PREVENTED_DEPARTURE, reasonCode: "BREAKDOWN_STATUS_UNRESOLVED", priority: 30 },
       { factKey: FACT.RECOVERY_ATTENDANCE, reasonCode: "BREAKDOWN_STATUS_UNRESOLVED", priority: 35 },
@@ -92,7 +94,6 @@ const ISSUE_SEEDS: IssueSeed[] = [
       "double_visit",
     ],
     facts: [
-      { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 10 },
       {
         factKey: FACT.ANPR_IMAGES_ON_NOTICE,
         reasonCode: "ANPR_IMAGES_UNRESOLVED",
@@ -132,7 +133,6 @@ const ISSUE_SEEDS: IssueSeed[] = [
     sortOrder: 40,
     triggerTags: ["consideration"],
     facts: [
-      { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 10 },
       { factKey: FACT.INITIAL_PERIOD_REASON, reasonCode: "CONSIDERATION_PERIOD_UNRESOLVED", priority: 20 },
     ],
     moduleIds: ["KB-CONSID-01"],
@@ -143,7 +143,6 @@ const ISSUE_SEEDS: IssueSeed[] = [
     sortOrder: 50,
     triggerTags: ["grace"],
     facts: [
-      { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 10 },
       // Align with Q-GRACE-EXIT (exit_delay_reason), not an unused departure_delay key.
       { factKey: FACT.EXIT_DELAY_REASON, reasonCode: "GRACE_PERIOD_UNRESOLVED", priority: 20 },
     ],
@@ -155,7 +154,6 @@ const ISSUE_SEEDS: IssueSeed[] = [
     sortOrder: 60,
     triggerTags: ["residential", "lease"],
     facts: [
-      { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 10 },
       { factKey: FACT.OCCUPIER_STATUS, reasonCode: "OCCUPIER_STATUS_UNRESOLVED", priority: 20 },
       { factKey: FACT.AGREEMENT_UPLOADED, reasonCode: "AGREEMENT_EVIDENCE_UNRESOLVED", priority: 30, evidenceTypes: ["lease", "tenancy"] },
     ],
@@ -167,7 +165,6 @@ const ISSUE_SEEDS: IssueSeed[] = [
     sortOrder: 70,
     triggerTags: ["permit", "authorisation"],
     facts: [
-      { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 10 },
       { factKey: FACT.PERMISSION_HELD, reasonCode: "PERMISSION_STATUS_UNRESOLVED", priority: 20 },
       { factKey: FACT.PERMISSION_SOURCE, reasonCode: "PERMISSION_SOURCE_UNRESOLVED", priority: 30 },
     ],
@@ -179,7 +176,6 @@ const ISSUE_SEEDS: IssueSeed[] = [
     sortOrder: 80,
     triggerTags: ["equality", "disability"],
     facts: [
-      { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 10 },
       { factKey: FACT.ADDITIONAL_TIME_NEEDED, reasonCode: "EQUALITY_NEED_UNRESOLVED", priority: 20 },
     ],
     moduleIds: ["KB-EQ-01", "KB-EQ-02", "KB-EQ-03"],
@@ -201,7 +197,6 @@ const ISSUE_SEEDS: IssueSeed[] = [
     sortOrder: 100,
     triggerTags: ["signage"],
     facts: [
-      { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 10 },
       { factKey: FACT.SIGNAGE_ISSUE_BASIS, reasonCode: "SIGNAGE_BASIS_UNRESOLVED", priority: 20 },
     ],
     moduleIds: ["KB-SIGN-01", "KB-SIGN-02", "KB-SIGN-03", "KB-SIGN-04"],
@@ -212,23 +207,86 @@ const ISSUE_SEEDS: IssueSeed[] = [
  * Memoizes the seeding run within a process (fast path for repeat calls),
  * mirroring lib/db/schema.ts's `ensured` promise.
  *
- * Deliberately no persisted "already seeded, skip everything" probe:
- * unlike the DDL in schema.ts, ISSUE_SEEDS grows over the codebase's
- * lifetime, so "the service row exists" does not imply "every current
- * seed row exists" for a database seeded under an older version of this
- * file — a coarse skip would silently leave newly added issues/facts
- * missing forever. Every upsert below is seedOnly (insert-if-absent), so
- * replaying the full sequence on each cold start is always safe and
- * backfills anything genuinely new; it just costs a handful of no-op
- * round trips once a database is fully caught up, which is cheap next
- * to schema.ts's ~90-statement DDL replay.
+ * A COARSE SKIP WOULD BE WRONG; A CONTENT FINGERPRINT IS NOT
+ * ----------------------------------------------------------
+ * This used to replay the whole sequence on every cold start, on the
+ * reasoning that ISSUE_SEEDS grows over the codebase's lifetime, so
+ * "the service row exists" does not imply "every current seed row
+ * exists" — a database seeded under an older version of this file would
+ * silently miss newly added issues forever. That reasoning is right
+ * about a coarse probe and it still holds.
+ *
+ * What it under-counted is the cost. The replay is not "a handful" of
+ * no-op round trips: it is one per fact-registry entry (~60), per issue,
+ * per required fact, per knowledge link, per validator and per prompt —
+ * over two hundred, and against Neon at ~235ms each that is the
+ * dominant term in every cold start. It was enough on its own to push
+ * unrelated tests past a five-second timeout.
+ *
+ * So the skip is keyed on a hash of the content this function would
+ * write, not on the existence of a row. Adding an issue, a required
+ * fact, a default or a registry entry changes the hash and the seed
+ * replays in full — which is exactly the case the original comment was
+ * protecting. A database already carrying this content does nothing.
+ *
+ * Only fields the upserts actually set are hashed, so an admin editing
+ * a status or widening a vocabulary does not make the seed look stale
+ * and trigger a pointless re-run.
  */
+const SEED_FINGERPRINT_KEY = "admin_config_seed_fingerprint";
+
+function adminSeedFingerprint(): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        service: PRIVATE_PARKING,
+        issues: ISSUE_SEEDS.map((i) => ({
+          code: i.code,
+          label: i.label,
+          sortOrder: i.sortOrder,
+          triggerTags: i.triggerTags,
+          facts: i.facts.map(
+            (f) => `${f.factKey}:${f.reasonCode}:${f.priority}:${(f.evidenceTypes ?? []).join(",")}`,
+          ),
+          modules: i.moduleIds,
+        })),
+        registry: FACT_REGISTRY.map(
+          (e) => `${e.factKey}:${e.valueType}:${e.allowedValues.join("|")}`,
+        ),
+        defaults: BUILT_IN_FACT_DEFAULTS.map(
+          (d) => `${d.id}:${d.factKey}:${JSON.stringify(d.defaultValue)}:${d.priority}`,
+        ),
+        validators: VALIDATOR_SEEDS.map((v) => v.code),
+        /*
+         * Bumped by hand when a step below changes in a way the data
+         * above does not describe — the `scenarios` retirement and the
+         * AUTHORISATION applicability patch are both one-time
+         * migrations rather than seed rows.
+         */
+        revision: 3,
+      }),
+    )
+    .digest("hex");
+}
+
 let seeded: Promise<void> | null = null;
 
 export async function ensureAdminConfigSeeded(): Promise<void> {
   if (seeded) return seeded;
   seeded = (async () => {
     await ensureSchema();
+
+    const fingerprint = adminSeedFingerprint();
+    const { getSql } = await import("@/lib/db/pool");
+    const sql = getSql();
+    const probe = (await sql.query(
+      `SELECT value FROM system_meta WHERE key = $1`,
+      [SEED_FINGERPRINT_KEY],
+    )) as unknown as
+      | { rows?: Array<{ value: string | null }> }
+      | Array<{ value: string | null }>;
+    const existing = (Array.isArray(probe) ? probe : (probe.rows ?? []))[0];
+    if (existing?.value === fingerprint) return;
 
     const service = await upsertService({
       code: PRIVATE_PARKING,
@@ -371,9 +429,6 @@ export async function ensureAdminConfigSeeded(): Promise<void> {
       { factKey: FACT.VEHICLE_HIRE_STATUS, reasonCode: "VEHICLE_STATUS_UNRESOLVED", priority: 2 },
       { factKey: FACT.REGISTERED_KEEPER, reasonCode: "KEEPER_STATUS_UNRESOLVED", priority: 3 },
       { factKey: FACT.DRIVER_IDENTIFIED, reasonCode: "DRIVER_NOTIFICATION_STATUS_UNRESOLVED", priority: 4 },
-      // Circumstances before allegation-led questionnaires (AUTHORISATION /
-      // RESIDENTIAL / PERMIT). Spine: understand → circumstances → issues.
-      { factKey: FACT.SCENARIOS, reasonCode: "GROUNDS_UNIDENTIFIED", priority: 5 },
     ]) {
       await upsertIssueFact({
         issueId: triage.id,
@@ -385,16 +440,144 @@ export async function ensureAdminConfigSeeded(): Promise<void> {
       });
     }
 
-    // Force-ensure SCENARIOS on TRIAGE_SCOPE even if the issue was seeded earlier
-    // without it (seedOnly would otherwise leave the gap).
-    await upsertIssueFact({
-      issueId: triage.id,
-      factKey: FACT.SCENARIOS,
-      reasonCode: "GROUNDS_UNIDENTIFIED",
-      priority: 5,
-      status: "ACTIVE",
-      seedOnly: false,
-    });
+    /*
+     * Retire `scenarios` as a required fact, everywhere.
+     *
+     * It was required by TRIAGE_SCOPE and by nine of the ten issues, at
+     * the top of each one's priority order — so it was the first thing
+     * any fact-gap question would have put to a customer. And what it
+     * asks is "which of these appeal reasons applies to you?", which is
+     * the question the system is supposed to answer on the customer's
+     * behalf: they are not the lawyer, and a customer guessing at legal
+     * grounds picks the wrong ones.
+     *
+     * The fact itself stays live and still matters — module gates in
+     * lib/retrieval/gates.ts key on its tags. It is now written by the
+     * allegation classifier and by the customer's own account of what
+     * happened, never collected as a menu of grounds. Asking it is
+     * additionally blocked in code by NEVER_ASK in lib/facts/gapResolver.ts,
+     * so restoring a row here cannot bring the question back.
+     *
+     * Same mechanism as the DEPARTURE_DELAY retirement above: seedOnly
+     * upserts cannot update an existing row, so retiring is an explicit
+     * status change.
+     */
+    {
+      const { getSql } = await import("@/lib/db/pool");
+      await getSql().query(
+        `UPDATE issue_required_facts
+            SET status = 'INACTIVE', updated_at = NOW()
+          WHERE fact_key = $1 AND status = 'ACTIVE'`,
+        [FACT.SCENARIOS],
+      );
+    }
+
+    /*
+     * Let a permit allegation open the authorisation issue.
+     *
+     * AUTHORISATION's applicability was `{any:[{tag:"authorised_or_permit"}]}` —
+     * a customer circumstance tag only. Since circumstance tags came
+     * from `scenarios`, and `scenarios` was the appeal-reason menu that
+     * has now been retired, nothing could open the issue at all: a
+     * notice reading "No valid permit displayed" produced zero active
+     * issues and therefore zero grounds.
+     *
+     * The trigger is the NO_PERMIT allegation category specifically,
+     * not the routes it opens. "Unauthorised parking" classifies to the
+     * same routes but is a conclusion rather than a stated requirement,
+     * and must keep its existing behaviour of opening nothing — that is
+     * what stops a hospital notice starting a permit interview, and
+     * tests/unit/triageSpine.acceptance.test.ts holds the line.
+     *
+     * RESIDENTIAL is deliberately NOT given the same treatment at all.
+     * Its facts are occupier status and a lease, and no allegation
+     * wording should open a tenancy interview — that one still waits
+     * for the customer to describe residential circumstances.
+     *
+     * Written as "add the leaf if it is absent" so an admin who has
+     * since widened the condition keeps their work, and so this does
+     * not rewrite the row on every boot.
+     */
+    {
+      const authorisation = await upsertIssue({
+        serviceId: service.id,
+        code: "AUTHORISATION",
+        label: "Authorisation / Permit",
+        sortOrder: 70,
+        triggerTags: ["permit", "authorisation"],
+        status: "ACTIVE",
+        seedOnly: true,
+      });
+      const current = authorisation.applicabilityCondition as
+        | { any?: unknown[] }
+        | null;
+      const leaves = Array.isArray(current?.any) ? current!.any! : [];
+      const hasAllegationLeaf = leaves.some(
+        (l) =>
+          typeof l === "object" &&
+          l !== null &&
+          (l as { tag?: string }).tag === "allegation_category:no_permit",
+      );
+      if (!hasAllegationLeaf) {
+        /*
+         * An earlier revision of this patch added the route-derived
+         * `allegation:authorisation`, which is too broad — it also
+         * fires on "unauthorised parking". Drop it while adding the
+         * category leaf, or the narrowing would never take effect on a
+         * database that already ran that revision.
+         */
+        const kept = leaves.filter(
+          (l) =>
+            !(
+              typeof l === "object" &&
+              l !== null &&
+              (l as { tag?: string }).tag === "allegation:authorisation"
+            ),
+        );
+        await setIssueApplicability({
+          issueId: authorisation.id,
+          applicabilityCondition: {
+            any: [
+              ...kept,
+              { tag: "authorised_or_permit" },
+              { tag: "allegation_category:no_permit" },
+            ].filter(
+              (l, i, arr) =>
+                arr.findIndex((o) => JSON.stringify(o) === JSON.stringify(l)) === i,
+            ),
+          },
+          changeNote:
+            "Open on a NO_PERMIT allegation only; scenarios menu retired.",
+          changedBy: "SEED",
+        });
+      }
+    }
+
+    /*
+     * Fact defaults.
+     *
+     * `lib/rules/factDefaults.ts` describes these as "seeded into
+     * fact_defaults on first admin config seed", but nothing ever did —
+     * the rows in the live database were created by hand. That matters
+     * because the issue engine takes the database's defaults INSTEAD of
+     * the code floor when any row exists (see `defaultRules` in
+     * lib/engine/issueEngine.ts), so a default added to the floor alone
+     * would never fire on an installation that has any row at all.
+     *
+     * seedOnly, so an admin's edit to a default is never clobbered.
+     */
+    for (const d of BUILT_IN_FACT_DEFAULTS) {
+      await upsertFactDefault({
+        id: d.id.replace(/^builtin_/, "fd_"),
+        factKey: d.factKey,
+        condition: d.condition,
+        defaultValue: d.defaultValue,
+        reasonCode: d.reasonCode,
+        priority: d.priority,
+        status: "ACTIVE",
+        seedOnly: true,
+      });
+    }
 
     await upsertEmailTemplate({
       code: "APPEAL_READY",
@@ -445,6 +628,14 @@ Parking Appeals Group`,
       body: "Ask one clear customer question for the missing material fact. Do not invent legal requirements.",
       changeNotes: "Bootstrap seed",
     });
+
+    // Recorded last, so an interrupted seed replays rather than
+    // declaring itself complete with rows missing.
+    await sql.query(
+      `INSERT INTO system_meta (key, value) VALUES ($1, $2)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [SEED_FINGERPRINT_KEY, fingerprint],
+    );
   })();
   try {
     await seeded;

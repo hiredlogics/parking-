@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { getSql, hasDb } from "@/lib/db/pool";
 import { ensureSchema } from "@/lib/db/schema";
+import { GRAPH_MODULE_EDGES } from "./graph";
 
 /**
  * Module → module edges: the relationship the knowledge "graph" never had.
@@ -33,96 +34,12 @@ export interface ModuleEdge {
 }
 
 /**
- * The code-side floor.
+ * The code-side floor, from lib/kb/graph.json.
  *
  * CONFLICTS_WITH is symmetric in meaning but stored one way; readers
  * must treat it as undirected (see `conflictsWith` below).
  */
-export const SEED_MODULE_EDGES: ModuleEdge[] = [
-  /* ---- Contradictions ---- */
-  {
-    fromModule: "KB-PAY-01",
-    toModule: "KB-CON-01",
-    kind: "CONFLICTS_WITH",
-    weight: 10,
-    note:
-      "Arguing that the tariff was paid and that no parking contract was ever formed are alternatives, not a stack. A letter making both lets the operator answer whichever is weaker.",
-  },
-  {
-    fromModule: "KB-PAY-01",
-    toModule: "KB-CON-02",
-    kind: "CONFLICTS_WITH",
-    weight: 10,
-    note:
-      "Payment made presupposes the terms were engaged with; 'terms were considered and rejected, and the vehicle left' asserts the opposite.",
-  },
-  {
-    fromModule: "KB-AUTH-02",
-    toModule: "KB-SIGN-01",
-    kind: "CONFLICTS_WITH",
-    weight: 5,
-    note:
-      "A valid permit means the terms were known and complied with. Also arguing the terms were never adequately communicated undercuts it.",
-  },
-  {
-    fromModule: "KB-BREAK-02",
-    toModule: "KB-GRACE-02",
-    kind: "CONFLICTS_WITH",
-    weight: 5,
-    note:
-      "The KB is explicit that a genuine immobilisation must be distinguished from ordinary exit delay. Arguing both invites the operator to treat the case as the weaker one.",
-  },
-
-  /* ---- Prerequisites ---- */
-  {
-    fromModule: "KB-POFA-04",
-    toModule: "KB-POFA-01",
-    kind: "REQUIRES",
-    weight: 0,
-    note:
-      "A Schedule 4 content defect only matters where keeper liability is what the operator relies on. KB-POFA-01 establishes that footing.",
-  },
-  {
-    fromModule: "KB-POFA-02",
-    toModule: "KB-POFA-01",
-    kind: "REQUIRES",
-    weight: 0,
-    note: "Postal NTK timing is a Schedule 4 condition; it presupposes the keeper-liability route.",
-  },
-  {
-    fromModule: "KB-POFA-03",
-    toModule: "KB-POFA-01",
-    kind: "REQUIRES",
-    weight: 0,
-    note: "The paragraph 8 route presupposes the keeper-liability route.",
-  },
-  {
-    fromModule: "KB-POFA-05",
-    toModule: "KB-POFA-01",
-    kind: "REQUIRES",
-    weight: 0,
-    note:
-      "The 'liability cannot be transferred' conclusion depends on the threshold module having been argued.",
-  },
-
-  /* ---- Specific over general ---- */
-  {
-    fromModule: "KB-KEY-01",
-    toModule: "KB-PAY-01",
-    kind: "NARROWS",
-    weight: 0,
-    note:
-      "A keying error is a specific kind of payment-made case. Where the registration mismatch is the actual issue, lead with it rather than the general payment ground.",
-  },
-  {
-    fromModule: "KB-RES-03",
-    toModule: "KB-RES-01",
-    kind: "NARROWS",
-    weight: 0,
-    note:
-      "An allocated-bay entitlement is a specific form of pre-existing residential right.",
-  },
-];
+export const SEED_MODULE_EDGES: ModuleEdge[] = GRAPH_MODULE_EDGES;
 
 interface EdgeRow {
   from_module: string;

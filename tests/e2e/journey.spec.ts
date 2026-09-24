@@ -1,11 +1,14 @@
 import { createHash } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
 import {
+  acceptPurchaseConsent,
+  answerRegisteredKeeper,
   fillKeeperDetailsIfAsked,
   createAccount,
   portalDocumentUrls,
   uploadPcn,
   uniqueEmail,
+  waitForStepReady,
 } from "./journeyHelpers";
 
 /**
@@ -51,11 +54,23 @@ test.describe("Private parking appeal — continuous journey", () => {
     await expect(page.getByTestId("confirm-continue")).toBeVisible();
   });
 
-  test("3. confirming the notice goes straight to evidence", async () => {
-    // No questions step: the classifier and the uploaded documents are
-    // what establish the facts now.
+  test("3. confirming the notice moves on without a questions step", async () => {
+    /*
+     * No questions step: the classifier and the uploaded documents are
+     * what establish the facts now. Keeper status is the one answer the
+     * confirm step still requires, because every keeper-liability ground
+     * depends on it.
+     *
+     * Where it lands depends on the notice. Step 3 is only shown when
+     * something is actually needed there — the keeper's name and address,
+     * which a postal Notice to Keeper already supplies. A windscreen
+     * ticket does not, so that journey does stop at evidence.
+     */
+    await answerRegisteredKeeper(page);
     await page.getByTestId("confirm-continue").click();
-    await page.waitForURL("**/appeal/evidence", { timeout: 30_000 });
+    await page.waitForURL(/\/appeal\/(evidence|review)/, { timeout: 30_000 });
+    await waitForStepReady(page);
+    expect(page.url()).toMatch(/\/appeal\/(evidence|review)/);
   });
 
   test("4. the customer is never asked who was driving", async () => {
@@ -69,6 +84,9 @@ test.describe("Private parking appeal — continuous journey", () => {
      * who was driving", so the scan is limited to the form controls
      * rather than the whole body -- a body scan would match the
      * reassurance and pass for the wrong reason.
+     *
+     * Asserted against whichever step the journey actually reached, so
+     * the guarantee is checked on the page the customer is really shown.
      */
     const labels = await page
       .locator("label, input[placeholder], h1, h2")
@@ -98,9 +116,41 @@ test.describe("Private parking appeal — continuous journey", () => {
     await expect(page.getByTestId("keeper-details-form")).toBeHidden();
   });
 
-  test("5. evidence can be skipped and review reached", async () => {
-    await page.getByTestId("evidence-continue").click();
+  test("5. evidence is optional and review is reached", async () => {
+    // Evidence never blocks checkout, so continuing without uploading
+    // anything must reach review. When the step was skipped entirely we
+    // are already there.
+    if (page.url().includes("/appeal/evidence")) {
+      await page.getByTestId("evidence-continue").click();
+    }
     await page.waitForURL("**/appeal/review", { timeout: 30_000 });
+    await waitForStepReady(page);
+  });
+
+  test("5b. payment is blocked until all three consents are given", async () => {
+    // All three arrive unticked, so the pay button starts disabled.
+    for (const id of ["consent-accuracy", "consent-terms", "consent-immediate-supply"]) {
+      await expect(page.getByTestId(id)).not.toBeChecked();
+    }
+    await expect(page.getByTestId("review-continue")).toBeDisabled();
+
+    await page.getByTestId("consent-accuracy").check();
+    await expect(page.getByTestId("review-continue")).toBeDisabled();
+
+    await page.getByTestId("consent-terms").check();
+    await expect(page.getByTestId("review-continue")).toBeDisabled();
+
+    await page.getByTestId("consent-immediate-supply").check();
+    await expect(page.getByTestId("review-continue")).toBeEnabled();
+  });
+
+  test("5c. a refresh does not carry the consent over", async () => {
+    await page.reload();
+    for (const id of ["consent-accuracy", "consent-terms", "consent-immediate-supply"]) {
+      await expect(page.getByTestId(id)).not.toBeChecked();
+    }
+    await expect(page.getByTestId("review-continue")).toBeDisabled();
+    await acceptPurchaseConsent(page);
   });
 
   test("6. review leads to checkout, not to a free appeal", async () => {
@@ -112,12 +162,20 @@ test.describe("Private parking appeal — continuous journey", () => {
   });
 
   test("7. paying unlocks generation and produces a document", async () => {
+    /*
+     * Generation runs the full pipeline server-side — analysis,
+     * retrieval, drafting, validation and PDF — against a remote
+     * database. Measured end to end at ~90s from PAYMENT_CONFIRMED to
+     * the appeal row being written, so the default 60s per-test budget
+     * cannot cover it.
+     */
+    test.setTimeout(240_000);
     await page.getByTestId("complete-demo-payment").click();
 
     // Generation and validation run server-side after payment.
     await page.waitForURL(/\/checkout\/.*\/success/, { timeout: 90_000 });
     await expect(page.getByTestId("download-pdf")).toBeVisible({
-      timeout: 90_000,
+      timeout: 180_000,
     });
   });
 

@@ -7,9 +7,15 @@ export function SiteFooter() {
           Not legal advice. Uses deterministic rules; AI is used only for
           document extraction.
         </p>
-        <p className="text-white/40">
-          Prepared without admission of driver identity.
-        </p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-white/40">
+          <a href="/terms" className="hover:text-white/80">
+            Terms &amp; Conditions
+          </a>
+          <a href="/privacy" className="hover:text-white/80">
+            Privacy Policy
+          </a>
+          <span>Prepared without admission of driver identity.</span>
+        </div>
       </div>
     </footer>
   );

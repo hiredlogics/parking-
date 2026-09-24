@@ -39,6 +39,23 @@ export interface PaymentGate {
   currency: string;
   /** Shown on the checkout summary. */
   description: string;
+  /**
+   * Customer-facing product name, exactly as named in the Terms.
+   * e.g. "Private Parking Charge Appeal".
+   */
+  productName: string;
+  /**
+   * The verb half of the pay button. The supplied wording differs per
+   * product ("Generate My Appeal" vs "Generate My Challenge"), and the
+   * price half is derived from `amount` so the two can never disagree.
+   */
+  actionLabel: string;
+  /**
+   * Self-Service products (Terms section 16) must collect the three
+   * pre-payment confirmations. Anything else must not be gated on them,
+   * because the statutory position is different.
+   */
+  selfService: boolean;
 }
 
 export interface ServiceWorkflow {
@@ -77,6 +94,9 @@ const PRIVATE_PARKING_INITIAL_APPEAL: ServiceWorkflow = {
     amount: 11.99,
     currency: "GBP",
     description: "Appeal Builder — Private Parking",
+    productName: "Private Parking Charge Appeal",
+    actionLabel: "Generate My Appeal",
+    selfService: true,
   },
 };
 
@@ -135,4 +155,39 @@ export function servicePrice(serviceType: ServiceType): {
     currency: gate.currency,
     description: gate.description,
   };
+}
+
+const CURRENCY_SYMBOLS: Record<string, string> = { GBP: "£" };
+
+/** Format a gate amount the way the Terms price list does. */
+export function formatServiceAmount(
+  amount: number,
+  currency: string,
+): string {
+  const symbol = CURRENCY_SYMBOLS[currency] ?? "";
+  return `${symbol}${amount.toFixed(2)}`;
+}
+
+/**
+ * The exact pay-button wording for a service.
+ *
+ * Composed from configuration rather than hard-coded, so a service with
+ * a different price or a different deliverable ("Generate My Challenge")
+ * reads correctly without a code change.
+ */
+export function checkoutButtonLabel(serviceType: ServiceType): string {
+  const gate = getWorkflow(serviceType).paymentGate;
+  const price = formatServiceAmount(gate.amount, gate.currency);
+  return `Pay ${price} & ${gate.actionLabel}`;
+}
+
+/** Does this service require the Terms section 16 pre-payment consent? */
+export function requiresSelfServiceConsent(serviceType: ServiceType): boolean {
+  const gate = getWorkflow(serviceType).paymentGate;
+  return gate.required && gate.selfService;
+}
+
+/** Customer-facing product name, as named in the Terms. */
+export function serviceProductName(serviceType: ServiceType): string {
+  return getWorkflow(serviceType).paymentGate.productName;
 }

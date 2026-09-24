@@ -115,10 +115,10 @@ export function Footer() {
         <div className="container-page flex flex-col gap-3 py-4 text-[12.5px] text-white/55 sm:flex-row sm:items-center sm:justify-between">
           <p>© Parking Appeals Group. All rights reserved.</p>
           <div className="flex flex-wrap gap-x-4 gap-y-1">
-            <Link href="/#about" className="hover:text-white">
+            <Link href="/terms" className="hover:text-white" data-testid="footer-terms">
               Terms &amp; Conditions
             </Link>
-            <Link href="/#about" className="hover:text-white">
+            <Link href="/privacy" className="hover:text-white" data-testid="footer-privacy">
               Privacy Policy
             </Link>
             <Link href="/#about" className="hover:text-white">

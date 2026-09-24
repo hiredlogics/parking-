@@ -11,6 +11,7 @@ import { ADMIN_CONFIG_STATEMENTS } from "./adminConfigSchema";
 import { PASSWORD_RESET_STATEMENTS } from "./passwordResetSchema";
 import { RULE_GRAPH_STATEMENTS, VECTOR_STATEMENTS } from "./ruleGraphSchema";
 import { AI_CONFIG_STATEMENTS } from "./aiConfigSchema";
+import { CONSENT_STATEMENTS } from "./consentSchema";
 
 /**
  * Idempotent DDL. Runs on demand from ensureSchema(); safe to call from
@@ -293,6 +294,8 @@ const STATEMENTS = [
   ...RULE_GRAPH_STATEMENTS,
   /* Live AI provider/model configuration. */
   ...AI_CONFIG_STATEMENTS,
+  /* Pre-payment consent records. Depends on appeal_cases. */
+  ...CONSENT_STATEMENTS,
 ];
 
 let ensured: Promise<void> | null = null;
@@ -332,13 +335,15 @@ const SENTINEL_COLUMN = {
  * `CREATE ... IF NOT EXISTS`) and runs once per version bump, on new
  * and existing databases alike. Bump SCHEMA_VERSION when you append.
  */
-const SCHEMA_VERSION = 7;
+/** 8 — adds `purchase_consents` (pre-payment consent records). */
+const SCHEMA_VERSION = 8;
 
 const ADDITIVE_STATEMENTS: string[] = [
   ...CASE_V2_STATEMENTS,
   ...PASSWORD_RESET_STATEMENTS,
   ...RULE_GRAPH_STATEMENTS,
   ...AI_CONFIG_STATEMENTS,
+  ...CONSENT_STATEMENTS,
 ];
 
 const SCHEMA_META_DDL = `CREATE TABLE IF NOT EXISTS schema_meta (

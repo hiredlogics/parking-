@@ -399,6 +399,38 @@ export async function linkModuleBlock(
   invalidateKbCatalog();
 }
 
+/**
+ * Batched join-row writes, for the seed.
+ *
+ * The seed wrote 139 join rows one statement at a time. Against a
+ * serverless Postgres each of those is a network round trip, so the
+ * loops alone cost more than half a minute. `unnest` turns each loop
+ * into one statement; the conflict behaviour is identical.
+ */
+export async function linkModuleSourcesBatch(
+  pairs: readonly [string, string][],
+): Promise<void> {
+  if (pairs.length === 0) return;
+  await q(
+    `INSERT INTO kb_module_sources (module_id, source_id)
+     SELECT * FROM unnest($1::text[], $2::text[])
+     ON CONFLICT DO NOTHING`,
+    [pairs.map((p) => p[0]), pairs.map((p) => p[1])],
+  );
+}
+
+export async function linkModuleBlocksBatch(
+  pairs: readonly [string, string][],
+): Promise<void> {
+  if (pairs.length === 0) return;
+  await q(
+    `INSERT INTO kb_module_blocks (module_id, block_id)
+     SELECT * FROM unnest($1::text[], $2::text[])
+     ON CONFLICT DO NOTHING`,
+    [pairs.map((p) => p[0]), pairs.map((p) => p[1])],
+  );
+}
+
 /* --------------------------- Drafting blocks --------------------------- */
 
 function rowToBlock(r: Row): DraftingBlock {

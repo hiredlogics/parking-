@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
  * charged for a case we cannot prepare.
  */
 export async function POST(
-  _request: Request,
+  request: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
   if (!hasDb()) return fail("DB_NOT_CONFIGURED", "Database is not configured.", 503);
@@ -29,7 +29,31 @@ export async function POST(
     if (limited) return limited;
   }
 
-  const result = await startCheckout(id, session);
+  /*
+   * Consent arrives in the body and is validated in startCheckout, not
+   * here — a direct API call with no body therefore fails exactly as a
+   * tampered browser would, rather than slipping past a UI-only check.
+   */
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    // No body is a refusal, not an error: startCheckout will reject it.
+  }
+  const raw = (body.consent ?? {}) as Record<string, unknown>;
+
+  const result = await startCheckout(id, session, {
+    consent: {
+      informationAccuracyConfirmed: raw.informationAccuracyConfirmed === true,
+      termsPrivacyAccepted: raw.termsPrivacyAccepted === true,
+      immediateSupplyConsent: raw.immediateSupplyConsent === true,
+    },
+    audit: {
+      ipAddress:
+        request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null,
+      userAgent: request.headers.get("user-agent"),
+    },
+  });
   if (!result.ok) return failFromAccess(result);
 
   await addCaseEvent({

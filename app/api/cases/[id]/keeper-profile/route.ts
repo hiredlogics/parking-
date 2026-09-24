@@ -43,6 +43,10 @@ export async function POST(
       body.keeper_postcode !== undefined ? String(body.keeper_postcode) : undefined,
     situation_other:
       body.situation_other !== undefined ? String(body.situation_other) : undefined,
+    registered_keeper:
+      body.registered_keeper !== undefined
+        ? String(body.registered_keeper)
+        : undefined,
   });
 
   if (!result.ok) {

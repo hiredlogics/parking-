@@ -19,9 +19,26 @@ import type { CustomerCaseState } from "@/lib/cases/types";
  * Download step — your appeal is ready.
  * Download / email actions use the live case document API.
  */
+/*
+ * Advisory only — these do not read real pipeline state.
+ *
+ * Generation is one request, so there is nothing to subscribe to. The
+ * labels name the stages the server actually works through, in order, so
+ * the wait reads as progress rather than a hung page. The last one does
+ * not advance on a timer: it stays put until the request returns, so the
+ * list can never claim to have finished before the appeal exists.
+ */
+const PREPARING_STAGES = [
+  "Confirming your payment",
+  "Reviewing your notice and evidence",
+  "Selecting the legal grounds",
+  "Writing your appeal",
+] as const;
+
 export default function CheckoutSuccessPage() {
   const params = useParams<{ id: string }>();
   const caseId = params?.id ?? "";
+  const [stage, setStage] = useState(0);
 
   const [payment, setPayment] = useState<PaymentStateView | null>(null);
   const [appeal, setAppeal] = useState<AppealView | null>(null);
@@ -30,6 +47,16 @@ export default function CheckoutSuccessPage() {
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [emailNote, setEmailNote] = useState<string | null>(null);
+
+  // Hold on the final stage rather than running off the end of the list.
+  useEffect(() => {
+    if (!loading) return;
+    const id = setInterval(
+      () => setStage((s) => Math.min(s + 1, PREPARING_STAGES.length - 1)),
+      7_000,
+    );
+    return () => clearInterval(id);
+  }, [loading]);
 
   useEffect(() => {
     if (!caseId) return;
@@ -104,11 +131,44 @@ export default function CheckoutSuccessPage() {
         <div className="flex flex-1 flex-col items-center justify-center text-center">
           <div className="h-10 w-10 animate-spin rounded-full border-2 border-brand-pink border-t-transparent" />
           <p className="mt-6 text-[15px] font-semibold text-brand-text">
-            Preparing your appeal…
+            {PREPARING_STAGES[stage]}
           </p>
           <p className="mt-2 max-w-xs text-[13px] leading-relaxed text-brand-mute">
-            This can take up to 1–3 minutes. Please keep this page open.
+            This usually takes under a minute. Please keep this page open.
           </p>
+          <ol className="mt-6 w-full max-w-xs space-y-2 text-left">
+            {PREPARING_STAGES.map((label, i) => (
+              <li
+                key={label}
+                className={[
+                  "flex items-center gap-2.5 text-[13px] transition",
+                  i < stage
+                    ? "text-brand-text"
+                    : i === stage
+                      ? "font-semibold text-brand-text"
+                      : "text-brand-mute/50",
+                ].join(" ")}
+              >
+                <span
+                  className={[
+                    "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
+                    i < stage
+                      ? "border-brand-pink bg-brand-pink text-white"
+                      : i === stage
+                        ? "border-brand-pink"
+                        : "border-brand-mute/30",
+                  ].join(" ")}
+                >
+                  {i < stage && (
+                    <svg viewBox="0 0 24 24" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth={4}>
+                      <path d="M5 12l5 5L20 6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </span>
+                {label}
+              </li>
+            ))}
+          </ol>
         </div>
       </Shell>
     );

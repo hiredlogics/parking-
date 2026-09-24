@@ -18,6 +18,12 @@ import {
   formatUkDate,
   followUpReviewRows,
 } from "@/lib/appeals/displayLabels";
+import {
+  EMPTY_CONSENT,
+  PurchaseConsent,
+} from "@/features/appeal/PurchaseConsent";
+import { isConsentComplete } from "@/lib/consent/types";
+import { checkoutButtonLabel } from "@/lib/workflow/config";
 import { EVIDENCE_TYPE_LABELS } from "@/types";
 
 /**
@@ -36,6 +42,13 @@ export default function ReviewPage() {
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
   const [startingCheckout, setStartingCheckout] = useState(false);
+  /*
+   * Always starts empty and is never hydrated from the store, the case or
+   * storage. A refresh therefore clears it, which is the point: consent
+   * must be given at the moment of purchase, not inherited from a past
+   * session.
+   */
+  const [consent, setConsent] = useState(EMPTY_CONSENT);
   const ranRef = useRef(false);
 
   const run = useCallback(async () => {
@@ -62,9 +75,13 @@ export default function ReviewPage() {
 
   const onContinue = async () => {
     if (!caseId) return;
+    if (!isConsentComplete(consent)) {
+      setError("Please confirm all three statements before continuing.");
+      return;
+    }
     setStartingCheckout(true);
     setError(null);
-    const res = await startCheckout(caseId);
+    const res = await startCheckout(caseId, consent);
     if (!res.ok) {
       setStartingCheckout(false);
       if (res.code === "UNAUTHENTICATED") {
@@ -261,18 +278,71 @@ export default function ReviewPage() {
         </p>
       )}
 
-      <div className="mt-auto pt-8">
-        {r.sufficient && (
-          <button
-            type="button"
-            data-testid="review-continue"
-            disabled={startingCheckout}
-            onClick={() => void onContinue()}
-            className="flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white shadow-sm transition hover:bg-brand-pinkDark disabled:opacity-50"
+      {/*
+        Evidence never blocks checkout, but a module that needs a receipt
+        is set aside without one, so the appeal argues fewer grounds. The
+        prompt lives here rather than on the confirm step because
+        readiness — which is what knows the suggestions — is already
+        loaded on this page.
+      */}
+      {r.sufficient && r.evidence.suggestions.length > 0 && (
+        <div
+          data-testid="evidence-suggestions"
+          className="mt-4 rounded-xl border border-brand-border bg-brand-canvas p-4 text-[13.5px] text-brand-text"
+        >
+          <p className="font-semibold">Could you strengthen your appeal?</p>
+          <p className="mt-1 text-brand-mute">
+            These would let us argue more grounds for you. They are optional —
+            you can continue without them.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-brand-mute">
+            {r.evidence.suggestions.map((s) => (
+              <li key={s.label}>{s.label}</li>
+            ))}
+          </ul>
+          <Link
+            href="/appeal/evidence"
+            className="mt-3 inline-block font-semibold text-brand-pink"
           >
-            {startingCheckout ? "Starting checkout…" : "Continue to payment"}
-          </button>
-        )}
+            Add supporting evidence
+          </Link>
+        </div>
+      )}
+
+      {r.sufficient && (
+        <PurchaseConsent
+          value={consent}
+          onChange={setConsent}
+          disabled={startingCheckout}
+        />
+      )}
+
+      <div className="mt-auto pt-8">
+        {/* Always rendered: hiding it left the screen with no visible action
+            at all. Checkout is still refused server-side unless the
+            sufficiency check has passed AND consent has been recorded. */}
+        <button
+          type="button"
+          data-testid="review-continue"
+          disabled={
+            startingCheckout || !r.sufficient || !isConsentComplete(consent)
+          }
+          onClick={() => void onContinue()}
+          className="flex w-full items-center justify-center rounded-xl bg-brand-pink px-5 py-3.5 text-[15px] font-semibold text-white shadow-sm transition hover:bg-brand-pinkDark disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {startingCheckout
+            ? "Starting checkout…"
+            : checkoutButtonLabel("PRIVATE_PARKING_INITIAL_APPEAL")}
+        </button>
+        {!r.sufficient ? (
+          <p className="mt-3 text-center text-[13px] text-brand-mute">
+            {r.blockers[0] ?? "Please finish the earlier steps to continue."}
+          </p>
+        ) : !isConsentComplete(consent) ? (
+          <p className="mt-3 text-center text-[13px] text-brand-mute">
+            Tick all three confirmations above to continue.
+          </p>
+        ) : null}
       </div>
     </Shell>
   );

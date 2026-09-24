@@ -164,6 +164,8 @@ export function saveKeeperProfile(
     keeper_town?: string;
     keeper_postcode?: string;
     situation_other?: string;
+    /** "YES" | "NO" | "UNSURE" — the server validates the value. */
+    registered_keeper?: string;
   },
 ) {
   return call<{ adaptiveAnswers: Record<string, unknown> }>(
@@ -173,6 +175,52 @@ export function saveKeeperProfile(
       body: JSON.stringify(profile),
     },
   );
+}
+
+/* -------------------------- Fact gaps -------------------------- */
+
+export interface FactQuestionView {
+  question: {
+    factKey: string;
+    text: string;
+    help: string | null;
+    options: string[];
+    valueType:
+      | "STRING" | "ENUM" | "MULTI_ENUM" | "BOOLEAN"
+      | "NUMBER" | "DATE" | "TIME";
+    source: "model" | "deterministic";
+    issueLabel: string;
+    optional: boolean;
+    evidenceTypes: string[];
+  } | null;
+  /** Issues the SYSTEM identified. Shown for reassurance, never to pick from. */
+  issues: { code: string; label: string }[];
+  askedCount: number;
+  remainingBudget: number;
+  complete: boolean;
+}
+
+/** The one outstanding material fact, phrased for the customer. */
+export function fetchFactGap(caseId: string) {
+  return call<FactQuestionView>(`/api/cases/${caseId}/fact-gap`);
+}
+
+/**
+ * Answer one fact question. The response carries the next one, because
+ * an answer can open or close an issue and so change what is material.
+ *
+ * `value` may be null — the customer is allowed not to know, and the
+ * fact is then marked as asked so it is never put to them twice.
+ */
+export function answerFactGap(
+  caseId: string,
+  factKey: string,
+  value: string | string[] | number | boolean | null,
+) {
+  return call<FactQuestionView>(`/api/cases/${caseId}/fact-gap`, {
+    method: "POST",
+    body: JSON.stringify({ factKey, value }),
+  });
 }
 
 export interface ReadinessView {
@@ -289,10 +337,23 @@ export interface PaymentStateView {
   entitled: boolean;
 }
 
-export function startCheckout(caseId: string) {
+/**
+ * Start checkout.
+ *
+ * Consent travels in the body and is verified server-side; the disabled
+ * button is a courtesy, not the control.
+ */
+export function startCheckout(
+  caseId: string,
+  consent: {
+    informationAccuracyConfirmed: boolean;
+    termsPrivacyAccepted: boolean;
+    immediateSupplyConsent: boolean;
+  },
+) {
   return call<{ checkout: CheckoutSessionView }>(
     `/api/cases/${caseId}/checkout`,
-    { method: "POST" },
+    { method: "POST", body: JSON.stringify({ consent }) },
   );
 }
 
